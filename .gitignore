@@ -23,9 +23,14 @@ Thumbs.db
 Desktop.ini
 *.log
 
-# Large/binary deploy artifacts in USB folder (keep structure docs only if needed)
-USB-Version/**/Docnet.Core.dll
-USB-Version/**/pdfium.dll
+# Secrets / certificates
+cert/*.pfx
+cert/*.p12
+*.pfx
+*.p12
+
+# USB deploy binaries (build artifacts)
+USB-Version/
 
 # Nested unrelated projects (separate apps)
 BaustelleLager/
