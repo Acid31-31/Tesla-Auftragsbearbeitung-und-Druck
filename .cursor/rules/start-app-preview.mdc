@@ -1,0 +1,18 @@
+---
+description: Nach Codeänderungen App bauen und als Vorschau starten
+alwaysApply: true
+---
+
+# App-Vorschau nach Programmierung
+
+Nach jeder abgeschlossenen Codeänderung an diesem Projekt (WPF-App **Tesla Auftragsbearbeitung & Druck**):
+
+1. Laufende Instanz beenden, falls noch aktiv (`Tesla-Auftragsbearbeitung-und-Druck.exe`).
+2. Projekt bauen:
+   - `PDF-umbenenen.csproj` mit MSBuild, Configuration `Debug`
+3. App starten:
+   - `bin\Debug\Tesla-Auftragsbearbeitung-und-Druck.exe`
+4. Kurz prüfen, ob der Prozess läuft (Fenstertitel: „Tesla Auftragsbearbeitung & Druck“).
+5. Dem Nutzer mitteilen, dass die Vorschau gestartet wurde.
+
+Nur überspringen, wenn der Nutzer ausdrücklich keinen Start wünscht oder die Änderung rein dokumentarisch/ohne Build-Bezug ist.

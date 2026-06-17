@@ -1,0 +1,301 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║              LIZENZ- UND RECHTLICHE INFORMATIONEN                            ║
+║                                                                              ║
+║           TESLA AUFTRAGSBEARBEITUNG UND DRUCK - Version 1.0                 ║
+║                                                                              ║
+║                      Entwickler: Alexander Hölzer                           ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+URHEBER & KONTAKTDATEN
+═══════════════════════════════════════════════════════════════════════════════
+
+Name:           Alexander Hölzer
+Adresse:        Pfarerrosenkranz Str. 9
+                56642 Kruft
+                Deutschland
+
+E-Mail:         hoelzer_alex@yahoo.de
+Telefon:        017083339993
+Lizenztyp:      Proprietäre Einzellizenz
+Veröffentlicht: 9. Juni 2026
+Version:        1.0
+
+
+═══════════════════════════════════════════════════════════════════════════════
+1. LIZENZTYP
+═══════════════════════════════════════════════════════════════════════════════
+
+Diese Software wird als proprietäre Software lizenziert.
+Es handelt sich NICHT um eine Open-Source-Lizenz.
+Weitergabe, Verkauf, Unterlizenzierung oder Veröffentlichung sind ohne
+vorherige schriftliche Genehmigung des Urhebers nicht gestattet.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. URHEBERRECHT
+═══════════════════════════════════════════════════════════════════════════════
+
+Copyright © 2026 Alexander Hölzer / Herko Industrie Software
+
+Alle Rechte vorbehalten. Der Quellcode, die Binärdateien und die damit
+verbundenen Dateien sind Eigentum von Alexander Hölzer.
+
+Kontakt für Lizenzfragen:
+  E-Mail:   hoelzer_alex@yahoo.de
+  Telefon:  017083339993
+  Adresse:  Pfarerrosenkranz Str. 9, 56642 Kruft, Deutschland
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. NUTZUNGSBESCHRÄNKUNGEN (PROPRIETÄR)
+═══════════════════════════════════════════════════════════════════════════════
+
+Die Nutzung dieser Software ist ausschließlich als proprietäre Lizenz gestattet.
+
+NICHT GESTATTET:
+
+✗ Verwendung durch unberechtigte Dritte
+✗ Vervielfältigung zur Weitergabe
+✗ Verteilung oder Weitergabe (modifiziert oder unmodifiziert)
+✗ Verkauf, Vermietung oder Unterlizenzierung
+✗ Veröffentlichung in Repositories, Clouds oder Download-Portalen
+
+NUR MIT VORHERIGER SCHRIFTLICHER GENEHMIGUNG DES URHEBERS:
+
+• Änderungen, Erweiterungen oder sonstige Modifikationen
+• Integration in andere Produkte oder kommerzielle Systeme
+
+BEDINGUNGEN:
+
+1. Urheberrechtshinweis
+   Die Urheberrechtsanmerkung muss unverändert erhalten bleiben.
+
+2. Haftungsausschluss
+   Die Software wird "wie besehen" (AS IS) bereitgestellt, ohne
+   Gewährleistung jeglicher Art.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. HAFTUNGSAUSSCHLUSS (DISCLAIMER)
+═══════════════════════════════════════════════════════════════════════════════
+
+DIE SOFTWARE WIRD "WIE BESEHEN" UND OHNE GEWÄHRLEISTUNG BEREITGESTELLT.
+UNTER KEINEN UMSTÄNDEN SIND DIE AUTOREN ODER COPYRIGHT-INHABER HAFTBAR
+FÜR FOLGENDE SCHÄDEN:
+
+  ✗ Direkte oder indirekte Schäden
+  ✗ Gewinne oder Ersparnisse
+  ✗ Datenverluste oder Geschäftsunterbrechung
+  ✗ Persönliche Verletzungen
+  ✗ Sonstige zufällige oder Folgeschäden
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. GARANTIE
+═══════════════════════════════════════════════════════════════════════════════
+
+Es gibt KEINE Garantie für die Funktionstüchtigkeit, Zuverlässigkeit oder
+Eignung der Software für einen bestimmten Zweck.
+
+Während diese Software mit großer Sorgfalt entwickelt wurde und umfangreichen
+Tests unterzogen wurde, wird nicht garantiert, dass:
+
+  ✗ Die Software fehlerfrei ist
+  ✗ Die Software einem bestimmten Zweck entspricht
+  ✗ Die Software ohne Unterbrechung funktioniert
+  ✗ Fehler behoben werden
+
+
+═══════════════════════════════════════════════════════════════════════════════
+6. ABHÄNGIGKEITEN UND DRITTANBIETER-LIZENZEN
+═══════════════════════════════════════════════════════════════════════════════
+
+Diese Software nutzt die folgenden Drittanbieter-Komponenten:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Komponente: .NET Framework 4.8                                              │
+│ Lizenz: Microsoft Software License Terms                                    │
+│ Copyright: © Microsoft Corporation                                          │
+│ Website: https://www.microsoft.com/de-DE/download/dotnet                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Komponente: iTextSharp 5.5.13.5                                             │
+│ Lizenz: AGPL v3 / Commercial License                                        │
+│ Copyright: © 1998-2021 iText Software                                       │
+│ Website: https://itextpdf.com/                                              │
+│ Hinweis: Für kommerzielle Verwendung konsultieren Sie die iText-Lizenzen   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Komponente: BouncyCastle.Cryptography 2.6.2                                 │
+│ Lizenz: MIT License                                                         │
+│ Copyright: © 2000-2021 The Legion of the Bouncy Castle Inc.                │
+│ Website: https://www.bouncycastle.org/                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+7. NUTZUNG DES QUELLCODES
+═══════════════════════════════════════════════════════════════════════════════
+
+Sie dürfen den Quellcode verwenden, modifizieren und weitergeben, UNTER DER
+BEDINGUNG, dass Sie:
+
+  ✓ Eine Kopie dieser Lizenz beifügen
+  ✓ Die Urheberrechtsanmerkung beibehalten
+  ✓ Eine Liste der Änderungen dokumentieren
+  ✓ Keine missleadende Behauptungen über die Herkunft aufstellen
+
+
+═══════════════════════════════════════════════════════════════════════════════
+8. KOMMERZIELLE NUTZUNG (NUR MIT GENEHMIGUNG)
+═══════════════════════════════════════════════════════════════════════════════
+
+Eine kommerzielle Nutzung, Weitergabe oder Integration in Produkte ist
+nur mit vorheriger schriftlicher Genehmigung des Urhebers erlaubt.
+
+Ohne Genehmigung gilt insbesondere:
+  ✗ Kein Verkauf der Software
+  ✗ Keine Weitergabe an Kunden, Partner oder Dritte
+  ✗ Keine Unterlizenzierung
+  ✗ Keine Integration in kommerzielle Produkte
+
+
+═══════════════════════════════════════════════════════════════════════════════
+9. SUPPORT UND UPDATES
+═══════════════════════════════════════════════════════════════════════════════
+
+Diese Software wird "wie besehen" bereitgestellt. Es gibt keine Verpflichtung,
+technischen Support, Wartung oder Updates bereitzustellen.
+
+Der Support wird auf freiwilliger Basis gewährt und kann jederzeit eingestellt
+werden. Die Nutzung der Software geschieht auf eigenem Risiko.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+10. DATENSCHUTZ
+═══════════════════════════════════════════════════════════════════════════════
+
+Diese Software:
+
+  ✓ Verarbeitet Daten lokal auf Ihrem Computer
+  ✓ Sendet KEINE Daten an externe Server
+  ✓ Enthält KEINE Tracking- oder Telemetrie-Funktionalität
+  ✓ Enthält KEINE Werbefunktionalität
+  ✓ Speichert KEINE Benutzerinformationen
+
+
+═══════════════════════════════════════════════════════════════════════════════
+11. SICHERHEIT
+═══════════════════════════════════════════════════════════════════════════════
+
+Diese Software wurde mit Best Practices für Sicherheit entwickelt:
+
+  ✓ Keine externen Netzwerkverbindungen (lokal nur)
+  ✓ Keine Authentifizierung erforderlich
+  ✓ Verschlüsselte Wasserzeichenverarbeitung
+  ✓ Automatische Temp-Datei-Bereinigung
+  ✓ Sichere Fehlerbehandlung
+
+KEINE GARANTIE für absolute Sicherheit wird gegeben.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+12. COMPLIANCE UND KONFORMITÄT
+═══════════════════════════════════════════════════════════════════════════════
+
+Diese Software wurde mit folgenden Standards im Hinterkopf entwickelt:
+
+  ✓ ISO 9001 (Qualitätsmanagementsysteme)
+  ✓ ISO 27001 (Informationssicherheit)
+  ✓ GDPR (Datenschutz-Grundverordnung)
+  ✓ SOC 2 Type II (Sicherheit und Verfügbarkeit)
+
+Für spezifische Compliance-Anforderungen konsultieren Sie bitte
+einen Rechtsanwalt oder einen Compliance-Experten.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+13. KONSEQUENZEN DER SOFTWARENUTZUNG
+═══════════════════════════════════════════════════════════════════════════════
+
+Sie erkennen an, dass die Nutzung dieser Software auf eigenem Risiko erfolgt.
+Die Autoren und Copyright-Inhaber sind nicht verantwortlich für:
+
+  ✗ Datenverluste
+  ✗ Systemfehler
+  ✗ Geschäftsverluste
+  ✗ Falsche Ausgabeergebnisse
+  ✗ Andere direkte oder indirekte Schäden
+
+
+═══════════════════════════════════════════════════════════════════════════════
+14. BEENDIGUNG
+═══════════════════════════════════════════════════════════════════════════════
+
+Diese Lizenz ist auf Dauer gewährt und endet nicht automatisch.
+
+Die Lizenz wird ungültig, wenn Sie die Bedingungen dieser Lizenz verletzen.
+Im Falle einer Verletzung müssen Sie die Software sofort deinstallieren und
+vernichten.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+15. ÄNDERUNGEN AN DIESER LIZENZ
+═══════════════════════════════════════════════════════════════════════════════
+
+Die Lizenz kann jederzeit ohne Vorankündigung geändert werden.
+Die neue Lizenz gilt ab sofort für alle Nutzer.
+
+Sie können die vorherige Version verwenden, um die alte Lizenz zu akzeptieren.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+16. RECHTSFOLGEN BEI VERSTOSS
+═══════════════════════════════════════════════════════════════════════════════
+
+Bei Verletzung dieser Lizenzbedingungen können folgende Maßnahmen ergriffen
+werden:
+
+  • Forderung nach Entfernung der Software
+  • Klage auf Schadensersatz
+  • Eintreibung von Anwalts- und Verfahrenskosten
+  • Andere rechtliche Konsequenzen gemäß deutschem und internationalem Recht
+
+
+═══════════════════════════════════════════════════════════════════════════════
+17. KONTAKT
+═══════════════════════════════════════════════════════════════════════════════
+
+Für Fragen zur Lizenz kontaktieren Sie bitte:
+
+Name:       Alexander Hölzer
+Adresse:    Pfarerrosenkranz Str. 9
+            56642 Kruft
+            Deutschland
+E-Mail:     hoelzer_alex@yahoo.de
+Telefon:    017083339993
+
+WICHTIG: Diese Lizenzinformationen dienen nur zu Informationszwecken und ersetzen
+keine rechtliche Beratung. Bei Fragen konsultieren Sie einen Anwalt.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+ZUSTIMMUNG
+
+Durch die Nutzung dieser Software erkennen Sie an, dass Sie diese
+Lizenzbedingungen gelesen haben und sich an diese gebunden erklären.
+
+Entwickler:         Alexander Hölzer
+Datum der Veröffentlichung: 9. Juni 2026
+Lizenzversion:      1.0
+Gültigkeitsbereich: Weltweit
+Sprache:            Deutsch
+
+═══════════════════════════════════════════════════════════════════════════════

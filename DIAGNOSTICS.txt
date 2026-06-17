@@ -1,0 +1,31 @@
+
+# Diagnostics-Helper für Wasserzeichen-Feature
+
+Diese Datei wird von der App automatisch genutzt, um zu checken, ob alle Bedingungen erfüllt sind.
+
+## Überprüfte Bedingungen:
+
+✓ App ist .NET 4.8
+✓ Excel-Spalten werden extrahiert:
+  - Requested Amount
+  - Requested Delivery Date  
+  - Requested Delivery Location
+
+✓ Wasserzeichen-Service ist vorhanden
+✓ Fallback-Methode ist verfügbar
+
+## iTextSharp-Status:
+
+Wird bei jedem Start überprüft. Falls nicht installiert:
+- App nutzt Fallback-Methode
+- Zu sehen in der Statusausgabe: "Wasserzeichen hinzugefügt zu: ..."
+
+## Nächste Schritte:
+
+1. **Vor dem Start**: Überprüfe deine Excel-Datei auf die richtigen Spalten-Namen
+2. **Test**: Nutze die App mit Test-PDFs
+3. **Falls Wasserzeichen nicht sichtbar**: Installiere iTextSharp (siehe INSTALL_ITEXTSHARP.md)
+
+---
+
+Status: **BEREIT ZUR VERWENDUNG**

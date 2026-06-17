@@ -1,0 +1,32 @@
+# Build outputs
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.restore
+*.tmp
+
+# Visual Studio
+.vs/
+*.rsuser
+
+# NuGet packages (restore via packages.config / install scripts)
+packages/
+
+# Backups (local archives, not source)
+Backups/
+PDF-umbenenen_BACKUP_*/
+
+# OS / IDE
+Thumbs.db
+Desktop.ini
+*.log
+
+# Large/binary deploy artifacts in USB folder (keep structure docs only if needed)
+USB-Version/**/Docnet.Core.dll
+USB-Version/**/pdfium.dll
+
+# Nested unrelated projects (separate apps)
+BaustelleLager/
+PdfUmbenennen-App/
