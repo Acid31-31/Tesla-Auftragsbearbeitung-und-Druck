@@ -65,12 +65,12 @@ namespace PDF_umbenenen.Services
             if (!string.IsNullOrWhiteSpace(fields.OrderNumberText))
             {
                 var orderText = fields.OrderNumberText.Trim();
-                var fontSize = FitFontSize(orderText, pageWidth * 0.45f, 34f, 18f);
+                var fontSize = FitFontSize(orderText, pageWidth * 0.30f, 17f, 9f, pageWidth, pageHeight);
                 var placement = new WatermarkTextPlacement
                 {
                     Text = orderText,
-                    X = pageWidth - 50f,
-                    Y = pageHeight - 40f,
+                    X = pageWidth - WatermarkPageScale.GetSideMargin(pageWidth, pageHeight),
+                    Y = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, fontSize),
                     Alignment = 2,
                     FontSize = fontSize
                 };
@@ -81,7 +81,7 @@ namespace PDF_umbenenen.Services
             if (!string.IsNullOrWhiteSpace(fields.DeliveryLocationText))
             {
                 var locationText = fields.DeliveryLocationText.Trim();
-                var fontSize = FitFontSize(locationText, pageWidth * 0.55f, 28f, 16f);
+                var fontSize = FitFontSize(locationText, pageWidth * 0.55f, 28f, 16f, pageWidth, pageHeight);
                 var placement = PlaceTopCenter(locationText, fontSize, pageWidth, pageHeight, occupied);
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
@@ -91,7 +91,7 @@ namespace PDF_umbenenen.Services
                 && (fields.QuantityLines == null || fields.QuantityLines.Count <= 1))
             {
                 var dateText = fields.DeliveryDateText.Trim();
-                var fontSize = FitFontSize(dateText, pageWidth * 0.35f, 22f, 14f);
+                var fontSize = FitFontSize(dateText, pageWidth * 0.35f, 22f, 14f, pageWidth, pageHeight);
                 var placement = PlaceTopLeftFree(dateText, fontSize, pageWidth, pageHeight, occupied);
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
@@ -118,21 +118,27 @@ namespace PDF_umbenenen.Services
 
             var materialInfo = PdfMaterialExtractionService.Extract(pdfPath, pageNumber);
             var materialLines = new List<string>();
-            if (settings == null || settings.ExtractMaterialType)
-            {
-                if (!string.IsNullOrWhiteSpace(materialInfo.MaterialType))
-                    materialLines.Add(materialInfo.MaterialType.Trim());
-            }
+            var showType = settings == null || settings.ExtractMaterialType;
+            var showThickness = settings == null || settings.ExtractMaterialThickness;
 
-            if (settings == null || settings.ExtractMaterialThickness)
+            if (showType && showThickness && !string.IsNullOrWhiteSpace(materialInfo.MaterialWatermarkText))
             {
-                if (!string.IsNullOrWhiteSpace(materialInfo.ThicknessText))
-                    materialLines.Add(materialInfo.ThicknessText.Trim());
+                materialLines.Add(materialInfo.MaterialWatermarkText.Trim());
+            }
+            else if (showThickness && !string.IsNullOrWhiteSpace(materialInfo.ThicknessText))
+            {
+                var compact = MaterialAlloyClassifier.FormatThicknessCompact(materialInfo.ThicknessText);
+                if (!string.IsNullOrWhiteSpace(compact))
+                    materialLines.Add(compact);
+            }
+            else if (showType && !string.IsNullOrWhiteSpace(materialInfo.MaterialAlloyPrefix))
+            {
+                materialLines.Add(materialInfo.MaterialAlloyPrefix.Trim());
             }
 
             if (materialLines.Count > 0)
             {
-                var materialPlacements = PlaceBottomLeftStack(
+                var materialPlacements = PlaceMaterialCenterStack(
                     materialLines,
                     pdfPath,
                     pageNumber,
@@ -149,7 +155,7 @@ namespace PDF_umbenenen.Services
             if (!string.IsNullOrWhiteSpace(fields.BgNumberText))
             {
                 var bgText = fields.BgNumberText.Trim();
-                var fontSize = FitFontSize(bgText, pageWidth * 0.35f, 24f, 14f);
+                var fontSize = FitFontSize(bgText, pageWidth * 0.35f, 24f, 14f, pageWidth, pageHeight);
                 var placement = PlaceBottomLeftFree(bgText, fontSize, pdfPath, pageNumber, pageWidth, pageHeight, occupied);
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
@@ -190,16 +196,24 @@ namespace PDF_umbenenen.Services
             List<PdfTextRect> occupied)
         {
             var width = EstimateTextWidth(text, fontSize);
-            var height = fontSize + 8f;
             var x = pageWidth / 2f;
-            var y = pageHeight - 45f;
+            var y = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, fontSize);
+            var floor = WatermarkPageScale.GetTopBandFloorY(pageWidth, pageHeight, fontSize);
+            var step = Math.Max(10f, 12f * WatermarkPageScale.Get(pageWidth, pageHeight));
 
-            for (var attempt = 0; attempt < 8; attempt++)
+            // Nur im oberen Randstreifen bleiben – bei Kollision leicht seitlich verschieben, nicht in die Zeichnung.
+            for (var attempt = 0; attempt < 6; attempt++)
             {
-                if (!Overlaps(occupied, x, y, width, height, 1))
+                if (!Overlaps(occupied, x, y, width, fontSize + 6f, 1))
                     break;
-                y -= 14f;
+
+                if (attempt % 2 == 0)
+                    x += step;
+                else
+                    x -= step * 2f;
             }
+
+            y = Math.Max(y, floor);
 
             return new WatermarkTextPlacement
             {
@@ -219,21 +233,20 @@ namespace PDF_umbenenen.Services
             List<PdfTextRect> occupied)
         {
             var width = EstimateTextWidth(text, fontSize);
-            var height = fontSize + 8f;
-            var bestX = 50f;
-            var bestY = pageHeight - 80f;
-            var bestScore = float.MaxValue;
+            var sideMargin = WatermarkPageScale.GetSideMargin(pageWidth, pageHeight);
+            var y = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, fontSize);
+            var x = sideMargin;
 
-            for (var y = pageHeight - 50f; y >= pageHeight - 160f; y -= 16f)
+            if (Overlaps(occupied, x, y, width, fontSize + 6f, 0))
             {
-                for (var x = 45f; x <= pageWidth * 0.35f; x += 18f)
+                var step = Math.Max(12f, 14f * WatermarkPageScale.Get(pageWidth, pageHeight));
+                for (var i = 1; i <= 4; i++)
                 {
-                    var score = OverlapScore(occupied, x, y, width, height, 0);
-                    if (score < bestScore)
+                    var tryX = sideMargin + (i * step);
+                    if (!Overlaps(occupied, tryX, y, width, fontSize + 6f, 0))
                     {
-                        bestScore = score;
-                        bestX = x;
-                        bestY = y;
+                        x = tryX;
+                        break;
                     }
                 }
             }
@@ -241,8 +254,8 @@ namespace PDF_umbenenen.Services
             return new WatermarkTextPlacement
             {
                 Text = text,
-                X = bestX,
-                Y = bestY,
+                X = x,
+                Y = y,
                 Alignment = 0,
                 FontSize = fontSize
             };
@@ -309,7 +322,7 @@ namespace PDF_umbenenen.Services
             return lines;
         }
 
-        private static List<WatermarkTextPlacement> PlaceBottomLeftStack(
+        private static List<WatermarkTextPlacement> PlaceMaterialCenterStack(
             IList<string> lines,
             string pdfPath,
             int pageNumber,
@@ -326,14 +339,21 @@ namespace PDF_umbenenen.Services
                 return new List<WatermarkTextPlacement>();
 
             var longestLine = cleanLines.OrderByDescending(l => l.Length).First();
-            var fontSize = FitFontSize(longestLine, pageWidth * 0.28f, 22f, 13f);
-            var lineHeight = fontSize + 7f;
+            var fontSize = FitFontSize(longestLine, pageWidth * 0.55f, 44f, 26f, pageWidth, pageHeight);
+            var lineHeight = fontSize + 10f;
             var blockWidth = cleanLines.Max(l => EstimateTextWidth(l, fontSize));
-            var blockHeight = (cleanLines.Count * lineHeight) + 4f;
+            var blockHeight = (cleanLines.Count * lineHeight) + 6f;
 
             var titleBlockTop = GetTitleBlockTopY(pageHeight);
             var titleBlockLeft = GetTitleBlockLeftX(pageWidth);
-            var anchor = FindBestFreeAnchor(
+            var freeBandLeft = 35f;
+            var freeBandRight = Math.Max(160f, titleBlockLeft - 40f);
+            var freeBandBottom = titleBlockTop + 8f;
+            var freeBandTop = titleBlockTop + 155f;
+            var preferredCenterX = Math.Max(freeBandLeft + (blockWidth / 2f) + 8f, (freeBandLeft + freeBandRight) / 2f);
+            var preferredAnchorY = titleBlockTop + 72f;
+
+            var anchor = FindBestFreeAnchorInZones(
                 pdfPath,
                 pageNumber,
                 blockWidth,
@@ -341,13 +361,27 @@ namespace PDF_umbenenen.Services
                 pageWidth,
                 pageHeight,
                 occupied,
-                zoneLeft: 35f,
-                zoneRight: Math.Max(120f, titleBlockLeft - 25f),
-                zoneBottom: titleBlockTop + 95f,
-                zoneTop: titleBlockTop + 210f,
-                preferredX: 48f,
-                preferredY: titleBlockTop + 150f);
+                preferFirstAcceptableZone: true,
+                new[]
+                {
+                    // Freier Streifen links vom Schriftfeld – unterhalb der Zeichnung, nicht auf der Zeichnung
+                    new AnchorSearchZone(
+                        freeBandLeft,
+                        freeBandRight,
+                        freeBandBottom,
+                        freeBandTop,
+                        preferredCenterX - (blockWidth / 2f),
+                        preferredAnchorY),
+                    new AnchorSearchZone(
+                        freeBandLeft,
+                        Math.Max(120f, titleBlockLeft - 70f),
+                        freeBandBottom,
+                        titleBlockTop + 130f,
+                        48f,
+                        titleBlockTop + 66f)
+                });
 
+            var centerX = anchor.X + (blockWidth / 2f);
             var topY = anchor.Y + blockHeight - lineHeight;
             var result = new List<WatermarkTextPlacement>();
             for (var i = 0; i < cleanLines.Count; i++)
@@ -355,14 +389,173 @@ namespace PDF_umbenenen.Services
                 result.Add(new WatermarkTextPlacement
                 {
                     Text = cleanLines[i],
-                    X = anchor.X,
+                    X = centerX,
                     Y = topY - (i * lineHeight),
-                    Alignment = 0,
+                    Alignment = 1,
                     FontSize = fontSize
                 });
             }
 
             return result;
+        }
+
+        private static PdfPoint FindBestMaterialAnchor(
+            string pdfPath,
+            int pageNumber,
+            float blockWidth,
+            float blockHeight,
+            float pageWidth,
+            float pageHeight,
+            List<PdfTextRect> occupied)
+        {
+            var titleBlockTop = GetTitleBlockTopY(pageHeight);
+            var titleBlockLeft = GetTitleBlockLeftX(pageWidth);
+            var leftBound = 55f;
+            var rightBound = Math.Max(leftBound + 120f, titleBlockLeft - 50f);
+            var bottomBound = titleBlockTop + 8f;
+            var topBound = titleBlockTop + 155f;
+            var centerX = (leftBound + rightBound) / 2f;
+            var targetY = titleBlockTop + 72f - (blockHeight / 2f);
+            var upperY = titleBlockTop + 95f - (blockHeight / 2f);
+            var lowerY = titleBlockTop + 52f - (blockHeight / 2f);
+
+            if (PdfRasterLayoutService.IsAvailable
+                && PdfRasterLayoutService.TryFindMaterialCenterAnchor(
+                    pdfPath,
+                    pageNumber,
+                    blockWidth,
+                    blockHeight,
+                    pageWidth,
+                    pageHeight,
+                    leftBound,
+                    rightBound,
+                    bottomBound,
+                    topBound,
+                    new List<(float, float)>
+                    {
+                        (centerX, targetY),
+                        (leftBound + ((centerX - leftBound) * 0.45f), targetY),
+                        (rightBound - ((rightBound - centerX) * 0.35f), targetY),
+                        (centerX, upperY),
+                        (centerX, lowerY)
+                    },
+                    out var centerAnchorX,
+                    out var anchorY)
+                && !OverlapsTextWatermark(occupied, centerAnchorX, anchorY, blockWidth, blockHeight))
+            {
+                return new PdfPoint { X = centerAnchorX, Y = anchorY };
+            }
+
+            return FindBestDrawingCenterAnchorTextFallback(
+                blockWidth,
+                blockHeight,
+                pageWidth,
+                pageHeight,
+                occupied,
+                centerX,
+                targetY,
+                leftBound,
+                rightBound,
+                bottomBound,
+                topBound);
+        }
+
+        private static bool OverlapsTextWatermark(
+            List<PdfTextRect> occupied,
+            float centerX,
+            float anchorY,
+            float width,
+            float height)
+        {
+            return OverlapScore(occupied, centerX, anchorY, width, height, 1) > 75000f;
+        }
+
+        private static PdfPoint FindBestDrawingCenterAnchorTextFallback(
+            float blockWidth,
+            float blockHeight,
+            float pageWidth,
+            float pageHeight,
+            List<PdfTextRect> occupied,
+            float centerX,
+            float targetY,
+            float leftBound,
+            float rightBound,
+            float bottomBound,
+            float topBound)
+        {
+            if (topBound - blockHeight < bottomBound)
+                topBound = bottomBound + blockHeight;
+
+            var step = Math.Max(14f, 16f * WatermarkPageScale.Get(pageWidth, pageHeight));
+            var bestScore = float.MaxValue;
+            var bestX = centerX;
+            var bestY = targetY;
+            var maxCenterX = Math.Max(leftBound + (blockWidth / 2f) + 8f, rightBound - (blockWidth / 2f) - 8f);
+
+            for (var y = bottomBound; y <= topBound - blockHeight; y += step)
+            {
+                for (var x = leftBound + (blockWidth / 2f); x <= maxCenterX; x += step)
+                {
+                    var score = ScoreMaterialCenterPlacement(
+                        x,
+                        y,
+                        blockWidth,
+                        blockHeight,
+                        occupied,
+                        pageWidth,
+                        pageHeight,
+                        centerX,
+                        targetY);
+
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        bestX = x;
+                        bestY = y;
+                    }
+                }
+            }
+
+            return new PdfPoint { X = bestX, Y = bestY };
+        }
+
+        private static float ScoreMaterialCenterPlacement(
+            float centerX,
+            float anchorY,
+            float width,
+            float height,
+            List<PdfTextRect> occupied,
+            float pageWidth,
+            float pageHeight,
+            float targetCenterX,
+            float targetAnchorY)
+        {
+            var score = OverlapScore(occupied, centerX, anchorY, width, height, 1);
+            score += LocalTextDensity(centerX - (width / 2f), anchorY, width, height, occupied) * 180f;
+
+            var dx = (centerX - targetCenterX) / Math.Max(100f, pageWidth * 0.25f);
+            var dy = (anchorY - targetAnchorY) / Math.Max(80f, pageHeight * 0.20f);
+            score += ((dx * dx) + (dy * dy)) * 900f;
+
+            var titleBlockTop = GetTitleBlockTopY(pageHeight);
+            if (anchorY < titleBlockTop + 8f)
+                score += 2500000f;
+
+            if (anchorY > titleBlockTop + 170f)
+                score += 5000000f;
+
+            var left = centerX - (width / 2f);
+            var titleBlockLeft = GetTitleBlockLeftX(pageWidth);
+            if (left + width > pageWidth - 28f)
+                score += 350000f;
+
+            if (left < 28f)
+                score += 350000f;
+
+            if (left > titleBlockLeft - 30f)
+                score += 450000f;
+
+            return score;
         }
 
         private static List<WatermarkTextPlacement> PlaceQuantityStack(
@@ -382,7 +575,7 @@ namespace PDF_umbenenen.Services
                 return new List<WatermarkTextPlacement>();
 
             var longestLine = cleanLines.OrderByDescending(l => l.Length).First();
-            var fontSize = FitFontSize(longestLine, pageWidth * 0.30f, 28f, 14f);
+            var fontSize = FitFontSize(longestLine, pageWidth * 0.30f, 28f, 14f, pageWidth, pageHeight);
             var lineHeight = fontSize + 8f;
             var blockWidth = cleanLines.Max(l => EstimateTextWidth(l, fontSize));
             var blockHeight = (cleanLines.Count * lineHeight) + 4f;
@@ -456,10 +649,6 @@ namespace PDF_umbenenen.Services
             bool preferFirstAcceptableZone,
             AnchorSearchZone[] zones)
         {
-            const float acceptableDarkness = 0.08f;
-            PdfPoint? best = null;
-            var bestDarkness = float.MaxValue;
-
             foreach (var zone in zones)
             {
                 var candidate = FindBestFreeAnchor(
@@ -477,39 +666,11 @@ namespace PDF_umbenenen.Services
                     preferredX: zone.PreferredX,
                     preferredY: zone.PreferredY);
 
-                float darkness;
-                if (PdfRasterLayoutService.TryMeasureBlockDarkness(
-                    pdfPath,
-                    pageNumber,
-                    candidate.X,
-                    candidate.Y,
-                    blockWidth,
-                    blockHeight,
-                    pageWidth,
-                    pageHeight,
-                    out darkness))
-                {
-                    if (preferFirstAcceptableZone && darkness <= acceptableDarkness)
-                        return candidate;
-
-                    if (darkness < bestDarkness)
-                    {
-                        bestDarkness = darkness;
-                        best = candidate;
-                    }
-
-                    if (!preferFirstAcceptableZone && darkness <= 0.03f)
-                        return candidate;
-                }
-                else if (!best.HasValue)
-                {
-                    best = candidate;
-                    if (preferFirstAcceptableZone)
-                        return candidate;
-                }
+                if (preferFirstAcceptableZone)
+                    return candidate;
             }
 
-            return best ?? FindBestFreeAnchor(
+            return FindBestFreeAnchor(
                 pdfPath,
                 pageNumber,
                 blockWidth,
@@ -555,34 +716,19 @@ namespace PDF_umbenenen.Services
             if (topBound < bottomBound)
                 topBound = bottomBound;
 
-            float rasterX;
-            float rasterY;
-            if (PdfRasterLayoutService.TryFindFreeAnchor(
-                pdfPath,
-                pageNumber,
-                blockWidth,
-                blockHeight,
-                pageWidth,
-                pageHeight,
-                leftBound,
-                rightBound,
-                bottomBound,
-                topBound,
-                targetX,
-                targetY,
-                out rasterX,
-                out rasterY))
-            {
-                return new PdfPoint { X = rasterX, Y = rasterY };
-            }
-
             var bestScore = float.MaxValue;
             var bestX = targetX;
             var bestY = targetY;
 
-            for (var y = bottomBound; y <= topBound; y += 10f)
+            // Schnelle Text-Analyse: bevorzugte Position zuerst, dann grobes Raster (ohne PDF-Bildrendering).
+            var preferredScore = ScorePlacement(targetX, targetY, blockWidth, blockHeight, 0, occupied, pageWidth, pageHeight);
+            preferredScore += LocalTextDensity(targetX, targetY, blockWidth, blockHeight, occupied) * 120f;
+            if (preferredScore < 50000f)
+                return new PdfPoint { X = targetX, Y = targetY };
+
+            for (var y = bottomBound; y <= topBound; y += 16f)
             {
-                for (var x = leftBound; x <= rightBound; x += 10f)
+                for (var x = leftBound; x <= rightBound; x += 16f)
                 {
                     var score = ScorePlacement(x, y, blockWidth, blockHeight, 0, occupied, pageWidth, pageHeight);
                     score += LocalTextDensity(x, y, blockWidth, blockHeight, occupied) * 120f;
@@ -677,7 +823,7 @@ namespace PDF_umbenenen.Services
             if (anchorY > pageHeight * 0.48f)
                 score += 350000f;
 
-            // Mitte unten (Logo/Tesla-Bereich) extra meiden
+            // Mitte unten (Logo-Bereich) extra meiden
             var titleBlockLeft = GetTitleBlockLeftX(pageWidth);
             if (bottom < titleBlockTop + 55f && left > titleBlockLeft - 40f && left < pageWidth - 20f)
                 score += 500000f;
@@ -764,10 +910,13 @@ namespace PDF_umbenenen.Services
             return Math.Max(20f, text.Length * fontSize * 0.55f);
         }
 
-        private static float FitFontSize(string text, float maxWidth, float maxSize, float minSize)
+        private static float FitFontSize(string text, float maxWidth, float maxSize, float minSize, float pageWidth, float pageHeight)
         {
-            var size = maxSize;
-            while (size > minSize && EstimateTextWidth(text, size) > maxWidth)
+            var scale = WatermarkPageScale.Get(pageWidth, pageHeight);
+            var size = maxSize * scale;
+            var min = minSize * scale;
+
+            while (size > min && EstimateTextWidth(text, size) > maxWidth)
                 size -= 1f;
 
             return size;

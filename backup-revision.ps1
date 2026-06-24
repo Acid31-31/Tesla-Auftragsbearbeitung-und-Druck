@@ -3,8 +3,16 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-$revision = "R03"
-$version = "1.1"
+$appInfoPath = Join-Path $root "AppInfo.cs"
+$revision = "R00"
+$version = "0.0"
+if (Test-Path $appInfoPath) {
+    $appInfo = Get-Content $appInfoPath -Raw
+    $revMatch = [Regex]::Match($appInfo, 'RevisionLabel\s*=\s*"([^"]+)"')
+    $verMatch = [Regex]::Match($appInfo, 'VersionLabel\s*=\s*"([^"]+)"')
+    if ($revMatch.Success) { $revision = $revMatch.Groups[1].Value.Trim() }
+    if ($verMatch.Success) { $version = $verMatch.Groups[1].Value.Trim() }
+}
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $parent = Split-Path -Parent $root
 
@@ -38,7 +46,7 @@ Get-ChildItem -Path $root -Force | ForEach-Object {
 
 $infoPath = Join-Path $backupRoot "BACKUP_INFO.txt"
 @"
-TESLA APP BACKUP
+DOK-V01 APP BACKUP
 ================
 Revision: $revision
 Version:  $version
@@ -62,7 +70,7 @@ if (!(Test-Path $backupDir)) {
     New-Item -ItemType Directory -Path $backupDir | Out-Null
 }
 
-$zipPath = Join-Path $backupDir "Tesla-Auftragsbearbeitung-und-Druck_Backup_${revision}_${timestamp}.zip"
+$zipPath = Join-Path $backupDir "DOK-V01_Backup_${revision}_${timestamp}.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path (Join-Path $backupRoot "*") -DestinationPath $zipPath -Force
 

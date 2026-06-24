@@ -36,10 +36,39 @@ namespace PDF_umbenenen.Services
 
     internal static class PdfLayoutAnalysisService
     {
+        private static readonly Dictionary<string, PdfPageLayout> PageLayoutCache =
+            new Dictionary<string, PdfPageLayout>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object CacheLock = new object();
+
+        public static void ClearCache()
+        {
+            lock (CacheLock)
+                PageLayoutCache.Clear();
+        }
+
         public static PdfPageLayout AnalyzePage(string pdfPath, int pageNumber)
         {
+            if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
+                return new PdfPageLayout { PageWidth = 595f, PageHeight = 842f };
+
+            var cacheKey = pdfPath + "|" + pageNumber + "|" + File.GetLastWriteTimeUtc(pdfPath).Ticks;
+            lock (CacheLock)
+            {
+                if (PageLayoutCache.TryGetValue(cacheKey, out var cached))
+                    return cached;
+            }
+
+            var layout = AnalyzePageUncached(pdfPath, pageNumber);
+            lock (CacheLock)
+                PageLayoutCache[cacheKey] = layout;
+
+            return layout;
+        }
+
+        private static PdfPageLayout AnalyzePageUncached(string pdfPath, int pageNumber)
+        {
             var layout = new PdfPageLayout { PageWidth = 595f, PageHeight = 842f };
-            if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath) || !PdfWatermarkService.IsAvailable())
+            if (!PdfWatermarkService.IsAvailable())
                 return layout;
 
             object reader = null;
@@ -162,33 +191,22 @@ namespace PDF_umbenenen.Services
         private static IEnumerable<PdfTextRect> ExtractRects(object strategy, Type strategyType)
         {
             var result = new List<PdfTextRect>();
-            var getLocations = strategyType.GetMethod("GetLocations", Type.EmptyTypes);
-            if (getLocations == null)
+            var chunks = GetTextChunks(strategy, strategyType);
+            if (chunks == null)
                 return result;
 
-            var locations = getLocations.Invoke(strategy, null) as IEnumerable;
-            if (locations == null)
-                return result;
-
-            foreach (var chunk in locations)
+            foreach (var chunk in chunks)
             {
                 if (chunk == null)
                     continue;
 
                 var chunkType = chunk.GetType();
-                var textProp = chunkType.GetProperty("Text");
-                var text = textProp?.GetValue(chunk, null) as string;
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    var getText = chunkType.GetMethod("GetText", Type.EmptyTypes);
-                    text = getText?.Invoke(chunk, null) as string;
-                }
-
+                var text = ReadChunkText(chunkType, chunk);
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
 
-                var start = InvokeVector(chunkType.GetMethod("GetStartLocation", Type.EmptyTypes)?.Invoke(chunk, null));
-                var end = InvokeVector(chunkType.GetMethod("GetEndLocation", Type.EmptyTypes)?.Invoke(chunk, null));
+                var start = ReadChunkVector(chunkType, chunk, "StartLocation", "GetStartLocation");
+                var end = ReadChunkVector(chunkType, chunk, "EndLocation", "GetEndLocation");
                 if (start == null || end == null)
                     continue;
 
@@ -205,26 +223,121 @@ namespace PDF_umbenenen.Services
             return result;
         }
 
+        private static IEnumerable GetTextChunks(object strategy, Type strategyType)
+        {
+            const BindingFlags binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            var locationalField = strategyType.GetField("locationalResult", binding);
+            if (locationalField != null)
+            {
+                var chunks = locationalField.GetValue(strategy) as IEnumerable;
+                if (chunks != null)
+                    return chunks;
+            }
+
+            var getLocations = strategyType.GetMethod("GetLocations", binding);
+            return getLocations?.Invoke(strategy, null) as IEnumerable;
+        }
+
+        private static string ReadChunkText(Type chunkType, object chunk)
+        {
+            const BindingFlags binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            var textField = chunkType.GetField("text", binding);
+            var text = textField?.GetValue(chunk) as string;
+            if (!string.IsNullOrWhiteSpace(text))
+                return text;
+
+            var textProp = chunkType.GetProperty("Text", binding);
+            text = textProp?.GetValue(chunk, null) as string;
+            if (!string.IsNullOrWhiteSpace(text))
+                return text;
+
+            var getText = chunkType.GetMethod("GetText", binding, null, Type.EmptyTypes, null);
+            return getText?.Invoke(chunk, null) as string;
+        }
+
+        private static VectorPoint? ReadChunkVector(Type chunkType, object chunk, string propertyName, string methodName)
+        {
+            const BindingFlags binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            var property = chunkType.GetProperty(propertyName, binding);
+            if (property != null)
+            {
+                var vector = property.GetValue(chunk, null);
+                var point = InvokeVector(vector);
+                if (point != null)
+                    return point;
+            }
+
+            var method = chunkType.GetMethod(methodName, binding, null, Type.EmptyTypes, null);
+            return InvokeVector(method?.Invoke(chunk, null));
+        }
+
         private static VectorPoint? InvokeVector(object vector)
         {
             if (vector == null)
                 return null;
 
             var vectorType = vector.GetType();
-            var getMethod = vectorType.GetMethod("Get", new[] { typeof(int) });
+            const BindingFlags binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+
+            var indexer = vectorType.GetProperty("Item", binding, null, typeof(float), new[] { typeof(int) }, null)
+                          ?? vectorType.GetProperty("Item", binding);
+            if (indexer != null)
+            {
+                var xIndex = ReadVectorIndex(vectorType, "I1", 1);
+                var yIndex = ReadVectorIndex(vectorType, "I2", 2);
+                var xObj = indexer.GetValue(vector, new object[] { xIndex });
+                var yObj = indexer.GetValue(vector, new object[] { yIndex });
+                if (xObj != null && yObj != null)
+                {
+                    return new VectorPoint
+                    {
+                        X = Convert.ToSingle(xObj, CultureInfo.InvariantCulture),
+                        Y = Convert.ToSingle(yObj, CultureInfo.InvariantCulture)
+                    };
+                }
+            }
+
+            var valsField = vectorType.GetField("vals", binding);
+            if (valsField != null)
+            {
+                var vals = valsField.GetValue(vector) as float[];
+                if (vals != null && vals.Length >= 2)
+                {
+                    return new VectorPoint
+                    {
+                        X = vals[0],
+                        Y = vals[1]
+                    };
+                }
+            }
+
+            var getMethod = vectorType.GetMethod("Get", binding, null, new[] { typeof(int) }, null);
             if (getMethod == null)
                 return null;
 
-            var xObj = getMethod.Invoke(vector, new object[] { 1 });
-            var yObj = getMethod.Invoke(vector, new object[] { 2 });
-            if (xObj == null || yObj == null)
+            var legacyX = getMethod.Invoke(vector, new object[] { 1 });
+            var legacyY = getMethod.Invoke(vector, new object[] { 2 });
+            if (legacyX == null || legacyY == null)
                 return null;
 
             return new VectorPoint
             {
-                X = Convert.ToSingle(xObj, CultureInfo.InvariantCulture),
-                Y = Convert.ToSingle(yObj, CultureInfo.InvariantCulture)
+                X = Convert.ToSingle(legacyX, CultureInfo.InvariantCulture),
+                Y = Convert.ToSingle(legacyY, CultureInfo.InvariantCulture)
             };
+        }
+
+        private static int ReadVectorIndex(Type vectorType, string fieldName, int fallback)
+        {
+            const BindingFlags binding = BindingFlags.Public | BindingFlags.Static;
+            var field = vectorType.GetField(fieldName, binding);
+            if (field == null)
+                return fallback;
+
+            return Convert.ToInt32(field.GetValue(null), CultureInfo.InvariantCulture);
         }
 
         private struct VectorPoint

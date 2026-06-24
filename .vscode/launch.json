@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "DOK-V01",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}\\.vscode\\run.ps1\""
+    },
+    {
+      "name": "DOK-V01 (ohne Build)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Start-Process -FilePath '${workspaceFolder}\\bin\\Debug\\DOK-V01.exe' -WorkingDirectory '${workspaceFolder}\\bin\\Debug'\""
+    }
+  ]
+}

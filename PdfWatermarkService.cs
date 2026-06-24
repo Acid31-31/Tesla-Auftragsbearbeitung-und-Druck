@@ -105,7 +105,7 @@ namespace PDF_umbenenen
         /// <summary>
         /// Fügt Wasserzeichen zu einer PDF hinzu
         /// </summary>
-        public static void AddWatermark(string pdfPath, string encodedWatermarks, string deliveryDate, string deliveryLocation, string drawingNumberHint = null)
+        public static void AddWatermark(string pdfPath, string encodedWatermarks, string deliveryDate, string deliveryLocation, string drawingNumberHint = null, WatermarkSettings settings = null)
         {
             if (!File.Exists(pdfPath))
                 throw new FileNotFoundException("PDF-Datei nicht gefunden: " + pdfPath);
@@ -117,7 +117,7 @@ namespace PDF_umbenenen
 
             try
             {
-                AddWatermarkWithITextSharp(pdfPath, encodedWatermarks, deliveryDate, deliveryLocation, drawingNumberHint);
+                AddWatermarkWithITextSharp(pdfPath, encodedWatermarks, deliveryDate, deliveryLocation, drawingNumberHint, settings);
             }
             catch (Exception ex)
             {
@@ -125,7 +125,7 @@ namespace PDF_umbenenen
             }
         }
 
-        private static void AddWatermarkWithITextSharp(string pdfPath, string encodedWatermarks, string deliveryDate, string deliveryLocation, string drawingNumberHint)
+        private static void AddWatermarkWithITextSharp(string pdfPath, string encodedWatermarks, string deliveryDate, string deliveryLocation, string drawingNumberHint, WatermarkSettings settingsOverride)
         {
             string tempPath = pdfPath + ".tmp";
 
@@ -139,7 +139,7 @@ namespace PDF_umbenenen
                     .Distinct()
                     .ToList();
 
-                var settings = WatermarkSettingsStore.Load();
+                var settings = settingsOverride ?? WatermarkSettingsStore.Load();
                 var fieldData = SmartWatermarkLayoutService.BuildFieldData(entries, orderNumbers);
 
                 // PdfReader erstellen
@@ -362,12 +362,18 @@ namespace PDF_umbenenen
             var isVertical = position == WatermarkDataPosition.LeftMiddleVertical
                              || position == WatermarkDataPosition.RightMiddleVertical;
             var maxLength = isVertical ? pageHeight - 140f : pageWidth - 100f;
-            var sharedFontSize = CalculateFittingFontSize(baseFont, longestText, maxLength, 26f, 10f);
+            var scale = WatermarkPageScale.Get(pageWidth, pageHeight);
+            var sharedFontSize = CalculateFittingFontSize(
+                baseFont,
+                longestText,
+                maxLength,
+                26f * scale,
+                10f * scale);
             setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, sharedFontSize });
 
             if (isVertical)
             {
-                var spacing = Math.Max(28f, sharedFontSize * 1.8f);
+                var spacing = Math.Max(28f * scale, sharedFontSize * 1.8f);
                 var angle = position == WatermarkDataPosition.RightMiddleVertical ? 270f : 90f;
                 var baseY = pageHeight / 2f;
                 var startX = position == WatermarkDataPosition.RightMiddleVertical
@@ -385,30 +391,33 @@ namespace PDF_umbenenen
                 return;
             }
 
-            var lineHeight = sharedFontSize + 10f;
+            var lineHeight = sharedFontSize + (10f * WatermarkPageScale.Get(pageWidth, pageHeight));
             var alignment = 0;
             float anchorX;
             float startY;
+            var sideMargin = WatermarkPageScale.GetSideMargin(pageWidth, pageHeight);
+            var topBaseline = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, sharedFontSize);
+            var bottomMargin = Math.Max(40f, 50f * WatermarkPageScale.Get(pageWidth, pageHeight));
 
             switch (position)
             {
                 case WatermarkDataPosition.TopRight:
                     alignment = 2;
-                    anchorX = pageWidth - 50f;
-                    startY = pageHeight - 50f;
+                    anchorX = pageWidth - sideMargin;
+                    startY = topBaseline;
                     break;
                 case WatermarkDataPosition.BottomLeft:
-                    anchorX = 50f;
-                    startY = 50f + ((texts.Count - 1) * lineHeight);
+                    anchorX = sideMargin;
+                    startY = bottomMargin + ((texts.Count - 1) * lineHeight);
                     break;
                 case WatermarkDataPosition.BottomRight:
                     alignment = 2;
-                    anchorX = pageWidth - 50f;
-                    startY = 50f + ((texts.Count - 1) * lineHeight);
+                    anchorX = pageWidth - sideMargin;
+                    startY = bottomMargin + ((texts.Count - 1) * lineHeight);
                     break;
                 default:
-                    anchorX = 50f;
-                    startY = pageHeight - 50f;
+                    anchorX = sideMargin;
+                    startY = topBaseline;
                     break;
             }
 
@@ -431,9 +440,12 @@ namespace PDF_umbenenen
             float pageWidth,
             float pageHeight)
         {
-            var orderFontSize = CalculateFittingFontSize(baseFont, orderNumberText, pageWidth - 100f, 36f, 20f);
+            var scale = WatermarkPageScale.Get(pageWidth, pageHeight);
+            var orderFontSize = CalculateFittingFontSize(baseFont, orderNumberText, pageWidth - 100f, 18f * scale, 10f * scale);
             setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, orderFontSize });
 
+            var sideMargin = WatermarkPageScale.GetSideMargin(pageWidth, pageHeight);
+            var topBaseline = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, orderFontSize);
             float orderX;
             float orderY;
             int alignment;
@@ -441,23 +453,23 @@ namespace PDF_umbenenen
             switch (position)
             {
                 case OrderNumberPosition.TopLeft:
-                    orderX = 50f;
-                    orderY = pageHeight - 40f;
+                    orderX = sideMargin;
+                    orderY = topBaseline;
                     alignment = 0;
                     break;
                 case OrderNumberPosition.BottomLeft:
-                    orderX = 50f;
-                    orderY = 40f;
+                    orderX = sideMargin;
+                    orderY = 40f * scale;
                     alignment = 0;
                     break;
                 case OrderNumberPosition.BottomRight:
-                    orderX = pageWidth - 50f;
-                    orderY = 40f;
+                    orderX = pageWidth - sideMargin;
+                    orderY = 40f * scale;
                     alignment = 2;
                     break;
                 default:
-                    orderX = pageWidth - 50f;
-                    orderY = pageHeight - 40f;
+                    orderX = pageWidth - sideMargin;
+                    orderY = topBaseline;
                     alignment = 2;
                     break;
             }

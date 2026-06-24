@@ -19,7 +19,7 @@
     <SolidColorBrush x:Key="InputBorderFocus"   Color="#1976D2"/>
     <SolidColorBrush x:Key="GroupBorder"        Color="#CFD8DC"/>
     <SolidColorBrush x:Key="ProgressTrack"      Color="#E3F2FD"/>
-    <SolidColorBrush x:Key="ProgressFill"       Color="#1976D2"/>
+    <SolidColorBrush x:Key="ProgressFill"       Color="#00E676"/>
     <SolidColorBrush x:Key="StatusBackground"   Color="#F8F9FA"/>
     <SolidColorBrush x:Key="StatusBorder"       Color="#CFD8DC"/>
     <SolidColorBrush x:Key="ThemeToggleFG"      Color="#1565C0"/>

@@ -1,4 +1,4 @@
-# Bedienungsanleitung – Tesla Auftragsbearbeitung & Druck
+# Bedienungsanleitung – DOK-V01
 
 ## 1. Zweck der App
 Die App verarbeitet Zeichnungs-PDFs auf Basis einer Excel-Datei, sortiert und benennt sie um, fügt optional Wasserzeichen hinzu und kann alle bearbeiteten PDFs zu einer Gesamtdatei zusammenführen.
@@ -14,7 +14,7 @@ Die App verarbeitet Zeichnungs-PDFs auf Basis einer Excel-Datei, sortiert und be
 ---
 
 ## 3. Programmstart
-1. App starten (`Tesla-Auftragsbearbeitung-und-Druck.exe`)
+1. App starten (`DOK-V01.exe` oder `Programm installieren.exe` vom USB-Ordner)
 2. Die Anwendung öffnet im Vollbild im Dunkelmodus.
 3. Der feste Ablage-Ordner wird automatisch verwendet.
 
@@ -115,5 +115,5 @@ Damit kann der nächste Auftrag sauber neu geladen und bearbeitet werden.
 
 ## 11. Hinweise zur USB-Version
 Wenn Änderungen an der App gemacht werden, den Ordner
-`USB-Version\Tesla-Startpaket\Programmdateien`
+`USB-Version\DOK-V01`
 immer mit den aktuellen Build-Dateien aktualisieren.

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Windows;
+using PDF_umbenenen.Services;
 
 namespace PDF_umbenenen
 {
@@ -12,7 +13,9 @@ namespace PDF_umbenenen
         public AboutWindow()
         {
             InitializeComponent();
-            VersionTextBlock.Text = "Version " + AppInfo.DisplayVersion + " (Enterprise Edition)";
+            ThemeWindowService.Attach(this);
+            var demoStatus = DemoLicenseService.Evaluate();
+            VersionTextBlock.Text = "Version " + AppInfo.DisplayVersion + " (" + demoStatus.VersionLine + ")";
             BuildDateTextBlock.Text = "Build Date: " + AppInfo.BuildDate;
         }
 

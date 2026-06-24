@@ -37,6 +37,8 @@ namespace PDF_umbenenen.Services.Ai
             _settings.AiEnabled = loaded.AiEnabled;
             _settings.OllamaBaseUrl = loaded.OllamaBaseUrl;
             _settings.ModelName = loaded.ModelName;
+            _settings.VisionModelName = loaded.VisionModelName;
+            _settings.MaterialExtractionViaOllama = loaded.MaterialExtractionViaOllama;
 
             _ollama?.Dispose();
             _ollama = new OllamaAiBackend(_settings);
@@ -66,6 +68,9 @@ namespace PDF_umbenenen.Services.Ai
                 _ollamaAvailable = false;
                 return;
             }
+
+            await Task.Run(() => OllamaRuntimeService.EnsureRunning(_settings.OllamaBaseUrl), cancellationToken)
+                .ConfigureAwait(false);
 
             _ollamaAvailable = await _ollama.CheckAvailabilityAsync(cancellationToken).ConfigureAwait(false);
             _mode = _ollamaAvailable ? AiBackendMode.Ollama : AiBackendMode.RulesOnly;

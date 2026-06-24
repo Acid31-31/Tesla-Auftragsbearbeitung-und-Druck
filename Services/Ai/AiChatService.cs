@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using PDF_umbenenen;
 using PDF_umbenenen.Models;
 
 namespace PDF_umbenenen.Services.Ai
@@ -74,7 +75,7 @@ namespace PDF_umbenenen.Services.Ai
         private string BuildSystemPrompt()
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Du bist der Hilfe-Assistent der App 'Tesla Auftragsbearbeitung & Druck'.");
+            sb.AppendLine("Du bist der Hilfe-Assistent der App '" + AppInfo.ProductName + "'.");
             sb.AppendLine("Antworte auf Deutsch, konkret auf die gestellte Frage – keine generischen Standardtexte wiederholen.");
             sb.AppendLine("Wenn nach manuellen Wasserzeichen gefragt wird:");
             sb.AppendLine("- Manuell: Schalter An/Aus und Feld Auftragsnummer.");

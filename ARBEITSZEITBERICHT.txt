@@ -1,82 +1,107 @@
-ARBEITSZEITBERICHT - Tesla Auftragsbearbeitung & Druck
-======================================================
+ARBEITSZEITBERICHT & PUNKTEBEWERTUNG - DOK-V01
+=================================================
 
-GRUNDLAGE
----------
-Dieser Bericht ist als detaillierte Projektzeitleiste mit festen Start-/Endzeiten aufgebaut.
-Projektstart: 03.06.2026
+Produkt:     DOK-V01 (PDF-Auftragsbearbeitung, Sortierung, Analyse)
+Version:     1.1 R04 · Build 17.06.2026
+Entwickler:  Alexander Hölzer, Kruft
+Berichtsdatum: 17.06.2026
 
-GESAMTÜBERSICHT
----------------
-Projektbeginn:                     03.06.2026, 18:30 Uhr
-App technisch vollständig fertig:  11.06.2026, 19:05 Uhr
-Dokumentation abgeschlossen:       12.06.2026, 15:00 Uhr
-Gesamte Arbeitszeit:               19:20 h
 
-DETAILLIERTE ZEITERFASSUNG (SCHRITT FÜR SCHRITT)
--------------------------------------------------
-01) 03.06.2026 | 18:30 - 19:45 | 1:15 h
-	Projektstart, Lösung/Projektstruktur, Basis-Konfiguration
+1. GESAMTÜBERSICHT
+------------------
+Projektbeginn:                03.06.2026, 18:30 Uhr
+Erste technische Fertigstellung: 11.06.2026, 19:05 Uhr
+Erweiterung R03/R04:          12.06. - 17.06.2026
+Gesamte Arbeitszeit:          37:50 h
+Quellcode C#:                 ca. 11.400 Zeilen / 71 Dateien
+UI XAML:                      ca. 2.600 Zeilen / 21 Dateien
 
-02) 03.06.2026 | 20:00 - 21:20 | 1:20 h
-	Grundaufbau WPF-Oberfläche, Dark-Theme, Startlayout
 
-03) 04.06.2026 | 08:30 - 10:15 | 1:45 h
-	Drag&Drop-Grundfunktion, Ablagekonzept, Dateiannahme
+2. SUMMEN NACH PHASEN
+---------------------
+Phase A - Kern-App (03.06.-11.06.):        18:45 h
+Phase B - Dokumentation (12.06.):             0:35 h
+Phase C - KI & UI R03 (14.06.-17.06.):      12:30 h
+Phase D - Deployment R04 (17.06.):            6:00 h
+Phase E - Bericht (17.06.):                   0:30 h
+-----------------------------------------------
+GESAMTSUMME:                                37:50 h
 
-04) 04.06.2026 | 10:30 - 12:00 | 1:30 h
-	Excel-/PDF-Matching-Grundlogik, erste Verarbeitungsschritte
 
-05) 04.06.2026 | 13:00 - 14:10 | 1:10 h
-	Statusausgabe, Fortschrittsanzeige, Abbruch-Handling
+3. LEISTUNGSUMFANG
+------------------
+- Drag&Drop-Import (PDF, Excel, ZIP, Ordner)
+- Excel-PDF-Matching, Sortieren, Umbenennen
+- Wasserzeichen (Auftragsnr., Excel-Daten, intelligente Platzierung)
+- Material-Erkennung (Werkstoff, Materialstärke)
+- Gesamt-PDF zusammenfügen, Vorschau, Druck
+- KI-Assistent (Ollama, Chat, Qualitätsprüfung, Befehle)
+- Dark/Light Theme, Menüleiste, Einstellungsdialoge
+- USB-Deployment, Code-Signing, Auto-Zertifikat
+- Komplette Ablage-Bereinigung inkl. Gesamt-PDF
+- Marke DOK-V01, eigenes Logo, Desktop-Verknüpfung
 
-06) 05.06.2026 | 09:00 - 10:30 | 1:30 h
-	Wasserzeichen-Service (PDF), Integration vorbereitet
 
-07) 05.06.2026 | 10:45 - 12:15 | 1:30 h
-	Wasserzeichen in Hauptprozess eingebunden (Toggle/Steuerung)
+4. PUNKTEBEWERTUNG (ohne Stundenlohn)
+--------------------------------------
+Skala: 0-100 Punkte pro Bereich
 
-08) 05.06.2026 | 13:15 - 14:00 | 0:45 h
-	Korrekturen/Tests der Wasserzeichen- und Verarbeitungslogik
+Notenskala:
+  A+  90-100  Exzellent
+  A   80-89   Sehr gut
+  B   65-79   Gut
+  C   50-64   Befriedigend
+  D    0-49   Ausbaubedarf
 
-09) 09.06.2026 | 16:45 - 18:20 | 1:35 h
-	Sortier- und Umbenennungslogik finalisiert
 
-10) 09.06.2026 | 18:35 - 20:00 | 1:25 h
-	Zusammenfügen & Vorschau (Gesamt-PDF) umgesetzt
+4.1 FUNKTION — 86 / 100 Punkte (Note A)
+----------------------------------------
+Kernprozess (Excel/PDF, Sort, Umbenennen)     23/25
+Wasserzeichen & Material-Erkennung            13/15
+Zusammenfügen, Vorschau & Druck                9/10
+Datei-Import (Drag&Drop, ZIP, Ordner)          9/10
+KI-Assistent (Ollama, Chat, Qualitaet)         7/10
+Bedienbarkeit & UI                             8/10
+Deployment (USB, Signatur, Zertifikat)         9/10
+Aufraeumen & Wartung                           4/5
+Dokumentation                                  4/5
+                                              ------
+SUMME FUNKTION:                               86/100
 
-11) 09.06.2026 | 20:15 - 21:00 | 0:45 h
-	Fehleranalyse und Stabilisierung im Verarbeitungsablauf
 
-12) 10.06.2026 | 16:30 - 17:40 | 1:10 h
-	Button/Funktion zum Löschen bearbeiteter Aufträge
+4.2 WIRTSCHAFT — 87 / 100 Punkte (Note A)
+------------------------------------------
+Prozessersparnis                              18/20
+Einzigartigkeit / Passgenauigkeit             14/15
+Skalierbarkeit (mehrere Arbeitsplaetze)       14/15
+Betriebskosten (lokal, offline)                9/10
+Amortisation / Nutzen im Alltag               13/15
+Wiederbeschaffbarkeit                          7/10
+Technisches Risiko / Abhaengigkeiten           8/10
+Erweiterbarkeit & Zukunft                      4/5
+                                              ------
+SUMME WIRTSCHAFT:                             87/100
 
-13) 10.06.2026 | 17:55 - 19:00 | 1:05 h
-	ZIP-Import per Drag&Drop ohne manuelles Entpacken
 
-14) 10.06.2026 | 19:10 - 19:55 | 0:45 h
-	USB-Version synchronisiert, Paket/Startstruktur aktualisiert
+4.3 GESAMTBEWERTUNG
+-------------------
+Funktion:     86 / 100  (Note A - Sehr gut)
+Wirtschaft:   87 / 100  (Note A - Sehr gut)
+Gesamtnote:   86,5 / 100  (Note A - Sehr gut)
 
-15) 11.06.2026 | 17:40 - 18:20 | 0:40 h
-	App-Logo/Icon integriert (EXE/Startdarstellung)
+Wertklasse: HOCH (80-89)
+  Reife Fachanwendung, klarer Nutzen, produktionsreif.
+  Ersetzt mehrere manuelle Arbeitsschritte.
+  Einsatz an mehreren Arbeitsplaetzen moeglich.
 
-16) 11.06.2026 | 18:30 - 19:05 | 0:35 h
-	Startproblem nach Icon-Umstellung behoben, Finalisierung
 
-17) 12.06.2026 | 14:20 - 14:40 | 0:20 h
-	Bedienungsanleitung erstellt
+5. ABSCHLUSS
+------------
+Entwicklungszeitraum: 03.06.2026 - 17.06.2026
+Dokumentierte Arbeitszeit: 37 Stunden 50 Minuten
+Punktebewertung: Funktion 86/100, Wirtschaft 87/100, Gesamt A
 
-18) 12.06.2026 | 14:45 - 15:00 | 0:15 h
-	Arbeitszeitbericht erstellt/überarbeitet
+Erstellt am 17.06.2026
+Alexander Hölzer · DOK-V01 v1.1 R04
 
-SUMMEN
-------
-Summe App-Entwicklung bis technisch fertig (03.06-11.06): 18:45 h
-Summe Doku/Nachlauf (12.06):                               0:35 h
-Gesamtsumme Projekt (Entwicklung + Doku):                  19:20 h
-
-ABSCHLUSS
----------
-Die App wurde von 03.06.2026, 18:30 Uhr bis zur technischen Fertigstellung
-am 11.06.2026, 19:05 Uhr entwickelt. Mit Dokumentation ergibt sich eine
-dokumentierte Gesamtarbeitszeit von 19:20 h.
+(Detaillierte Zeiterfassung siehe ARBEITSZEITBERICHT.md)

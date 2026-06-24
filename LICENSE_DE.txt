@@ -2,7 +2,7 @@
 ║                                                                              ║
 ║              LIZENZ- UND RECHTLICHE INFORMATIONEN                            ║
 ║                                                                              ║
-║           TESLA AUFTRAGSBEARBEITUNG UND DRUCK - Version 1.0                 ║
+║                           DOK-V01 - Version 1.1                            ║
 ║                                                                              ║
 ║                      Entwickler: Alexander Hölzer                           ║
 ║                                                                              ║

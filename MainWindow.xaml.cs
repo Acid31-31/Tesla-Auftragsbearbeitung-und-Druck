@@ -26,12 +26,17 @@ namespace PDF_umbenenen
         private System.Windows.Controls.TextBox ExcelPathBox => FindName("ExcelPathTextBox") as System.Windows.Controls.TextBox;
         private System.Windows.Controls.TextBox PdfFolderBox => FindName("PdfFolderTextBox") as System.Windows.Controls.TextBox;
         private System.Windows.Controls.TextBox OrderNumberBox => FindName("OrderNumberTextBox") as System.Windows.Controls.TextBox;
+        private System.Windows.Controls.TextBlock OrderVerificationPdfStatusBlock => FindName("OrderVerificationPdfStatusTextBlock") as System.Windows.Controls.TextBlock;
+        private string _orderVerificationPdfPath = string.Empty;
+        private IList<OrderVerificationLine> _cachedOrderVerificationLines;
+        private const string OrderVerificationDropHint = "Bestell-PDF hier ablegen …";
         private System.Windows.Controls.CheckBox IncludeSubfoldersBox => FindName("IncludeSubfoldersCheckBox") as System.Windows.Controls.CheckBox;
+        private System.Windows.Controls.TextBlock DroppedExtensionsBlock => FindName("DroppedExtensionsTextBlock") as System.Windows.Controls.TextBlock;
         private System.Windows.Controls.Button ProcessButtonBox => FindName("ProcessButton") as System.Windows.Controls.Button;
         private System.Windows.Controls.Button CancelButtonBox => FindName("CancelButton") as System.Windows.Controls.Button;
         private System.Windows.Controls.Button MergePrintButtonBox => FindName("MergePrintButton") as System.Windows.Controls.Button;
         private System.Windows.Controls.Button DeleteProcessedButtonBox => FindName("DeleteProcessedButton") as System.Windows.Controls.Button;
-        private System.Windows.Controls.Grid ProgressPanelBox => FindName("ProgressPanel") as System.Windows.Controls.Grid;
+        private System.Windows.Controls.StackPanel ProgressPanelBox => FindName("ProgressPanel") as System.Windows.Controls.StackPanel;
         private System.Windows.Controls.ProgressBar BusyProgressBarBox => FindName("BusyProgressBar") as System.Windows.Controls.ProgressBar;
         private System.Windows.Controls.TextBlock ProgressLabelBox => FindName("ProgressLabel") as System.Windows.Controls.TextBlock;
         private System.Windows.Controls.TextBox StatusTextBoxBox => FindName("StatusTextBox") as System.Windows.Controls.TextBox;
@@ -41,6 +46,7 @@ namespace PDF_umbenenen
 
         private readonly OfflineAiOrchestrator _aiOrchestrator = new OfflineAiOrchestrator();
         private readonly PdfTextExtractionService _pdfTextService = new PdfTextExtractionService();
+        private readonly OrderExcelVerificationService _orderExcelVerificationService = new OrderExcelVerificationService();
         private AiMatchingService _aiMatchingService;
         private AiFieldExtractionService _aiFieldExtractionService;
         private AiQualityCheckService _aiQualityCheckService;
@@ -49,10 +55,12 @@ namespace PDF_umbenenen
         private AiChatWindow _aiChatWindow;
         private WatermarkSettings _watermarkSettings;
         private bool _menuSync;
+        private string _lastMergedPdfPath;
 
         public MainWindow()
         {
             LoadXaml();
+            Icon = ThemeWindowService.GetAppIcon();
             StatusTextBoxBox.Text = "Bereit.";
             ApplyTheme(true);
 
@@ -61,10 +69,36 @@ namespace PDF_umbenenen
             _watermarkSettings = WatermarkSettingsStore.Load();
             InitializeAiServices();
             RefreshAiMenuToggle();
-            Title = "Tesla Auftragsbearbeitung & Druck" + AppInfo.WindowTitleSuffix;
+            var demoStatus = DemoLicenseService.Evaluate();
+            Title = AppInfo.ProductName + AppInfo.WindowTitleSuffix + demoStatus.TitleSuffix;
             var versionBlock = FindName("AppVersionTextBlock") as System.Windows.Controls.TextBlock;
             if (versionBlock != null)
-                versionBlock.Text = "Version " + AppInfo.DisplayVersion + " · Build " + AppInfo.BuildDate;
+            {
+                versionBlock.Text = "Version " + AppInfo.DisplayVersion + " · " + demoStatus.VersionLine + " · Build " + AppInfo.BuildDate;
+            }
+
+            Loaded += MainWindow_Loaded;
+        }
+
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            ThemeWindowService.Attach(this);
+            CertificateTrustService.EnsurePublisherTrusted();
+
+            var legacyCleanup = LegacyBrandingCleanupService.Cleanup();
+            if (legacyCleanup.RemovedLegacyInstall || legacyCleanup.RemovedDesktopShortcut)
+            {
+                AppendStatus("Alte Installation/Verknüpfung entfernt.");
+                AppendStatus("Hinweis: Falls in der Taskleiste noch ein altes Symbol angeheftet ist: Rechtsklick → Von Taskleiste lösen.");
+            }
+
+            RefreshDroppedFilesDisplay();
+
+            if (AppInfo.IsDemoEdition)
+            {
+                var demoStatus = DemoLicenseService.Evaluate();
+                AppendStatus("ℹ " + demoStatus.SummaryText);
+            }
         }
 
         private void InitializeAiServices()
@@ -132,6 +166,8 @@ namespace PDF_umbenenen
             _aiOrchestrator.Settings.AiEnabled = dlg.Settings.AiEnabled;
             _aiOrchestrator.Settings.OllamaBaseUrl = dlg.Settings.OllamaBaseUrl;
             _aiOrchestrator.Settings.ModelName = dlg.Settings.ModelName;
+            _aiOrchestrator.Settings.VisionModelName = dlg.Settings.VisionModelName;
+            _aiOrchestrator.Settings.MaterialExtractionViaOllama = true;
             _aiOrchestrator.SaveSettings();
             RefreshAiMenuToggle();
             await RefreshAiStatusAsync();
@@ -214,7 +250,8 @@ namespace PDF_umbenenen
                 await _aiOrchestrator.RefreshAvailabilityAsync(CancellationToken.None);
 
                 var searchOption = IncludeSubfoldersBox.IsChecked == true ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-                var pdfs = LoadPdfCandidates(pdfFolder, searchOption).Select(ToAiPdfInfo).ToList();
+                var orderPdfForCheck = ResolveOrderVerificationPdfPath(pdfFolder);
+                var pdfs = LoadPdfCandidates(pdfFolder, searchOption, orderPdfForCheck).Select(ToAiPdfInfo).ToList();
                 var excelRows = ReadExcelRows(excelPath).Select(ToAiExcelRowInfo).ToList();
 
                 _lastQualityReport = await _aiQualityCheckService.AnalyzeAsync(pdfs, excelRows, CancellationToken.None);
@@ -369,6 +406,8 @@ namespace PDF_umbenenen
                 PathStore.SaveExcel(defaultExcelPath);
             }
 
+            ResetOrderVerificationPdfDisplay();
+
             // PDF-Ordner ist fest auf den Ablage-Ordner gesetzt
             if (!Directory.Exists(workspaceFolder))
             {
@@ -391,7 +430,12 @@ namespace PDF_umbenenen
                 if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
                     return;
 
-                var shortcutPath = Path.Combine(desktopPath, "Tesla Auftragsbearbeitung & Druck.lnk");
+                var baseDir = Path.GetDirectoryName(exePath);
+                var preferredExe = Path.Combine(baseDir, AppInfo.ExeFileName);
+                var targetExe = File.Exists(preferredExe) ? preferredExe : exePath;
+
+                var shortcutPath = Path.Combine(desktopPath, AppInfo.ShortcutFileName);
+                var iconPath = AppInfo.GetIconPath() ?? targetExe;
 
                 var wshShellType = Type.GetTypeFromProgID("WScript.Shell");
                 if (wshShellType == null)
@@ -399,10 +443,10 @@ namespace PDF_umbenenen
 
                 dynamic wshShell = Activator.CreateInstance(wshShellType);
                 dynamic shortcut = wshShell.CreateShortcut(shortcutPath);
-                shortcut.TargetPath = exePath;
-                shortcut.WorkingDirectory = Path.GetDirectoryName(exePath);
-                shortcut.IconLocation = exePath + ",0";
-                shortcut.Description = "Tesla Auftragsbearbeitung & Druck starten";
+                shortcut.TargetPath = targetExe;
+                shortcut.WorkingDirectory = baseDir;
+                shortcut.IconLocation = iconPath + ",0";
+                shortcut.Description = AppInfo.ProductName + " starten";
                 shortcut.Save();
             }
             catch (Exception ex)
@@ -449,21 +493,32 @@ namespace PDF_umbenenen
         private void Window_PreviewDragEnter(object sender, DragEventArgs e)
         {
             SetFileDropEffects(e);
+            UpdateDragDropPreview(e);
         }
 
         private void Window_PreviewDragOver(object sender, DragEventArgs e)
         {
             SetFileDropEffects(e);
+            UpdateDragDropPreview(e);
         }
 
         private void Window_DragEnter(object sender, DragEventArgs e)
         {
             SetFileDropEffects(e);
+            UpdateDragDropPreview(e);
         }
 
         private void Window_DragOver(object sender, DragEventArgs e)
         {
             SetFileDropEffects(e);
+            UpdateDragDropPreview(e);
+        }
+
+        private void Window_PreviewDragLeave(object sender, DragEventArgs e)
+        {
+            var pos = e.GetPosition(this);
+            if (pos.X < 0 || pos.Y < 0 || pos.X > ActualWidth || pos.Y > ActualHeight)
+                RefreshDroppedFilesDisplay();
         }
 
         private static void SetFileDropEffects(DragEventArgs e)
@@ -482,12 +537,171 @@ namespace PDF_umbenenen
 
         private void Window_PreviewDrop(object sender, DragEventArgs e)
         {
+            if (IsOverOrderVerificationDropZone(e))
+                return;
+
             HandleFileDrop(e);
         }
 
         private void Window_Drop(object sender, DragEventArgs e)
         {
+            if (IsOverOrderVerificationDropZone(e))
+                return;
+
             HandleFileDrop(e);
+        }
+
+        private bool IsOverOrderVerificationDropZone(DragEventArgs e)
+        {
+            var zone = OrderVerificationDropZone;
+            if (zone == null || zone.ActualWidth <= 0 || zone.ActualHeight <= 0)
+                return false;
+
+            var pos = e.GetPosition(zone);
+            return pos.X >= 0 && pos.Y >= 0 && pos.X <= zone.ActualWidth && pos.Y <= zone.ActualHeight;
+        }
+
+        private void OrderVerificationDropZone_PreviewDragEnter(object sender, DragEventArgs e)
+        {
+            SetOrderVerificationDropEffects(e);
+            HighlightOrderVerificationDropZone(true);
+        }
+
+        private void OrderVerificationDropZone_PreviewDragOver(object sender, DragEventArgs e)
+        {
+            SetOrderVerificationDropEffects(e);
+        }
+
+        private void OrderVerificationDropZone_PreviewDragLeave(object sender, DragEventArgs e)
+        {
+            HighlightOrderVerificationDropZone(false);
+        }
+
+        private void OrderVerificationDropZone_PreviewDrop(object sender, DragEventArgs e)
+        {
+            HighlightOrderVerificationDropZone(false);
+
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+                return;
+
+            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+            var pdfPath = FindFirstPdfPath(files, IncludeSubfoldersBox.IsChecked == true);
+            if (string.IsNullOrWhiteSpace(pdfPath))
+            {
+                AppendStatus("⚠ Für Prüf-PDF bitte genau eine PDF-Datei hier ablegen.");
+                e.Handled = true;
+                return;
+            }
+
+            LoadOrderVerificationPdfFromSource(pdfPath);
+            e.Handled = true;
+        }
+
+        private void SetOrderVerificationDropEffects(DragEventArgs e)
+        {
+            var files = e.Data.GetDataPresent(DataFormats.FileDrop)
+                ? e.Data.GetData(DataFormats.FileDrop) as string[]
+                : null;
+
+            e.Effects = FindFirstPdfPath(files, false) != null
+                ? DragDropEffects.Copy
+                : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void HighlightOrderVerificationDropZone(bool active)
+        {
+            var zone = OrderVerificationDropZone;
+            if (zone == null)
+                return;
+
+            zone.BorderBrush = active
+                ? (System.Windows.Media.Brush)FindResource("AccentBrush")
+                : (System.Windows.Media.Brush)FindResource("GroupBorder");
+            zone.Background = active
+                ? (System.Windows.Media.Brush)FindResource("InputBackground")
+                : System.Windows.Media.Brushes.Transparent;
+        }
+
+        private static string FindFirstPdfPath(string[] paths, bool includeSubfolders)
+        {
+            if (paths == null || paths.Length == 0)
+                return null;
+
+            var searchOption = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    continue;
+
+                if (File.Exists(path)
+                    && string.Equals(Path.GetExtension(path), ".pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    return path;
+                }
+
+                if (Directory.Exists(path))
+                {
+                    var pdf = Directory.GetFiles(path, "*.pdf", searchOption).FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(pdf))
+                        return pdf;
+                }
+            }
+
+            return null;
+        }
+
+        private void LoadOrderVerificationPdfFromSource(string sourceFile)
+        {
+            if (string.IsNullOrWhiteSpace(sourceFile) || !File.Exists(sourceFile))
+            {
+                AppendStatus("⚠ Prüf-PDF-Datei nicht gefunden.");
+                return;
+            }
+
+            if (!string.Equals(Path.GetExtension(sourceFile), ".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendStatus("⚠ Für Prüf-PDF wird eine PDF-Datei benötigt.");
+                return;
+            }
+
+            var workspaceFolder = PathStore.GetOrCreateDefaultWorkspaceFolder();
+            Directory.CreateDirectory(workspaceFolder);
+            var targetPath = OrderVerificationFileHelper.GetCanonicalPath(workspaceFolder);
+            File.Copy(sourceFile, targetPath, true);
+
+            _orderVerificationPdfPath = targetPath;
+            UpdateOrderVerificationPdfDisplay();
+            PathStore.SaveOrderVerificationPdf(targetPath);
+            PdfFolderBox.Text = workspaceFolder;
+            PathStore.SaveFolder(workspaceFolder);
+            AppendStatus("✓ Bestell-PDF geladen: " + Path.GetFileName(targetPath));
+        }
+
+        private void UpdateOrderVerificationPdfDisplay()
+        {
+            var block = OrderVerificationPdfStatusBlock;
+            if (block == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(_orderVerificationPdfPath) || !File.Exists(_orderVerificationPdfPath))
+            {
+                block.Text = OrderVerificationDropHint;
+                block.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
+                return;
+            }
+
+            block.Text = "✓ " + Path.GetFileName(_orderVerificationPdfPath) + " geladen";
+            block.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimary");
+        }
+
+        private void ResetOrderVerificationPdfDisplay()
+        {
+            _orderVerificationPdfPath = string.Empty;
+            _cachedOrderVerificationLines = null;
+            PathStore.SaveOrderVerificationPdf(string.Empty);
+            UpdateOrderVerificationPdfDisplay();
         }
 
         private void HandleFileDrop(DragEventArgs e)
@@ -562,6 +776,7 @@ namespace PDF_umbenenen
                     AppendStatus($"ℹ {ignoredCount} nicht unterstützte Datei(en) übersprungen.");
                 }
 
+                RefreshDroppedFilesDisplay();
                 return;
             }
 
@@ -573,6 +788,90 @@ namespace PDF_umbenenen
 
             var pdfCount = Directory.GetFiles(targetFolder, "*.pdf", SearchOption.TopDirectoryOnly).Length;
             AppendStatus($"ℹ Ablage-Ordner enthält jetzt {pdfCount} PDF-Datei(en).");
+            RefreshDroppedFilesDisplay();
+        }
+
+        private void RefreshDroppedFilesDisplay()
+        {
+            var block = DroppedExtensionsBlock;
+            if (block == null)
+                return;
+
+            var folder = PdfFolderBox?.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+            {
+                block.Text = "— noch keine Dateien —";
+                return;
+            }
+
+            var searchOption = IncludeSubfoldersBox?.IsChecked == true
+                ? SearchOption.AllDirectories
+                : SearchOption.TopDirectoryOnly;
+
+            var extensions = Directory.GetFiles(folder, "*.*", searchOption)
+                .Select(file => Path.GetExtension(file)?.ToLowerInvariant() ?? string.Empty)
+                .Where(ext => !string.IsNullOrWhiteSpace(ext));
+
+            block.Text = FormatExtensionSummary(extensions, "— noch keine Dateien —");
+        }
+
+        private void UpdateDragDropPreview(DragEventArgs e)
+        {
+            var block = DroppedExtensionsBlock;
+            if (block == null || !e.Data.GetDataPresent(DataFormats.FileDrop))
+                return;
+
+            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (files == null || files.Length == 0)
+                return;
+
+            var includeSubfolders = IncludeSubfoldersBox?.IsChecked == true;
+            var extensions = CollectExtensionsFromPaths(files, includeSubfolders);
+            block.Text = extensions.Any()
+                ? "Wird eingefügt: " + FormatExtensionSummary(extensions, string.Empty)
+                : "Keine unterstützten Dateiendungen erkannt";
+        }
+
+        private static IEnumerable<string> CollectExtensionsFromPaths(IEnumerable<string> paths, bool includeSubfolders)
+        {
+            var searchOption = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var extensions = new List<string>();
+
+            foreach (var path in paths)
+            {
+                if (Directory.Exists(path))
+                {
+                    foreach (var file in Directory.GetFiles(path, "*.*", searchOption))
+                    {
+                        var ext = Path.GetExtension(file)?.ToLowerInvariant();
+                        if (!string.IsNullOrWhiteSpace(ext))
+                            extensions.Add(ext);
+                    }
+
+                    continue;
+                }
+
+                if (!File.Exists(path))
+                    continue;
+
+                var fileExt = Path.GetExtension(path)?.ToLowerInvariant();
+                if (!string.IsNullOrWhiteSpace(fileExt))
+                    extensions.Add(fileExt);
+            }
+
+            return extensions;
+        }
+
+        private static string FormatExtensionSummary(IEnumerable<string> extensions, string emptyText)
+        {
+            var groups = extensions
+                .Where(ext => !string.IsNullOrWhiteSpace(ext))
+                .GroupBy(ext => ext, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.Key + " ×" + group.Count())
+                .ToList();
+
+            return groups.Count == 0 ? emptyText : string.Join("    ", groups);
         }
 
         private int CopySupportedFileToWorkspace(string sourceFile, string targetFolder, ref bool excelCopied, ref int ignoredCount)
@@ -690,6 +989,7 @@ namespace PDF_umbenenen
                     return outputPath;
                 }).ConfigureAwait(true);
 
+                _lastMergedPdfPath = mergedPath;
                 AppendStatus("✓ Zusammengeführt: " + Path.GetFileName(mergedPath));
                 OpenPdfPreview(mergedPath);
             }
@@ -850,7 +1150,24 @@ namespace PDF_umbenenen
                 return;
             }
 
+            var orderPdfPath = ResolveOrderVerificationPdfPath(pdfFolder);
+            if (string.IsNullOrWhiteSpace(orderPdfPath) || !File.Exists(orderPdfPath))
+            {
+                AppendStatus("Bitte zuerst die Bestell-PDF per Maus in den Bereich „Prüf-PDF“ ablegen.");
+                return;
+            }
+
+            var excelRows = ReadExcelRows(excelPath).ToList();
+            if (excelRows.Count == 0)
+            {
+                AppendStatus("Keine Zeichnungsnummern in der Excel-Datei gefunden.");
+                return;
+            }
+
             var searchOption = IncludeSubfoldersBox.IsChecked == true ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+
+            if (!TryRunOrderVerification(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption, blockOnIssues: true))
+                return;
 
             // WICHTIG: UI-Wert auf dem UI-Thread speichern, BEVOR wir in den Background-Thread gehen!
             if (_watermarkSettings == null)
@@ -862,7 +1179,7 @@ namespace PDF_umbenenen
                 SetProcessingState(true);
                 _processingCancellationSource = new CancellationTokenSource();
                 AppendStatus("Verarbeitung gestartet...");
-                await RunOnStaThreadAsync(() => ProcessDocuments(excelPath, pdfFolder, searchOption, _processingCancellationSource.Token, SetProgress, addWatermarks, orderNumber), _processingCancellationSource.Token);
+                await RunOnStaThreadAsync(() => ProcessDocuments(excelPath, pdfFolder, searchOption, orderPdfPath, _cachedOrderVerificationLines, _processingCancellationSource.Token, SetProgress, addWatermarks, orderNumber), _processingCancellationSource.Token);
             }
             catch (OperationCanceledException)
             {
@@ -896,7 +1213,14 @@ namespace PDF_umbenenen
             }
 
             var confirm = MessageBox.Show(
-                "Sollen alle bearbeiteten Aufträge (nummerierte PDFs und _GESAMT_-Dateien) im Ablage-Ordner gelöscht werden?",
+                "Soll der Ablage-Ordner komplett geleert werden?\n\n" +
+                "Es werden gelöscht:\n" +
+                "• Alle PDFs (bearbeitet, Ursprungs- und entpackte Dateien)\n" +
+                "• Gesamt-PDF / Gesamtansicht (_GESAMT_...)\n" +
+                "• Excel-Dateien (Daten.xlsx / Daten.xls)\n" +
+                "• ZIP-Dateien\n" +
+                "• Leere Unterordner\n\n" +
+                "Hinweis: Offene PDF-Vorschau bitte vorher schließen.",
                 "Bearbeitete Aufträge löschen",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
@@ -907,37 +1231,226 @@ namespace PDF_umbenenen
                 return;
             }
 
-            var searchOption = IncludeSubfoldersBox.IsChecked == true ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-            var deletedCount = 0;
-            var failedCount = 0;
-
-            foreach (var file in Directory.GetFiles(pdfFolder, "*.pdf", searchOption))
+            TryCloseDedicatedPdfViewers();
+            var foldersToClean = GetWorkspaceFoldersToClean(pdfFolder);
+            var result = CleanupWorkspaceFolders(foldersToClean);
+            if (!string.IsNullOrWhiteSpace(ExcelPathBox.Text)
+                && foldersToClean.Any(folder => IsPathInsideDirectory(ExcelPathBox.Text.Trim(), folder))
+                && !File.Exists(ExcelPathBox.Text.Trim()))
             {
-                var fileName = Path.GetFileName(file);
-                var isMerged = fileName.StartsWith("_GESAMT_", StringComparison.OrdinalIgnoreCase);
-                var isRenamed = Regex.IsMatch(fileName, @"^\d+_.+\.pdf$", RegexOptions.IgnoreCase);
+                ExcelPathBox.Text = string.Empty;
+                PathStore.SaveExcel(string.Empty);
+            }
 
-                if (!isMerged && !isRenamed)
-                {
+            if (result.RemainingFiles.Count > 0)
+            {
+                foreach (var remaining in result.RemainingFiles.Take(5))
+                    AppendStatus("⚠ Konnte nicht gelöscht werden: " + remaining);
+
+                if (result.RemainingFiles.Count > 5)
+                    AppendStatus("⚠ ... und " + (result.RemainingFiles.Count - 5) + " weitere Datei(en).");
+
+                AppendStatus("ℹ Bitte PDF-Vorschau (Gesamtansicht) schließen und erneut löschen.");
+            }
+            else
+            {
+                _lastMergedPdfPath = null;
+            }
+
+            AppendStatus(string.Format(CultureInfo.InvariantCulture,
+                "🧹 Ablage bereinigt: {0} Datei(en), {1} Ordner entfernt. Fehler: {2}.",
+                result.DeletedFiles,
+                result.RemovedDirectories,
+                result.FailedFiles));
+            ResetOrderVerificationPdfDisplay();
+            RefreshDroppedFilesDisplay();
+        }
+
+        private static IEnumerable<string> GetWorkspaceFoldersToClean(string pdfFolder)
+        {
+            var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(pdfFolder) && Directory.Exists(pdfFolder))
+                folders.Add(Path.GetFullPath(pdfFolder));
+
+            var defaultFolder = PathStore.GetOrCreateDefaultWorkspaceFolder();
+            if (Directory.Exists(defaultFolder))
+                folders.Add(Path.GetFullPath(defaultFolder));
+
+            return folders;
+        }
+
+        private static WorkspaceCleanupResult CleanupWorkspaceFolders(IEnumerable<string> folders)
+        {
+            var result = new WorkspaceCleanupResult();
+            var filesToDelete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var folder in folders ?? Enumerable.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
                     continue;
-                }
 
-                try
+                foreach (var file in Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories))
                 {
-                    File.Delete(file);
-                    deletedCount++;
-                }
-                catch (Exception ex)
-                {
-                    failedCount++;
-                    AppendStatus("⚠ Konnte nicht gelöscht werden: " + fileName + " - " + ex.Message);
+                    if (ShouldDeleteWorkspaceFile(file))
+                        filesToDelete.Add(Path.GetFullPath(file));
                 }
             }
 
-            AppendStatus($"🧹 Bearbeitete Aufträge gelöscht: {deletedCount} Datei(en). Fehler: {failedCount}.");
+            var mergedFiles = filesToDelete
+                .Where(IsMergedOverviewFilePath)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var otherFiles = filesToDelete
+                .Where(path => !IsMergedOverviewFilePath(path))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var file in mergedFiles.Concat(otherFiles))
+            {
+                if (TryDeleteFileWithRetry(file, IsMergedOverviewFilePath(file) ? 12 : 4))
+                {
+                    result.DeletedFiles++;
+                    continue;
+                }
+
+                result.FailedFiles++;
+                if (File.Exists(file))
+                    result.RemainingFiles.Add(file);
+            }
+
+            foreach (var folder in (folders ?? Enumerable.Empty<string>())
+                .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path)))
+            {
+                foreach (var directory in Directory.GetDirectories(folder, "*", SearchOption.AllDirectories)
+                    .OrderByDescending(path => path.Length))
+                {
+                    try
+                    {
+                        if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                        {
+                            Directory.Delete(directory);
+                            result.RemovedDirectories++;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        result.FailedFiles++;
+                    }
+                }
+            }
+
+            return result;
         }
 
-        private void ProcessDocuments(string excelPath, string pdfFolder, SearchOption searchOption, CancellationToken cancellationToken, Action<int> reportProgress, bool addWatermarks, string orderNumber)
+        private static bool ShouldDeleteWorkspaceFile(string filePath)
+        {
+            var extension = Path.GetExtension(filePath);
+            if (string.IsNullOrWhiteSpace(extension))
+                return false;
+
+            return extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".xls", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".zip", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsMergedOverviewFilePath(string filePath)
+        {
+            var fileName = Path.GetFileName(filePath);
+            if (string.IsNullOrWhiteSpace(fileName))
+                return false;
+
+            return fileName.StartsWith("_GESAMT_", StringComparison.OrdinalIgnoreCase)
+                || fileName.IndexOf("gesamt", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool TryDeleteFileWithRetry(string filePath, int attempts)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return true;
+
+            for (var attempt = 0; attempt < attempts; attempt++)
+            {
+                try
+                {
+                    if (!File.Exists(filePath))
+                        return true;
+
+                    var attributes = File.GetAttributes(filePath);
+                    if ((attributes & FileAttributes.ReadOnly) != 0)
+                        File.SetAttributes(filePath, attributes & ~FileAttributes.ReadOnly);
+
+                    File.Delete(filePath);
+                    if (!File.Exists(filePath))
+                        return true;
+                }
+                catch (IOException)
+                {
+                    Thread.Sleep(350);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    Thread.Sleep(350);
+                }
+            }
+
+            return !File.Exists(filePath);
+        }
+
+        private static void TryCloseDedicatedPdfViewers()
+        {
+            foreach (var processName in new[] { "AcroRd32", "Acrobat", "FoxitReader", "SumatraPDF" })
+            {
+                foreach (var process in Process.GetProcessesByName(processName))
+                {
+                    try
+                    {
+                        if (process.HasExited)
+                            continue;
+
+                        if (process.MainWindowHandle != IntPtr.Zero)
+                            process.CloseMainWindow();
+
+                        if (!process.WaitForExit(1500))
+                            process.Kill();
+                    }
+                    catch
+                    {
+                        // Viewer konnte nicht geschlossen werden – Löschen versucht trotzdem mit Retry.
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
+        }
+
+        private static bool IsPathInsideDirectory(string filePath, string directoryPath)
+        {
+            try
+            {
+                var fullFilePath = Path.GetFullPath(filePath);
+                var fullDirectoryPath = Path.GetFullPath(directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar);
+                return fullFilePath.StartsWith(fullDirectoryPath, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private sealed class WorkspaceCleanupResult
+        {
+            public int DeletedFiles { get; set; }
+            public int RemovedDirectories { get; set; }
+            public int FailedFiles { get; set; }
+            public List<string> RemainingFiles { get; } = new List<string>();
+        }
+
+        private void ProcessDocuments(string excelPath, string pdfFolder, SearchOption searchOption, string orderVerificationPdfPath, IList<OrderVerificationLine> orderVerificationLines, CancellationToken cancellationToken, Action<int> reportProgress, bool addWatermarks, string orderNumber)
         {
             // WICHTIG: Diese ganze Methode läuft auf einem separaten STA-Thread!
             // Daher nutzen wir SafeAppendStatus und SafeSetProgress!
@@ -950,11 +1463,23 @@ namespace PDF_umbenenen
 
             SafeSetProgress(0);
             cancellationToken.ThrowIfCancellationRequested();
-            var pdfCandidates = LoadPdfCandidates(pdfFolder, searchOption).ToList();
+
+            var aiSettings = AiSettingsStore.Load();
+            var watermarkSettings = WatermarkSettingsStore.Load();
+            if (addWatermarks && watermarkSettings.ExtractMaterialThickness)
+                SafeAppendStatus("Materialstärke: schnelle Regel-Erkennung aktiv (Raster nur bei Bedarf).");
+
+            var pdfCandidates = LoadPdfCandidates(pdfFolder, searchOption, orderVerificationPdfPath).ToList();
             if (pdfCandidates.Count == 0)
             {
                 SafeAppendStatus("Keine PDF-Dateien im ausgewählten Ordner gefunden.");
                 return;
+            }
+
+            if (orderVerificationLines == null || orderVerificationLines.Count == 0)
+            {
+                SafeAppendStatus("⚠ Keine Bestellpositionen aus Prüf-PDF – Liefertermine können nicht gesetzt werden.");
+                orderVerificationLines = Array.Empty<OrderVerificationLine>();
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -1052,6 +1577,7 @@ namespace PDF_umbenenen
                 }
 
                 var primaryRow = matchingRows[0];
+                var orderRowForPdf = ToOrderExcelRow(primaryRow);
                 var watermarkEntries = matchingRows
                     .Select(r =>
                     {
@@ -1072,16 +1598,28 @@ namespace PDF_umbenenen
                                 bgRevision = bgRow.RevisionNumber;
                         }
 
+                        var orderLine = OrderVerificationLookup.FindBestMatchingLine(
+                            ToOrderExcelRow(r),
+                            orderVerificationLines,
+                            pdf.SearchKey);
+                        var deliveryDate = OrderVerificationLookup.ResolveWatermarkDeliveryDate(r.ParentArticleNumber, orderLine);
+
                         return new WatermarkEntry
                         {
                             RequestedAmount = r.RequestedAmount,
-                            RequestedDeliveryDate = r.RequestedDeliveryDate,
+                            RequestedDeliveryDate = deliveryDate,
                             RequestedDeliveryLocation = r.RequestedDeliveryLocation,
                             BgDrawingNumber = FormatBgWatermarkText(bgDrawing, bgRevision),
                             OrderNumber = orderNumber
                         };
                     })
                     .ToList();
+
+                var primaryOrderLine = OrderVerificationLookup.FindBestMatchingLine(
+                    orderRowForPdf,
+                    orderVerificationLines,
+                    pdf.SearchKey);
+                var primaryDeliveryDate = OrderVerificationLookup.ResolveWatermarkDeliveryDate(primaryRow.ParentArticleNumber, primaryOrderLine);
 
                 matches.Add(new RenamingItem
                 {
@@ -1090,7 +1628,7 @@ namespace PDF_umbenenen
                     ExcelRowIndex = primaryRow.RowIndex,
                     PdfOrder = pdf.Order,
                     RequestedAmount = primaryRow.RequestedAmount,
-                    RequestedDeliveryDate = primaryRow.RequestedDeliveryDate,
+                    RequestedDeliveryDate = primaryDeliveryDate,
                     RequestedDeliveryLocation = primaryRow.RequestedDeliveryLocation,
                     WatermarkEntries = watermarkEntries
                 });
@@ -1156,7 +1694,8 @@ namespace PDF_umbenenen
             {
                 SafeAppendStatus("──────────────────────────────────────────");
                 SafeAppendStatus("Wasserzeichen werden hinzugefügt...");
-                SafeAppendStatus(PdfRasterLayoutService.GetStatus());
+                PdfLayoutAnalysisService.ClearCache();
+                PdfMaterialExtractionService.ClearCache();
                 PdfRasterLayoutService.ClearCache();
                 SafeAppendStatus("──────────────────────────────────────────");
 
@@ -1166,30 +1705,7 @@ namespace PDF_umbenenen
                     try
                     {
                         var encodedWatermarks = EncodeWatermarkEntries(item.WatermarkEntries);
-                        PdfWatermarkService.AddWatermark(item.FinalPath, encodedWatermarks, string.Empty, string.Empty, item.DrawingNumber);
-                        if (_watermarkSettings.ExtractMaterialType || _watermarkSettings.ExtractMaterialThickness)
-                        {
-                            var materialInfo = PdfMaterialExtractionService.Extract(item.FinalPath, 1);
-                            var materialText = _watermarkSettings.ExtractMaterialType
-                                ? (string.IsNullOrWhiteSpace(materialInfo.MaterialType) ? "?" : materialInfo.MaterialType)
-                                : "-";
-                            var thicknessText = _watermarkSettings.ExtractMaterialThickness
-                                ? (string.IsNullOrWhiteSpace(materialInfo.ThicknessText) ? "?" : materialInfo.ThicknessText)
-                                : "-";
-                            if ((_watermarkSettings.ExtractMaterialType && !string.IsNullOrWhiteSpace(materialInfo.MaterialType))
-                                || (_watermarkSettings.ExtractMaterialThickness && !string.IsNullOrWhiteSpace(materialInfo.ThicknessText)))
-                            {
-                                SafeAppendStatus(string.Format(CultureInfo.InvariantCulture,
-                                    "  Material: {0} | {1}",
-                                    materialText,
-                                    thicknessText));
-                            }
-                            else
-                            {
-                                SafeAppendStatus("  Material: nicht aus Schriftfeld erkannt");
-                            }
-                        }
-
+                        PdfWatermarkService.AddWatermark(item.FinalPath, encodedWatermarks, string.Empty, string.Empty, item.DrawingNumber, _watermarkSettings);
                         SafeAppendStatus(string.Format(CultureInfo.InvariantCulture, "✓ Wasserzeichen hinzugefügt zu: {0}", Path.GetFileName(item.FinalPath)));
                     }
                     catch (InvalidOperationException ioex)
@@ -1226,16 +1742,19 @@ namespace PDF_umbenenen
                 SafeAppendStatus("Nicht gefunden in Excel: " + string.Join(", ", unmatchedPdfs));
             }
 
-            // Nach erfolgreicher Verarbeitung: Ursprungsdaten aus Ablage entfernen
+            // Nach erfolgreicher Verarbeitung: Ursprungs-Excel und nicht mehr vorhandene Quell-PDFs entfernen
             var deletedCount = 0;
+            var deletedNames = new List<string>();
             foreach (var fileToDelete in sourceFilesToDeleteAfterSuccess.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 try
                 {
                     if (File.Exists(fileToDelete))
                     {
+                        var name = Path.GetFileName(fileToDelete);
                         File.Delete(fileToDelete);
                         deletedCount++;
+                        deletedNames.Add(name);
                     }
                 }
                 catch (Exception ex)
@@ -1244,7 +1763,19 @@ namespace PDF_umbenenen
                 }
             }
 
-            SafeAppendStatus($"🧹 Ursprungsdaten bereinigt: {deletedCount} Datei(en) gelöscht.");
+            if (deletedCount == 0)
+            {
+                SafeAppendStatus("ℹ Ursprungsdaten: keine Dateien zum Löschen (PDFs bereits umbenannt).");
+            }
+            else
+            {
+                SafeAppendStatus(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "🧹 Ursprungsdaten bereinigt: {0} Datei(en) gelöscht ({1}).",
+                    deletedCount,
+                    string.Join(", ", deletedNames)));
+                SafeAppendStatus("ℹ Hinweis: Nach dem Umbenennen bleiben nur die sortierten PDFs in der Ablage; die Excel-Quelldatei wird entfernt.");
+            }
         }
 
         private Task RunOnStaThreadAsync(Action action, CancellationToken cancellationToken)
@@ -1488,12 +2019,178 @@ namespace PDF_umbenenen
         private static readonly XNamespace WorkbookNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         private static readonly XNamespace RelationshipNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-        private IEnumerable<PdfCandidate> LoadPdfCandidates(string pdfFolder, SearchOption searchOption)
+        private IEnumerable<PdfCandidate> LoadPdfCandidates(string pdfFolder, SearchOption searchOption, string excludeOrderPdfPath = null)
         {
+            var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(excludeOrderPdfPath) && File.Exists(excludeOrderPdfPath))
+                excluded.Add(excludeOrderPdfPath);
+
             return Directory.GetFiles(pdfFolder, "*.pdf", searchOption)
                 .Where(path => !Path.GetFileName(path).StartsWith("_GESAMT_", StringComparison.OrdinalIgnoreCase))
+                .Where(path => !excluded.Contains(path))
                 .Select((path, index) => new PdfCandidate(path, index))
                 .Where(candidate => !string.IsNullOrWhiteSpace(candidate.SearchKey));
+        }
+
+        private string ResolveOrderVerificationPdfPath(string pdfFolder)
+        {
+            if (!string.IsNullOrWhiteSpace(_orderVerificationPdfPath) && File.Exists(_orderVerificationPdfPath))
+                return _orderVerificationPdfPath;
+
+            return string.Empty;
+        }
+
+        private bool TryRunOrderVerification(
+            string excelPath,
+            string orderPdfPath,
+            IList<ExcelRowCandidate> excelRows,
+            string pdfFolder,
+            SearchOption searchOption,
+            bool blockOnIssues)
+        {
+            var report = RunOrderVerificationReport(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption);
+            AppendStatus(report.ToDisplayText());
+
+            var dialogResult = OrderVerificationReportWindow.ShowDialog(
+                this,
+                report,
+                Path.GetFileName(excelPath),
+                Path.GetFileName(orderPdfPath),
+                offerContinueOnIssues: blockOnIssues);
+
+            if (dialogResult.AdoptOrderPdfDates)
+            {
+                ApplyOrderPdfDates(excelRows, report);
+                report = RunOrderVerificationReport(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption);
+                AppendStatus("✓ Liefertermine aus Bestell-PDF übernommen.");
+                AppendStatus(report.ToDisplayText());
+            }
+
+            if (!report.HasBlockingIssues)
+            {
+                AppendStatus("✓ Auftragsprüfung bestanden – Sortierung kann starten.");
+                return true;
+            }
+
+            if (!blockOnIssues)
+                return true;
+
+            if (!dialogResult.Proceed)
+            {
+                AppendStatus("Sortierung abgebrochen – bitte Excel und Bestell-PDF abgleichen.");
+                return false;
+            }
+
+            AppendStatus("⚠ Sortierung trotz Abweichungen fortgesetzt (Benutzerbestätigung).");
+            return true;
+        }
+
+        private OrderVerificationReport RunOrderVerificationReport(
+            string excelPath,
+            string orderPdfPath,
+            IList<ExcelRowCandidate> excelRows,
+            string pdfFolder,
+            SearchOption searchOption)
+        {
+            var orderRows = excelRows.Select(ToOrderExcelRow).ToList();
+            var pdfDrawingKeys = LoadPdfCandidates(pdfFolder, searchOption, orderPdfPath)
+                .Select(p => p.SearchKey)
+                .ToList();
+            var report = _orderExcelVerificationService.Verify(
+                orderPdfPath,
+                orderRows,
+                _pdfTextService,
+                pdfDrawingKeys);
+            _cachedOrderVerificationLines = report.ParsedOrderLines;
+            return report;
+        }
+
+        private static void ApplyOrderPdfDates(IList<ExcelRowCandidate> excelRows, OrderVerificationReport report)
+        {
+            if (excelRows == null || report?.DateMismatches == null)
+                return;
+
+            foreach (var mismatch in report.DateMismatches)
+            {
+                if (string.IsNullOrWhiteSpace(mismatch.PdfDate)
+                    || mismatch.PdfDate.StartsWith("(", System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var normalizedPdfDate = OrderVerificationDateHelper.NormalizeToEu(mismatch.PdfDate);
+                if (string.IsNullOrWhiteSpace(normalizedPdfDate))
+                    continue;
+
+                foreach (var row in excelRows)
+                {
+                    if (OrderVerificationDrawingKey.Equal(row.RawDrawingNumber, mismatch.DrawingKey)
+                        || (row.NormalizedCells != null
+                            && row.NormalizedCells.Any(cell => OrderVerificationDrawingKey.Equal(cell, mismatch.DrawingKey))))
+                    {
+                        row.RequestedDeliveryDate = normalizedPdfDate;
+                    }
+                }
+            }
+        }
+
+        private static OrderExcelRow ToOrderExcelRow(ExcelRowCandidate row)
+        {
+            var searchKey = row.NormalizedCells != null
+                ? row.NormalizedCells.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c))
+                : null;
+
+            return new OrderExcelRow
+            {
+                RowIndex = row.RowIndex,
+                DrawingNumber = row.RawDrawingNumber,
+                SearchKey = searchKey ?? string.Empty,
+                ArticleNumbers = row.DetectedArticleNumbers ?? new List<string>(),
+                ParentArticleNumber = row.ParentArticleNumber,
+                Amount = row.RequestedAmount,
+                DeliveryDate = row.RequestedDeliveryDate,
+                DeliveryLocation = row.RequestedDeliveryLocation
+            };
+        }
+
+        private void OrderVerificationCheck_Click(object sender, RoutedEventArgs e)
+        {
+            var excelPath = ExcelPathBox.Text.Trim();
+            var pdfFolder = PdfFolderBox.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
+            {
+                AppendStatus("Bitte zuerst eine gültige Excel-Datei laden.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
+            {
+                AppendStatus("Bitte zuerst den Ablage-Ordner verwenden.");
+                return;
+            }
+
+            var orderPdfPath = ResolveOrderVerificationPdfPath(pdfFolder);
+            if (string.IsNullOrWhiteSpace(orderPdfPath) || !File.Exists(orderPdfPath))
+            {
+                AppendStatus("Keine Bestell-PDF geladen. Bitte per Maus in „Prüf-PDF“ ablegen.");
+                return;
+            }
+
+            var excelRows = ReadExcelRows(excelPath).ToList();
+            if (excelRows.Count == 0)
+            {
+                AppendStatus("Keine Excel-Zeilen gefunden.");
+                return;
+            }
+
+            TryRunOrderVerification(
+                excelPath,
+                orderPdfPath,
+                excelRows,
+                pdfFolder,
+                IncludeSubfoldersBox.IsChecked == true ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly,
+                blockOnIssues: false);
         }
 
         private IEnumerable<ExcelRowCandidate> ReadExcelRows(string excelPath)
@@ -2274,6 +2971,9 @@ namespace PDF_umbenenen
         }
 
         private static readonly Regex ArticleRegex = new Regex(@"\bTGA\d+\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex TeslaPartArticleRegex = new Regex(
+            @"\b(?:[A-Z]{2,6}-)?\d{4,6}-\d{2,6}(?:-[A-Z0-9]+)?\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex ParentArticleRegex = new Regex(@"verbaut\s*in\s*(TGA\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static List<string> ExtractArticleNumbers(IEnumerable<string> rowTexts)
@@ -2292,6 +2992,13 @@ namespace PDF_umbenenen
                     continue;
 
                 foreach (Match m in ArticleRegex.Matches(text))
+                {
+                    var v = m.Value.ToUpperInvariant();
+                    if (!result.Contains(v))
+                        result.Add(v);
+                }
+
+                foreach (Match m in TeslaPartArticleRegex.Matches(text))
                 {
                     var v = m.Value.ToUpperInvariant();
                     if (!result.Contains(v))
@@ -2466,6 +3173,87 @@ namespace PDF_umbenenen
             public List<WatermarkEntry> WatermarkEntries { get; set; }
         }
 
+        private void CreateDataBackup_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                using (var dialog = new Forms.FolderBrowserDialog())
+                {
+                    dialog.Description = "Zielordner für die komplette Datensicherung wählen";
+                    dialog.ShowNewFolderButton = true;
+
+                    var defaultRoot = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                        AppInfo.ProductName + " Datensicherung");
+                    if (Directory.Exists(defaultRoot))
+                        dialog.SelectedPath = defaultRoot;
+
+                    if (dialog.ShowDialog() != Forms.DialogResult.OK)
+                        return;
+
+                    AppendStatus("Datensicherung gestartet...");
+                    ProcessButtonBox.IsEnabled = false;
+                    MergePrintButtonBox.IsEnabled = false;
+                    DeleteProcessedButtonBox.IsEnabled = false;
+
+                    var request = new DataBackupRequest
+                    {
+                        DestinationRoot = dialog.SelectedPath,
+                        ExcelPath = ExcelPathBox?.Text?.Trim() ?? string.Empty,
+                        PdfFolder = PdfFolderBox?.Text?.Trim() ?? string.Empty,
+                        OrderVerificationPdfPath = _orderVerificationPdfPath,
+                        CreateZip = true
+                    };
+
+                    var result = DataBackupService.CreateBackup(request);
+
+                    if (result.Success)
+                    {
+                        AppendStatus("✓ " + result.SummaryText);
+                        AppendStatus("Ordner: " + result.BackupFolder);
+                        foreach (var section in result.IncludedSections)
+                            AppendStatus("  · " + section);
+                        foreach (var warning in result.Warnings)
+                            AppendStatus("  ⚠ " + warning);
+
+                        MessageBox.Show(
+                            result.SummaryText + Environment.NewLine + Environment.NewLine +
+                            "Ordner:" + Environment.NewLine + result.BackupFolder +
+                            (string.IsNullOrWhiteSpace(result.ZipPath)
+                                ? string.Empty
+                                : Environment.NewLine + Environment.NewLine + "ZIP:" + Environment.NewLine + result.ZipPath),
+                            AppInfo.ProductName + " – Datensicherung",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    }
+                    else
+                    {
+                        AppendStatus("❌ Datensicherung fehlgeschlagen: " + result.ErrorMessage);
+                        MessageBox.Show(
+                            result.ErrorMessage,
+                            AppInfo.ProductName + " – Datensicherung",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendStatus("❌ Datensicherung fehlgeschlagen: " + ex.Message);
+                MessageBox.Show(
+                    ex.Message,
+                    AppInfo.ProductName + " – Datensicherung",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                ProcessButtonBox.IsEnabled = true;
+                MergePrintButtonBox.IsEnabled = true;
+                DeleteProcessedButtonBox.IsEnabled = true;
+            }
+        }
+
         private void About_Click(object sender, RoutedEventArgs e)
         {
             AboutWindow aboutWindow = new AboutWindow
@@ -2502,7 +3290,7 @@ namespace PDF_umbenenen
 
                 var manualText = !string.IsNullOrWhiteSpace(manualPath)
                     ? File.ReadAllText(manualPath, Encoding.UTF8)
-                    : "BEDIENUNGSANLEITUNG - Tesla Auftragsbearbeitung & Druck" + Environment.NewLine
+                    : "BEDIENUNGSANLEITUNG - " + AppInfo.ProductName + Environment.NewLine
                       + "=====================================================" + Environment.NewLine + Environment.NewLine
                       + "1) Dateien laden:" + Environment.NewLine
                       + "   - PDFs + Excel oder ZIP per Drag & Drop in die App ziehen." + Environment.NewLine

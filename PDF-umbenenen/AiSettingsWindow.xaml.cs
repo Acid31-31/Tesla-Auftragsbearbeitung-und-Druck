@@ -12,7 +12,9 @@ namespace PDF_umbenenen
             {
                 AiEnabled = settings?.AiEnabled ?? true,
                 OllamaBaseUrl = settings?.OllamaBaseUrl ?? "http://localhost:11434",
-                ModelName = settings?.ModelName ?? "llama3.2:3b"
+                ModelName = settings?.ModelName ?? "llama3.2:3b",
+                VisionModelName = settings?.VisionModelName ?? "llava:7b",
+                MaterialExtractionViaOllama = true
             };
 
             AiEnabledCheckBox.IsChecked = Settings.AiEnabled;
@@ -27,6 +29,10 @@ namespace PDF_umbenenen
             Settings.AiEnabled = AiEnabledCheckBox.IsChecked == true;
             Settings.OllamaBaseUrl = OllamaUrlTextBox.Text.Trim();
             Settings.ModelName = AiModelNameTextBox.Text.Trim();
+            Settings.VisionModelName = string.IsNullOrWhiteSpace(Settings.VisionModelName)
+                ? "llava:7b"
+                : Settings.VisionModelName;
+            Settings.MaterialExtractionViaOllama = true;
             DialogResult = true;
             Close();
         }

@@ -4,7 +4,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Tesla Auftragsbearbeitung &amp; Druck" Height="760" Width="980"
+        Title="DOK-V01" Height="760" Width="980"
+        Icon="Assets/AppIcon.ico"
         WindowStartupLocation="CenterScreen"
         WindowState="Maximized"
         Background="{DynamicResource AppBackground}"
@@ -14,6 +15,7 @@
         Drop="Window_Drop"
         PreviewDragEnter="Window_PreviewDragEnter"
         PreviewDragOver="Window_PreviewDragOver"
+        PreviewDragLeave="Window_PreviewDragLeave"
         PreviewDrop="Window_PreviewDrop"
         PreviewKeyDown="Window_PreviewKeyDown">
 
@@ -98,18 +100,30 @@
 
         <!-- ProgressBar -->
         <Style TargetType="ProgressBar">
-            <Setter Property="Height"     Value="10"/>
+            <Setter Property="Height"     Value="18"/>
+            <Setter Property="MinHeight"  Value="18"/>
             <Setter Property="Background" Value="{DynamicResource ProgressTrack}"/>
             <Setter Property="Foreground" Value="{DynamicResource ProgressFill}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ProgressBar">
-                        <Border CornerRadius="5" Background="{TemplateBinding Background}">
-                            <Border x:Name="PART_Indicator" CornerRadius="5"
+                        <Grid MinHeight="18">
+                            <Border x:Name="PART_Track"
+                                    CornerRadius="6"
+                                    Background="{TemplateBinding Background}"/>
+                            <Border x:Name="PART_Indicator"
+                                    CornerRadius="6"
                                     HorizontalAlignment="Left"
-                                    Background="{TemplateBinding Foreground}"/>
-                        </Border>
+                                    Background="{TemplateBinding Foreground}">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#39FF14"
+                                                      BlurRadius="10"
+                                                      ShadowDepth="0"
+                                                      Opacity="0.75"/>
+                                </Border.Effect>
+                            </Border>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -136,15 +150,12 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- PDF-Icon -->
-                    <Border Width="34" Height="34" CornerRadius="8"
-                            Background="#E53935" Margin="0,0,12,0">
-                        <TextBlock Text="PDF" Foreground="White" FontWeight="Bold"
-                                   FontSize="11" HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
-                    </Border>
+                    <Image Source="pack://application:,,,/Assets/AppLogo.png"
+                           Width="38" Height="38" Margin="0,0,12,0"
+                           SnapsToDevicePixels="True"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="Tesla Auftragsbearbeitung &amp; Druck"
+                        <TextBlock Text="DOK-V01"
                                    Foreground="{DynamicResource HeaderForeground}"
                                    FontSize="17" FontWeight="Bold"/>
                         <TextBlock Text="Sortieren, Wasserzeichen, Zusammenfügen, Vorschau und Drucken"
@@ -203,6 +214,9 @@
 
         <!-- ══ MENÜLEISTE ══ -->
         <Menu Grid.Row="1" Padding="12,2">
+            <MenuItem Header="Datei">
+                <MenuItem Header="Komplette Datensicherung..." Click="CreateDataBackup_Click"/>
+            </MenuItem>
             <MenuItem Header="KI-Assistent">
                 <MenuItem x:Name="AiEnabledMenuItem"
                           Header="KI aktiv"
@@ -211,7 +225,8 @@
                           Unchecked="AiEnabledMenu_Changed"/>
                 <Separator/>
                 <MenuItem Header="Chat öffnen" Click="AiOpenChat_Click" InputGestureText="Strg+K"/>
-                <MenuItem Header="Vor Verarbeitung prüfen" Click="AiQualityCheck_Click"/>
+                <MenuItem Header="Bestell-PDF vs Excel prüfen" Click="OrderVerificationCheck_Click"/>
+                <MenuItem Header="Zeichnungen vor Verarbeitung prüfen" Click="AiQualityCheck_Click"/>
                 <Separator/>
                 <MenuItem Header="Ollama-Einstellungen..." Click="AiSettingsMenu_Click"/>
                 <MenuItem Header="Status prüfen" Click="AiRefreshStatus_Click"/>
@@ -243,6 +258,8 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="12"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="12"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <Border Grid.Row="0"
@@ -257,7 +274,7 @@
                                            FontSize="18"
                                            FontWeight="Bold"
                                            HorizontalAlignment="Center"/>
-                                <TextBlock Text="PDF-Dateien, ZIP-Datei(en) und eine Excel-Datei (.xlsx/.xls) einfach in dieses Fenster ziehen."
+                                <TextBlock Text="PDF-Zeichnungen, ZIP-Datei(en) und Excel (.xlsx/.xls) in den oberen Bereich ziehen. Bestell-PDF separat unten bei „Prüf-PDF“."
                                            Foreground="{DynamicResource TextSecondary}"
                                            FontSize="13"
                                            Margin="0,8,0,0"
@@ -267,6 +284,29 @@
                                            FontSize="13"
                                            Margin="0,4,0,0"
                                            TextAlignment="Center"/>
+                                <Border Margin="0,14,0,0"
+                                        Padding="12,10"
+                                        CornerRadius="6"
+                                        Background="{DynamicResource CardBackground}"
+                                        BorderBrush="{DynamicResource GroupBorder}"
+                                        BorderThickness="1">
+                                    <StackPanel>
+                                        <TextBlock Text="Eingezogene Dateiendungen"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource AccentBrush}"
+                                                   HorizontalAlignment="Center"/>
+                                        <TextBlock x:Name="DroppedExtensionsTextBlock"
+                                                   Text="— noch keine Dateien —"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimary}"
+                                                   HorizontalAlignment="Center"
+                                                   TextAlignment="Center"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
 
@@ -278,16 +318,57 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="130"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Auftragsnummer" VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextPrimary}"
                                        FontSize="13" FontWeight="SemiBold"/>
-                            <TextBox x:Name="OrderNumberTextBox" Grid.Column="1" MinHeight="34" Margin="12,0,0,0"
+                            <TextBox x:Name="OrderNumberTextBox" Grid.Column="1" MinHeight="34" Margin="12,0,8,0"
                                      Foreground="{DynamicResource TextPrimary}"
                                      Background="{DynamicResource InputBackground}"/>
                         </Grid>
 
-                        <StackPanel Grid.Row="6" Visibility="Collapsed">
+                        <Border x:Name="OrderVerificationDropZone" Grid.Row="6"
+                                AllowDrop="True"
+                                CornerRadius="8"
+                                BorderThickness="2"
+                                BorderBrush="{DynamicResource GroupBorder}"
+                                Background="Transparent"
+                                Padding="4,6"
+                                PreviewDragEnter="OrderVerificationDropZone_PreviewDragEnter"
+                                PreviewDragOver="OrderVerificationDropZone_PreviewDragOver"
+                                PreviewDragLeave="OrderVerificationDropZone_PreviewDragLeave"
+                                PreviewDrop="OrderVerificationDropZone_PreviewDrop">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Prüf-PDF" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <Border Grid.Column="1" MinHeight="40" Margin="12,0,0,0"
+                                            Background="{DynamicResource InputBackground}"
+                                            CornerRadius="6"
+                                            BorderBrush="{DynamicResource GroupBorder}"
+                                            BorderThickness="1"
+                                            Padding="12,8">
+                                        <TextBlock x:Name="OrderVerificationPdfStatusTextBlock"
+                                                   Text="Bestell-PDF hier ablegen …"
+                                                   Foreground="{DynamicResource TextSecondary}"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap"/>
+                                    </Border>
+                                </Grid>
+                                <TextBlock Text="↳ Nur per Maus hier ablegen (kein Durchsuchen, nicht in den Bereich oben)"
+                                           Margin="142,6,0,0"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextSecondary}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Grid.Row="8" Visibility="Collapsed">
                             <TextBox x:Name="ExcelPathTextBox" MinHeight="34"/>
                             <TextBox x:Name="PdfFolderTextBox" MinHeight="34" Margin="0,8,0,0"/>
                         </StackPanel>
@@ -340,20 +421,18 @@
                         </StackPanel>
 
                         <!-- Fortschritt -->
-                        <Grid Grid.Row="4" x:Name="ProgressPanel" Visibility="Collapsed">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="56"/>
-                            </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Row="4" x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,4,0,0">
                             <ProgressBar x:Name="BusyProgressBar"
                                          Minimum="0" Maximum="100" Value="0"
-                                         Height="10" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="ProgressLabel" Grid.Column="1"
-                                       Text="0 %" FontSize="12" FontWeight="Bold"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       VerticalAlignment="Center"
-                                       HorizontalAlignment="Right"/>
-                        </Grid>
+                                         Height="18"/>
+                            <TextBlock x:Name="ProgressLabel"
+                                       Text="0 %"
+                                       FontSize="12"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource ProgressFill}"
+                                       HorizontalAlignment="Right"
+                                       Margin="0,6,0,0"/>
+                        </StackPanel>
                     </Grid>
                 </Border>
 

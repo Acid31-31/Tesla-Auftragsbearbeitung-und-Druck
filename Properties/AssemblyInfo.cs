@@ -7,12 +7,12 @@ using System.Windows;
 // Allgemeine Informationen über eine Assembly werden über die folgenden
 // Attribute gesteuert. Ändern Sie diese Attributwerte, um die Informationen zu ändern,
 // die einer Assembly zugeordnet sind.
-[assembly: AssemblyTitle("PDF-umbenenen")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyTitle("DOK-V01")]
+[assembly: AssemblyDescription("PDF-Auftragsbearbeitung, Sortierung und Analyse")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("PDF-umbenenen")]
-[assembly: AssemblyCopyright("Copyright ©  2026")]
+[assembly: AssemblyCompany("Alexander Hoelzer")]
+[assembly: AssemblyProduct("DOK-V01")]
+[assembly: AssemblyCopyright("Copyright © 2026 Alexander Hoelzer")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -48,6 +48,8 @@ using System.Windows;
 //      Buildnummer
 //      Revision
 //
-[assembly: AssemblyVersion("1.1.0.3")]
-[assembly: AssemblyFileVersion("1.1.0.3")]
-[assembly: AssemblyInformationalVersion("1.1 R03")]
+[assembly: AssemblyVersion("1.1.0.5")]
+[assembly: AssemblyFileVersion("1.1.0.5")]
+[assembly: AssemblyInformationalVersion("1.1 R05")]
+
+[assembly: InternalsVisibleTo("PdfDiag")]

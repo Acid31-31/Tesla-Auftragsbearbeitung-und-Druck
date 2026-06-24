@@ -15,6 +15,12 @@ namespace PDF_umbenenen.Services.Ai
         public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
 
         public string ModelName { get; set; } = "llama3.2:3b";
+
+        /// <summary>Vision-Modell für Zeichnungsanalyse (z. B. llava:7b, moondream).</summary>
+        public string VisionModelName { get; set; } = "llava:7b";
+
+        /// <summary>Blechdicke per Ollama-Vision auf localhost bei Unsicherheit oder Abweichung prüfen.</summary>
+        public bool MaterialExtractionViaOllama { get; set; } = true;
     }
 
     internal static class AiSettingsStore
@@ -29,19 +35,38 @@ namespace PDF_umbenenen.Services.Ai
             try
             {
                 if (!File.Exists(StorePath))
-                    return new AiSettings();
+                {
+                    var defaults = new AiSettings();
+                    Save(defaults);
+                    return defaults;
+                }
 
                 var doc = XDocument.Load(StorePath);
                 var root = doc.Root;
                 if (root == null)
-                    return new AiSettings();
+                {
+                    var defaults = new AiSettings();
+                    Save(defaults);
+                    return defaults;
+                }
 
-                return new AiSettings
+                var settings = new AiSettings
                 {
                     AiEnabled = !string.Equals((string)root.Element("AiEnabled"), "false", StringComparison.OrdinalIgnoreCase),
                     OllamaBaseUrl = (string)root.Element("OllamaBaseUrl") ?? "http://localhost:11434",
-                    ModelName = (string)root.Element("ModelName") ?? "llama3.2:3b"
+                    ModelName = (string)root.Element("ModelName") ?? "llama3.2:3b",
+                    VisionModelName = (string)root.Element("VisionModelName") ?? "llava:7b",
+                    MaterialExtractionViaOllama = true
                 };
+
+                if (root.Element("VisionModelName") == null
+                    || root.Element("MaterialExtractionViaOllama") == null
+                    || string.Equals((string)root.Element("MaterialExtractionViaOllama"), "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    Save(settings);
+                }
+
+                return settings;
             }
             catch
             {
@@ -61,7 +86,9 @@ namespace PDF_umbenenen.Services.Ai
                     new XElement("AiSettings",
                         new XElement("AiEnabled", settings.AiEnabled ? "true" : "false"),
                         new XElement("OllamaBaseUrl", settings.OllamaBaseUrl ?? "http://localhost:11434"),
-                        new XElement("ModelName", settings.ModelName ?? "llama3.2:3b")
+                        new XElement("ModelName", settings.ModelName ?? "llama3.2:3b"),
+                        new XElement("VisionModelName", settings.VisionModelName ?? "llava:7b"),
+                        new XElement("MaterialExtractionViaOllama", settings.MaterialExtractionViaOllama ? "true" : "false")
                     )
                 ).Save(StorePath);
             }

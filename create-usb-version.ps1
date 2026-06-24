@@ -1,182 +1,380 @@
 param(
+
 	[string]$Configuration = "Release",
-	[string]$CertPath = "",
+
+	[string]$CertPath = ".\cert\DOK-CodeSigning.pfx",
+
 	[string]$CertPassword = "",
-	[string]$CertPublicPath = ""
+
+	[string]$CertPasswordFile = ".\cert\signing-password.txt",
+
+	[string]$CertPublicPath = ".\cert\DOK-CodeSigning.cer"
+
 )
+
+
 
 $ErrorActionPreference = "Stop"
 
+
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+
 Set-Location $root
 
-$projectFile = Join-Path $root "PDF-umbenenen.csproj"
-$msbuild = "msbuild"
 
-Write-Host "[1/5] Build ($Configuration) startet..."
-& $msbuild $projectFile /t:Rebuild /p:Configuration=$Configuration /p:Platform="AnyCPU"
-if ($LASTEXITCODE -ne 0) {
-	throw "Build fehlgeschlagen."
+
+$productName = "DOK-V01"
+
+$exeName = "$productName.exe"
+
+$usbLauncherName = "Programm installieren.exe"
+
+
+
+$projectFile = Join-Path $root "PDF-umbenenen.csproj"
+
+$msbuild = "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe"
+
+if (-not (Test-Path $msbuild)) {
+
+	$msbuild = "msbuild"
+
 }
+
+
+
+if (-not (Test-Path $CertPath)) {
+	throw "Zertifikat nicht gefunden: $CertPath"
+}
+
+
+
+if ([string]::IsNullOrWhiteSpace($CertPassword) -and (Test-Path $CertPasswordFile)) {
+
+	$CertPassword = (Get-Content $CertPasswordFile -Raw).Trim()
+
+}
+
+
+
+Write-Host "[1/5] Icon und Build ($Configuration) starten..."
+
+& powershell -ExecutionPolicy Bypass -File (Join-Path $root "create-app-icon.ps1")
+
+if ($LASTEXITCODE -ne 0) {
+
+	throw "Icon-Erstellung fehlgeschlagen."
+
+}
+
+
+
+$objDir = Join-Path $root "obj\$Configuration"
+if (Test-Path $objDir) {
+	Remove-Item $objDir -Recurse -Force
+}
+
+Write-Host "[1b/5] Build ($Configuration) startet..."
+
+& $msbuild $projectFile /t:Rebuild /p:Configuration=$Configuration /p:Platform="AnyCPU"
+
+if ($LASTEXITCODE -ne 0) {
+
+	throw "Build fehlgeschlagen."
+
+}
+
+
 
 $releaseDir = Join-Path $root "bin\$Configuration"
+
 if (-not (Test-Path $releaseDir)) {
+
 	throw "Build-Ausgabe nicht gefunden: $releaseDir"
+
 }
+
+$releaseExe = Join-Path $releaseDir $exeName
+if (-not (Test-Path $releaseExe)) {
+	throw "Build-EXE nicht gefunden: $releaseExe"
+}
+
+Write-Host "[1c/5] Icon in EXE erzwingen..."
+& powershell -ExecutionPolicy Bypass -File (Join-Path $root "set-exe-icon.ps1") -ExePath $releaseExe -IconPath (Join-Path $root "Assets\AppIcon.ico")
+if ($LASTEXITCODE -ne 0) {
+	throw "Icon konnte nicht in Release-EXE gesetzt werden."
+}
+
+
 
 $usbRoot = Join-Path $root "USB-Version"
-$appFolder = Join-Path $usbRoot "Tesla-Auftragsbearbeitung-und-Druck"
 
-Write-Host "[2/5] Zielordner wird vorbereitet..."
-if (Test-Path $appFolder) {
-	Remove-Item $appFolder -Recurse -Force
+$appFolder = Join-Path $usbRoot $productName
+
+
+
+Write-Host "[2/5] USB-Version bereinigen..."
+
+if (-not (Test-Path $usbRoot)) {
+
+	New-Item -ItemType Directory -Path $usbRoot | Out-Null
+
 }
-New-Item -ItemType Directory -Path $appFolder | Out-Null
+
+Get-ChildItem $usbRoot -Force | ForEach-Object {
+
+	if ($_.Name -eq $productName -or $_.Name -eq "$productName.zip") {
+
+		return
+
+	}
+
+	Remove-Item $_.FullName -Recurse -Force
+
+}
+
+
+
+Write-Host "[2b/5] Zielordner wird vorbereitet..."
+
+if (Test-Path $appFolder) {
+
+	try {
+
+		Remove-Item $appFolder -Recurse -Force -ErrorAction Stop
+
+	}
+
+	catch {
+
+		Write-Warning "USB-Ordner ist gesperrt (Explorer offen?) - Dateien werden ueberschrieben."
+
+	}
+
+}
+
+if (-not (Test-Path $appFolder)) {
+
+	New-Item -ItemType Directory -Path $appFolder | Out-Null
+
+}
+
+
 
 Write-Host "[3/5] Dateien werden kopiert..."
+
 Get-ChildItem $releaseDir -File | Where-Object {
+
 	$_.Extension -in @('.exe', '.dll', '.config')
+
 } | ForEach-Object {
+
 	Copy-Item $_.FullName -Destination (Join-Path $appFolder $_.Name) -Force
+
 }
 
-$exeName = "Tesla-Auftragsbearbeitung-und-Druck.exe"
+$iconSource = Join-Path $root "Assets\AppIcon.ico"
+if (Test-Path $iconSource) {
+	$assetsFolder = Join-Path $appFolder "Assets"
+	New-Item -ItemType Directory -Path $assetsFolder -Force | Out-Null
+	Copy-Item $iconSource (Join-Path $assetsFolder "AppIcon.ico") -Force
+	Copy-Item $iconSource (Join-Path $appFolder "AppIcon.ico") -Force
+}
+
+
+
 $exePath = Join-Path $appFolder $exeName
 
+if (-not (Test-Path $exePath)) {
+
+	throw "Hauptprogramm nicht gefunden: $exePath"
+
+}
+
+
+
 if ((Test-Path $CertPath) -and (Test-Path $exePath)) {
+
     $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+
+    if ([string]::IsNullOrWhiteSpace($signtool)) {
+
+        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+
+            Sort-Object FullName -Descending |
+
+            Select-Object -First 1 -ExpandProperty FullName
+
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($signtool)) {
+
         Write-Host "[3b/5] Signiere EXE mit Zertifikat..."
-        $args = @("sign", "/fd", "SHA256", "/f", $CertPath)
+
+        $signArgs = @("sign", "/fd", "SHA256", "/f", $CertPath)
+
         if (-not [string]::IsNullOrWhiteSpace($CertPassword)) {
-            $args += @("/p", $CertPassword)
-        }
-        $args += @("/tr", "http://timestamp.digicert.com", "/td", "SHA256", $exePath)
 
-        & $signtool @args
+            $signArgs += @("/p", $CertPassword)
+
+        }
+
+        $signArgs += @("/tr", "http://timestamp.digicert.com", "/td", "SHA256", $exePath)
+
+
+
+        & $signtool @signArgs
+
         if ($LASTEXITCODE -ne 0) {
+
             Write-Warning "Signieren fehlgeschlagen (ExitCode $LASTEXITCODE). USB-Version wird trotzdem erstellt."
+
         }
+
     }
+
     else {
+
         Write-Warning "signtool.exe nicht gefunden. EXE bleibt unsigniert."
+
     }
+
 }
 
-if (Test-Path $CertPublicPath) {
+
+
+Write-Host "[3c/5] USB-Starter wird erstellt..."
+
+Copy-Item $exePath (Join-Path $appFolder $usbLauncherName) -Force
+
+
+
+$deployCer = Join-Path $root "CodeSigning.cer"
+
+if (Test-Path $deployCer) {
+
+    Copy-Item $deployCer (Join-Path $appFolder "CodeSigning.cer") -Force
+
+}
+
+elseif (Test-Path $CertPublicPath) {
+
     Copy-Item $CertPublicPath (Join-Path $appFolder "CodeSigning.cer") -Force
+
 }
 
-$certInstallPs1 = @"
-`$ErrorActionPreference = 'Stop'
-`$certFile = Join-Path (Split-Path -Parent `$MyInvocation.MyCommand.Path) 'CodeSigning.cer'
-if (-not (Test-Path `$certFile)) {
-    throw 'CodeSigning.cer wurde nicht gefunden.'
-}
 
-Import-Certificate -FilePath `$certFile -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
-Import-Certificate -FilePath `$certFile -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
-Write-Host 'Zertifikat für aktuellen Benutzer importiert.'
-"@
-Set-Content -Path (Join-Path $appFolder "ZERTIFIKAT_INSTALLIEREN.ps1") -Value $certInstallPs1 -Encoding UTF8
-
-$certInstallBat = @"
-@echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0ZERTIFIKAT_INSTALLIEREN.ps1"
-pause
-"@
-Set-Content -Path (Join-Path $appFolder "ZERTIFIKAT_INSTALLIEREN.bat") -Value $certInstallBat -Encoding ASCII
 
 $startBat = @"
+
 @echo off
+
 cd /d "%~dp0"
-start "" "$exeName"
+
+start "" "$usbLauncherName"
+
 "@
+
 Set-Content -Path (Join-Path $appFolder "STARTEN.bat") -Value $startBat -Encoding ASCII
 
-$installPs1 = @"
-`$ErrorActionPreference = 'Stop'
-`$source = Split-Path -Parent `$MyInvocation.MyCommand.Path
-`$target = Join-Path `$env:LOCALAPPDATA 'Tesla-Auftragsbearbeitung-und-Druck'
 
-if (Test-Path `$target) { Remove-Item `$target -Recurse -Force }
-New-Item -ItemType Directory -Path `$target | Out-Null
-Copy-Item (Join-Path `$source '*') `$target -Recurse -Force
-
-`$desktop = [Environment]::GetFolderPath('Desktop')
-`$shortcutPath = Join-Path `$desktop 'Tesla Auftragsbearbeitung & Druck.lnk'
-`$shell = New-Object -ComObject WScript.Shell
-`$shortcut = `$shell.CreateShortcut(`$shortcutPath)
-`$shortcut.TargetPath = Join-Path `$target '$exeName'
-`$shortcut.WorkingDirectory = `$target
-`$shortcut.Save()
-
-Write-Host 'Installation abgeschlossen.'
-Write-Host "Installationsordner: `$target"
-"@
-Set-Content -Path (Join-Path $appFolder "Installieren.ps1") -Value $installPs1 -Encoding UTF8
-
-$installBat = @"
-@echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0Installieren.ps1"
-pause
-"@
-Set-Content -Path (Join-Path $appFolder "INSTALLIEREN.bat") -Value $installBat -Encoding ASCII
 
 $uninstallPs1 = @"
+
 `$ErrorActionPreference = 'SilentlyContinue'
-`$target = Join-Path `$env:LOCALAPPDATA 'Tesla-Auftragsbearbeitung-und-Druck'
-`$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Tesla Auftragsbearbeitung & Druck.lnk'
+
+`$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) '$productName.lnk'
+
 if (Test-Path `$shortcutPath) { Remove-Item `$shortcutPath -Force }
-if (Test-Path `$target) { Remove-Item `$target -Recurse -Force }
-Write-Host 'Deinstallation abgeschlossen.'
+
+Write-Host 'Desktop-Verknüpfung entfernt.'
+
 "@
+
 Set-Content -Path (Join-Path $appFolder "Deinstallieren.ps1") -Value $uninstallPs1 -Encoding UTF8
 
+
+
 $uninstallBat = @"
+
 @echo off
+
 powershell -ExecutionPolicy Bypass -File "%~dp0Deinstallieren.ps1"
+
 pause
+
 "@
+
 Set-Content -Path (Join-Path $appFolder "DEINSTALLIEREN.bat") -Value $uninstallBat -Encoding ASCII
 
+
+
 $readme = @"
-Tesla Auftragsbearbeitung & Druck - USB-Version
+
+$productName - USB-Version
+
+
 
 Voraussetzungen auf Ziel-PC:
+
 - Windows
+
 - .NET Framework 4.8
 
-Schnellstart (ohne Installation):
-- STARTEN.bat
 
-Einfache Installation (pro Benutzer, ohne Admin):
-1) INSTALLIEREN.bat ausführen
-2) Desktop-Verknüpfung "Tesla Auftragsbearbeitung & Druck" nutzen
 
-Deinstallation:
+Start (ohne Installation):
+
+1) Ordner auf USB oder Desktop kopieren
+
+2) "$usbLauncherName" doppelklicken (oder STARTEN.bat)
+
+
+
+Beim ersten Start:
+
+- Zertifikat wird automatisch installiert
+
+- Desktop-Verknüpfung "$productName" wird automatisch erstellt
+
+
+
+Deinstallation der Verknüpfung:
+
 - DEINSTALLIEREN.bat ausführen
 
-Zertifikat (für interne PCs):
-- Falls CodeSigning.cer vorhanden: ZERTIFIKAT_INSTALLIEREN.bat ausführen
-- Dadurch wird das Zertifikat in "Vertrauenswürdige Stammzertifizierungsstellen" und "Vertrauenswürdige Herausgeber" (aktueller Benutzer) importiert.
 
-Sicherheit / Acronis-Hinweis:
-- Bei vielen PDF-Änderungen kann Acronis Active Protection eine Warnung zeigen.
-- In Acronis bitte "Vertrauen" für die EXE wählen und optional den Arbeitsordner freigeben.
-- Mit Zertifikat signierte EXE reduziert solche Warnungen.
 
 Hinweise:
-- Bei erstem Start kann Windows SmartScreen nachfragen.
+
 - Für Vorschau/Druck muss ein PDF-Viewer installiert sein.
+
+- Bei erstem Start kann Windows SmartScreen kurz nachfragen.
+
 "@
+
 Set-Content -Path (Join-Path $appFolder "README_USB.txt") -Value $readme -Encoding UTF8
 
+
+
 Write-Host "[4/5] ZIP wird erstellt..."
-$zipPath = Join-Path $usbRoot "Tesla-Auftragsbearbeitung-und-Druck.zip"
+
+$zipPath = Join-Path $usbRoot "$productName.zip"
+
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+
 Compress-Archive -Path (Join-Path $appFolder "*") -DestinationPath $zipPath -Force
 
-Write-Host "[5/5] Fertig"
+
+
+Write-Host "[5/5] Explorer-Icon-Cache aktualisieren..."
+& powershell -ExecutionPolicy Bypass -File (Join-Path $root "refresh-explorer-icon-cache.ps1") -RestartExplorer
+
+Write-Host "[6/6] Fertig"
+
 Write-Host "Ordner: $appFolder"
+
 Write-Host "ZIP:    $zipPath"
+
+

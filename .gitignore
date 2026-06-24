@@ -24,6 +24,8 @@ Desktop.ini
 *.log
 
 # Secrets / certificates
+cert/archive/
+cert/signing-password.txt
 cert/*.pfx
 cert/*.p12
 *.pfx

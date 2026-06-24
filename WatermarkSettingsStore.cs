@@ -77,12 +77,20 @@ namespace PDF_umbenenen
             try
             {
                 if (!File.Exists(StorePath))
-                    return new WatermarkSettings();
+                {
+                    var defaults = new WatermarkSettings();
+                    Save(defaults);
+                    return defaults;
+                }
 
                 var doc = XDocument.Load(StorePath);
                 var root = doc.Root;
                 if (root == null)
-                    return new WatermarkSettings();
+                {
+                    var defaults = new WatermarkSettings();
+                    Save(defaults);
+                    return defaults;
+                }
 
                 WatermarkDataPosition dataPosition;
                 OrderNumberPosition orderPosition;
@@ -98,7 +106,7 @@ namespace PDF_umbenenen
                 Enum.TryParse((string)root.Element("DataPosition"), true, out dataPosition);
                 Enum.TryParse((string)root.Element("OrderPosition"), true, out orderPosition);
 
-                return new WatermarkSettings
+                var settings = new WatermarkSettings
                 {
                     WatermarksEnabled = watermarksEnabled,
                     UseSmartPlacement = useSmart,
@@ -111,6 +119,8 @@ namespace PDF_umbenenen
                         ? orderPosition
                         : OrderNumberPosition.TopRight
                 };
+
+                return settings;
             }
             catch
             {
