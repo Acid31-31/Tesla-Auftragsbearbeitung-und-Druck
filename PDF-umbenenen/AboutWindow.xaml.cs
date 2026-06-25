@@ -32,10 +32,12 @@ namespace PDF_umbenenen
                 string[] possiblePaths = new[]
                 {
                     // Pfad 1: Root-Lizenz im Projektstamm
-                    @"E:\Materialleiter Programierung\Zeiterfasung_R00\herko-r00\LICENSE.txt",
+                    @"E:\Programierung\PDF Sortieren\LICENSE_DE.txt",
 
-                    // Pfad 2: Deutsche Lizenz im Projekt
-                    @"E:\Materialleiter Programierung\Zeiterfasung_R00\herko-r00\PDF-umbenenen\LICENSE_DE.txt",
+                    // Pfad 2: Deutsche Lizenz im Projekt (relativ zum Build)
+                    System.IO.Path.Combine(
+                        System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location),
+                        "..", "..", "LICENSE_DE.txt"),
 
                     // Pfad 3: Direkt im Debug-Ordner
                     System.IO.Path.Combine(

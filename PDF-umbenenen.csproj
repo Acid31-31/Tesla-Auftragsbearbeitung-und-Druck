@@ -129,6 +129,7 @@
     <Compile Include="Services\WatermarkPageScale.cs" />
     <Compile Include="Services\LegacyBrandingCleanupService.cs" />
     <Compile Include="Services\CertificateTrustService.cs" />
+    <Compile Include="Services\ExcelDeliveryDateMergeService.cs" />
     <Compile Include="Models\AiChatMessage.cs" />
     <Compile Include="Models\AiExcelRowInfo.cs" />
     <Compile Include="Models\AiExtractedFields.cs" />

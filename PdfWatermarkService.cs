@@ -21,6 +21,10 @@ namespace PDF_umbenenen
         private static Type _baseColorType;
         private static Type _baseFontType;
 
+        private static Type _columnTextType;
+        private static Type _phraseType;
+        private static Type _fontType;
+
         static PdfWatermarkService()
         {
             AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
@@ -90,6 +94,9 @@ namespace PDF_umbenenen
                 _elementType = assembly.GetType("iTextSharp.text.Element");
                 _baseColorType = assembly.GetType("iTextSharp.text.BaseColor");
                 _baseFontType = assembly.GetType("iTextSharp.text.pdf.BaseFont");
+                _columnTextType = assembly.GetType("iTextSharp.text.pdf.ColumnText");
+                _phraseType = assembly.GetType("iTextSharp.text.Phrase");
+                _fontType = assembly.GetType("iTextSharp.text.Font");
 
                 _iTextSharpLoaded = _pdfReaderType != null && _pdfStamperType != null && _baseFontType != null;
                 _loadError = _iTextSharpLoaded ? string.Empty : "iTextSharp API konnte nicht vollständig aufgelöst werden.";
@@ -278,6 +285,10 @@ namespace PDF_umbenenen
                         if (string.IsNullOrWhiteSpace(placement.Text))
                             continue;
 
+                        var textColor = placement.UseRedText ? GetRedColor() : GetDarkGrayColor();
+                        if (textColor != null)
+                            setColorFillMethod.Invoke(contentByte, new[] { textColor });
+
                         setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, placement.FontSize });
                         showTextAlignedMethod.Invoke(contentByte, new object[]
                         {
@@ -325,7 +336,7 @@ namespace PDF_umbenenen
 
                     if (texts.Count > 0)
                     {
-                        DrawDataWatermark(showTextAlignedMethod, setFontAndSizeMethod, contentByte, baseFont, texts, settings.DataPosition, pageWidth, pageHeight);
+                        DrawDataWatermark(showTextAlignedMethod, setFontAndSizeMethod, setColorFillMethod, contentByte, baseFont, texts, settings.DataPosition, pageWidth, pageHeight);
                     }
                 }
 
@@ -351,6 +362,7 @@ namespace PDF_umbenenen
         private static void DrawDataWatermark(
             System.Reflection.MethodInfo showTextAlignedMethod,
             System.Reflection.MethodInfo setFontAndSizeMethod,
+            System.Reflection.MethodInfo setColorFillMethod,
             object contentByte,
             object baseFont,
             System.Collections.Generic.List<string> texts,
@@ -385,6 +397,13 @@ namespace PDF_umbenenen
                     var drawX = position == WatermarkDataPosition.RightMiddleVertical
                         ? startX - (i * spacing)
                         : startX + (i * spacing);
+
+                    var lineColor = texts[i].IndexOf("Lieferdatum:", StringComparison.OrdinalIgnoreCase) >= 0
+                        ? GetRedColor()
+                        : GetDarkGrayColor();
+                    if (lineColor != null)
+                        setColorFillMethod.Invoke(contentByte, new[] { lineColor });
+
                     showTextAlignedMethod.Invoke(contentByte, new object[] { 1, texts[i], drawX, baseY, angle });
                 }
 
@@ -426,6 +445,13 @@ namespace PDF_umbenenen
                 var y = position == WatermarkDataPosition.BottomLeft || position == WatermarkDataPosition.BottomRight
                     ? startY - (i * lineHeight)
                     : startY - (i * lineHeight);
+
+                var lineColor = texts[i].IndexOf("Lieferdatum:", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? GetRedColor()
+                    : GetDarkGrayColor();
+                if (lineColor != null)
+                    setColorFillMethod.Invoke(contentByte, new[] { lineColor });
+
                 showTextAlignedMethod.Invoke(contentByte, new object[] { alignment, texts[i], anchorX, y, 0f });
             }
         }
@@ -637,14 +663,44 @@ namespace PDF_umbenenen
             if (LooksLikeLocation(d))
                 return string.Empty;
 
-            if (d.StartsWith("LT-", StringComparison.OrdinalIgnoreCase))
+            if (d.Equals(ManufacturingTerminPrefix, StringComparison.OrdinalIgnoreCase)
+                || d.Equals(DeliveryTerminPrefix, StringComparison.OrdinalIgnoreCase))
                 return d;
 
-            if (d.StartsWith("LT:", StringComparison.OrdinalIgnoreCase))
+            var isManufacturing = false;
+            if (d.StartsWith(ManufacturingTerminPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                isManufacturing = true;
+                d = d.Substring(ManufacturingTerminPrefix.Length).TrimStart();
+            }
+            else if (d.StartsWith(DeliveryTerminPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                d = d.Substring(DeliveryTerminPrefix.Length).TrimStart();
+            }
+            else if (d.StartsWith("FT:", StringComparison.OrdinalIgnoreCase))
+            {
+                isManufacturing = true;
                 d = d.Substring(3).TrimStart();
+            }
+            else if (d.StartsWith("LT:", StringComparison.OrdinalIgnoreCase))
+            {
+                d = d.Substring(3).TrimStart();
+            }
 
-            return "LT-" + d;
+            var normalized = OrderVerificationDateHelper.TryNormalizeExcelDate(d);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                if (isManufacturing)
+                    return ManufacturingTerminPrefix;
+
+                return string.Empty;
+            }
+
+            return (isManufacturing ? ManufacturingTerminPrefix : DeliveryTerminPrefix) + normalized;
         }
+
+        private const string ManufacturingTerminPrefix = "FT-";
+        private const string DeliveryTerminPrefix = "LT-";
 
         private static string NormalizeLocationText(string deliveryLocation)
         {
@@ -740,6 +796,175 @@ namespace PDF_umbenenen
         public static bool IsAvailable()
         {
             return _iTextSharpLoaded;
+        }
+
+        /// <summary>
+        /// Fügt auf jeder Seite eine fortlaufende Seitenzahl ein (z. B. Seite-1, Seite-2, …).
+        /// Gibt die nächste freie Seitennummer zurück (für Buch-Nummerierung über mehrere PDFs).
+        /// </summary>
+        public static int AddPageNumbers(string pdfPath, int startPageNumber = 1)
+        {
+            if (!File.Exists(pdfPath))
+                throw new FileNotFoundException("PDF-Datei nicht gefunden: " + pdfPath);
+
+            if (!_iTextSharpLoaded)
+                throw new InvalidOperationException(
+                    "iTextSharp ist nicht ladbar. Bitte prüfen: itextsharp.dll und BouncyCastle.Cryptography.dll im App-Ordner. " +
+                    (string.IsNullOrWhiteSpace(_loadError) ? string.Empty : "Details: " + _loadError));
+
+            var tempPath = pdfPath + ".pn.tmp";
+
+            try
+            {
+                var pdfReaderCtor = _pdfReaderType.GetConstructor(new[] { typeof(string) });
+                var reader = pdfReaderCtor.Invoke(new object[] { pdfPath });
+                var fileStream = new FileStream(tempPath, FileMode.Create);
+                var pdfStamperCtor = _pdfStamperType.GetConstructor(new[] { _pdfReaderType, typeof(FileStream) });
+                var stamper = pdfStamperCtor.Invoke(new object[] { reader, fileStream });
+
+                try
+                {
+                    var numberOfPages = (int)_pdfReaderType.GetProperty("NumberOfPages").GetValue(reader);
+                    var getOverContentMethod = _pdfStamperType.GetMethod("GetOverContent", new[] { typeof(int) });
+                    var currentPageNumber = startPageNumber;
+
+                    for (var page = 1; page <= numberOfPages; page++)
+                    {
+                        var contentByte = getOverContentMethod.Invoke(stamper, new object[] { page });
+                        DrawPageNumberOnPage(contentByte, reader, page, currentPageNumber);
+                        currentPageNumber++;
+                    }
+
+                    startPageNumber = currentPageNumber;
+                }
+                finally
+                {
+                    _pdfStamperType.GetMethod("Close").Invoke(stamper, null);
+                    fileStream.Dispose();
+                    (reader as IDisposable)?.Dispose();
+                }
+
+                if (File.Exists(pdfPath))
+                    File.Delete(pdfPath);
+                File.Move(tempPath, pdfPath);
+                return startPageNumber;
+            }
+            catch (Exception ex)
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+
+                throw new InvalidOperationException("Fehler beim Einfügen der Seitenzahlen: " + ex.Message, ex);
+            }
+        }
+
+        private static void DrawPageNumberOnPage(object contentByte, object reader, int pageIndex, int displayPageNumber)
+        {
+            if (_columnTextType == null || _phraseType == null || _fontType == null)
+                throw new InvalidOperationException("iTextSharp ColumnText/Phrase/Font nicht verfügbar.");
+            var getPageSizeMethod = _pdfReaderType.GetMethod("GetPageSizeWithRotation", new[] { typeof(int) })
+                ?? _pdfReaderType.GetMethod("GetPageSize", new[] { typeof(int) });
+            if (getPageSizeMethod == null)
+                throw new InvalidOperationException("Seitengröße konnte nicht ermittelt werden.");
+
+            var rect = getPageSizeMethod.Invoke(reader, new object[] { pageIndex });
+            if (rect == null)
+                throw new InvalidOperationException("Seitengröße konnte nicht ermittelt werden.");
+
+            var left = GetRectangleFloat(rect, "Left");
+            var right = GetRectangleFloat(rect, "Right");
+            var bottom = GetRectangleFloat(rect, "Bottom");
+            var top = GetRectangleFloat(rect, "Top");
+            var pageWidth = right - left;
+            var pageHeight = top - bottom;
+            var scale = WatermarkPageScale.Get(pageWidth, pageHeight);
+            var fontSize = Math.Max(14f, 16f * scale);
+            var margin = Math.Max(20f, 24f * scale);
+
+            var getPageRotationMethod = _pdfReaderType.GetMethod("GetPageRotation", new[] { typeof(int) });
+            var rotation = getPageRotationMethod != null
+                ? Convert.ToInt32(getPageRotationMethod.Invoke(reader, new object[] { pageIndex }), System.Globalization.CultureInfo.InvariantCulture)
+                : 0;
+
+            var baseFont = GetHelveticaBaseFont();
+            if (baseFont == null)
+                throw new InvalidOperationException("Schriftart konnte nicht initialisiert werden (Seitenzahlen).");
+
+            var blackColor = GetBlackColor();
+            var pageText = "Seite-" + displayPageNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var font = CreateFont(baseFont, fontSize, blackColor);
+            var phrase = CreatePhrase(pageText, font);
+
+            var showTextAlignedMethod = _columnTextType.GetMethod(
+                "ShowTextAligned",
+                new[] { contentByte.GetType(), typeof(int), _phraseType, typeof(float), typeof(float), typeof(float) });
+
+            if (showTextAlignedMethod == null)
+                throw new InvalidOperationException("ColumnText.ShowTextAligned nicht verfügbar.");
+
+            var x = (left + right) / 2f;
+            var y = bottom + margin;
+            showTextAlignedMethod.Invoke(null, new object[] { contentByte, 1, phrase, x, y, (float)rotation });
+        }
+
+        private static float GetRectangleFloat(object rect, string propertyName)
+        {
+            var value = rect.GetType().GetProperty(propertyName)?.GetValue(rect, null);
+            return value != null
+                ? Convert.ToSingle(value, System.Globalization.CultureInfo.InvariantCulture)
+                : 0f;
+        }
+
+        private static object GetRedColor()
+        {
+            try
+            {
+                var redField = _baseColorType.GetField("RED");
+                if (redField != null)
+                    return redField.GetValue(null);
+
+                var ctor = _baseColorType.GetConstructor(new[] { typeof(int), typeof(int), typeof(int) });
+                return ctor.Invoke(new object[] { 220, 0, 0 });
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static object GetBlackColor()
+        {
+            try
+            {
+                var blackField = _baseColorType.GetField("BLACK");
+                if (blackField != null)
+                    return blackField.GetValue(null);
+
+                var ctor = _baseColorType.GetConstructor(new[] { typeof(int), typeof(int), typeof(int) });
+                return ctor.Invoke(new object[] { 0, 0, 0 });
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static object CreateFont(object baseFont, float fontSize, object color)
+        {
+            var fontCtor = _fontType.GetConstructor(new[] { _baseFontType, typeof(float), typeof(int), _baseColorType });
+            if (fontCtor == null)
+                throw new InvalidOperationException("Font-Konstruktor nicht verfügbar.");
+
+            return fontCtor.Invoke(new object[] { baseFont, fontSize, 0, color });
+        }
+
+        private static object CreatePhrase(string text, object font)
+        {
+            var phraseCtor = _phraseType.GetConstructor(new[] { typeof(string), _fontType });
+            if (phraseCtor == null)
+                throw new InvalidOperationException("Phrase-Konstruktor nicht verfügbar.");
+
+            return phraseCtor.Invoke(new object[] { text, font });
         }
 
         public static void MergePdfFiles(IReadOnlyList<string> inputFiles, string outputFile)

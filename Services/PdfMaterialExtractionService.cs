@@ -740,6 +740,9 @@ namespace PDF_umbenenen.Services
             if (AppWatermarkQuantityRegex.IsMatch(trimmed))
                 return true;
 
+            if (trimmed.StartsWith("FT-", StringComparison.OrdinalIgnoreCase))
+                return true;
+
             if (trimmed.StartsWith("LT-", StringComparison.OrdinalIgnoreCase))
                 return true;
 
@@ -786,7 +789,8 @@ namespace PDF_umbenenen.Services
                 if (trimmed.StartsWith("BG:", StringComparison.OrdinalIgnoreCase)
                     || AppWatermarkMaterialRegex.IsMatch(trimmed)
                     || AppWatermarkQuantityRegex.IsMatch(trimmed)
-                    || trimmed.StartsWith("LT-", StringComparison.OrdinalIgnoreCase))
+                    || trimmed.StartsWith("LT-", StringComparison.OrdinalIgnoreCase)
+                    || trimmed.StartsWith("FT-", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }

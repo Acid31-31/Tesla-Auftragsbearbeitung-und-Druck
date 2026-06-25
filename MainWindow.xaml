@@ -64,6 +64,32 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Erfolg-Button (Zusammenfügen) -->
+        <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
+            <Setter Property="Background" Value="{DynamicResource SuccessBrush}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SuccessHover}"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SuccessPressed}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Warn-Button (Aufträge löschen) -->
+        <Style x:Key="WarningButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
+            <Setter Property="Background" Value="{DynamicResource WarningBrush}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource WarningHover}"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource WarningPressed}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Ghost-Button (Browse) -->
         <Style x:Key="GhostButton" TargetType="Button">
             <Setter Property="Foreground"      Value="{DynamicResource AccentBrush}"/>
@@ -274,7 +300,7 @@
                                            FontSize="18"
                                            FontWeight="Bold"
                                            HorizontalAlignment="Center"/>
-                                <TextBlock Text="PDF-Zeichnungen, ZIP-Datei(en) und Excel (.xlsx/.xls) in den oberen Bereich ziehen. Bestell-PDF separat unten bei „Prüf-PDF“."
+                                <TextBlock Text="PDF-Zeichnungen, ZIP-Datei(en) und Excel (.xlsx/.xls) in den oberen Bereich ziehen. Optional zwei Excel-Dateien: Standard und *_Angebot* (Liefertermine mit Vorrang). Bestell-PDF separat unten bei „Prüf-PDF“."
                                            Foreground="{DynamicResource TextSecondary}"
                                            FontSize="13"
                                            Margin="0,8,0,0"
@@ -291,7 +317,7 @@
                                         BorderBrush="{DynamicResource GroupBorder}"
                                         BorderThickness="1">
                                     <StackPanel>
-                                        <TextBlock Text="Eingezogene Dateiendungen"
+                                        <TextBlock Text="Dateien in der Ablage"
                                                    FontWeight="SemiBold"
                                                    FontSize="12"
                                                    Foreground="{DynamicResource AccentBrush}"
@@ -361,7 +387,8 @@
                                                    TextWrapping="Wrap"/>
                                     </Border>
                                 </Grid>
-                                <TextBlock Text="↳ Nur per Maus hier ablegen (kein Durchsuchen, nicht in den Bereich oben)"
+                                <TextBlock x:Name="OrderVerificationHintTextBlock"
+                                           Text="↳ Optional: Bestell-PDF per Maus ablegen – ohne PDF wird ohne Prüfung sortiert"
                                            Margin="142,6,0,0"
                                            FontSize="11"
                                            Foreground="{DynamicResource TextSecondary}"/>
@@ -409,13 +436,13 @@
                                     IsEnabled="False"
                                     Click="Cancel_Click"/>
                             <Button x:Name="MergePrintButton"
-                                    Content="👁  Zusammenfügen &amp; Vorschau"
-                                    Style="{StaticResource GhostButton}"
+                                    Content="▶  Zusammenfügen &amp; Vorschau"
+                                    Style="{StaticResource SuccessButton}"
                                     MinWidth="220" Height="38" Margin="12,0,0,0"
                                     Click="MergeAndPrint_Click"/>
                             <Button x:Name="DeleteProcessedButton"
                                     Content="🗑  Bearbeitete Aufträge löschen"
-                                    Style="{StaticResource GhostButton}"
+                                    Style="{StaticResource WarningButton}"
                                     MinWidth="240" Height="38" Margin="12,0,0,0"
                                     Click="DeleteProcessedOrders_Click"/>
                         </StackPanel>

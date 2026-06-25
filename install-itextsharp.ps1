@@ -1,7 +1,7 @@
 # NuGet Package Installation Script
 # Dieses Script installiert iTextSharp für das PDF-Watermark-Feature
 
-$projectPath = "E:\Materialleiter Programierung\Zeiterfasung_R00\herko-r00\PDF-umbenenen"
+$projectPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Versuche nuget.exe zu finden
 $nugetPaths = @(

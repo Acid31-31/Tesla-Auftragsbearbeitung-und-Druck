@@ -12,8 +12,8 @@ namespace PDF_umbenenen
         public const string IconFileName = "AppIcon.ico";
 
         public const string VersionLabel = "1.1";
-        public const string RevisionLabel = "R05";
-        public const string BuildDate = "20.06.2026";
+        public const string RevisionLabel = "R06";
+        public const string BuildDate = "25.06.2026";
 
         public const bool IsDemoEdition = true;
 

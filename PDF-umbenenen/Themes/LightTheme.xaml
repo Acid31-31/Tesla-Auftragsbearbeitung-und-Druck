@@ -11,6 +11,12 @@
     <SolidColorBrush x:Key="AccentPressed"      Color="#0D47A1"/>
     <SolidColorBrush x:Key="DangerBrush"        Color="#E53935"/>
     <SolidColorBrush x:Key="DangerHover"        Color="#C62828"/>
+    <SolidColorBrush x:Key="SuccessBrush"       Color="#2E7D32"/>
+    <SolidColorBrush x:Key="SuccessHover"      Color="#388E3C"/>
+    <SolidColorBrush x:Key="SuccessPressed"    Color="#1B5E20"/>
+    <SolidColorBrush x:Key="WarningBrush"       Color="#F57C00"/>
+    <SolidColorBrush x:Key="WarningHover"       Color="#FB8C00"/>
+    <SolidColorBrush x:Key="WarningPressed"     Color="#E65100"/>
     <SolidColorBrush x:Key="TextPrimary"        Color="#1A1A2E"/>
     <SolidColorBrush x:Key="TextSecondary"      Color="#555770"/>
     <SolidColorBrush x:Key="TextOnAccent"       Color="#FFFFFF"/>

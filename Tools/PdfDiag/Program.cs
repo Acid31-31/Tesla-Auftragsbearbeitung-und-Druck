@@ -26,7 +26,7 @@ namespace PdfDiag
             }
 
             var pdfPath = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))
-                ?? @"E:\Materialleiter Programierung\Zeiterfasung_R00\herko-r00\PDF-umbenenen\bin\Debug\Ablage\_GESAMT_20260619_155625.pdf";
+                ?? @"E:\Programierung\PDF Sortieren\bin\Debug\Ablage\_GESAMT_20260619_155625.pdf";
 
             HashSet<int> onlyPages = null;
             var pageArgs = args

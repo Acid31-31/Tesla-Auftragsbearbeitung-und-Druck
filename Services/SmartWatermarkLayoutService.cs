@@ -35,6 +35,8 @@ namespace PDF_umbenenen.Services
         public float Angle { get; set; }
 
         public float FontSize { get; set; } = 22f;
+
+        public bool UseRedText { get; set; }
     }
 
     internal static class SmartWatermarkLayoutService
@@ -93,6 +95,7 @@ namespace PDF_umbenenen.Services
                 var dateText = fields.DeliveryDateText.Trim();
                 var fontSize = FitFontSize(dateText, pageWidth * 0.35f, 22f, 14f, pageWidth, pageHeight);
                 var placement = PlaceTopLeftFree(dateText, fontSize, pageWidth, pageHeight, occupied);
+                placement.UseRedText = true;
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
             }
@@ -611,7 +614,8 @@ namespace PDF_umbenenen.Services
                     X = anchor.X,
                     Y = topY - (i * lineHeight),
                     Alignment = 0,
-                    FontSize = fontSize
+                    FontSize = fontSize,
+                    UseRedText = IsDateLeadingQuantityLine(cleanLines[i])
                 });
             }
 
@@ -944,19 +948,54 @@ namespace PDF_umbenenen.Services
             return q;
         }
 
+        private static bool IsDateLeadingQuantityLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return false;
+
+            return Regex.IsMatch(line.Trim(), @"^(?:(?:LT|FT)-)?\d{1,2}\.\d{1,2}\.\d{4}");
+        }
+
         private static string NormalizeDate(string deliveryDate)
         {
             if (string.IsNullOrWhiteSpace(deliveryDate))
                 return string.Empty;
 
             var date = deliveryDate.Trim();
-            if (date.StartsWith("LT-", StringComparison.OrdinalIgnoreCase))
+            if (date.Equals("FT-", StringComparison.OrdinalIgnoreCase)
+                || date.Equals("LT-", StringComparison.OrdinalIgnoreCase))
                 return date;
 
-            if (date.StartsWith("LT:", StringComparison.OrdinalIgnoreCase))
+            var isManufacturing = false;
+            if (date.StartsWith("FT-", StringComparison.OrdinalIgnoreCase))
+            {
+                isManufacturing = true;
                 date = date.Substring(3).TrimStart();
+            }
+            else if (date.StartsWith("LT-", StringComparison.OrdinalIgnoreCase))
+            {
+                date = date.Substring(3).TrimStart();
+            }
+            else if (date.StartsWith("FT:", StringComparison.OrdinalIgnoreCase))
+            {
+                isManufacturing = true;
+                date = date.Substring(3).TrimStart();
+            }
+            else if (date.StartsWith("LT:", StringComparison.OrdinalIgnoreCase))
+            {
+                date = date.Substring(3).TrimStart();
+            }
 
-            return "LT-" + date;
+            var normalized = OrderVerificationDateHelper.TryNormalizeExcelDate(date);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                if (isManufacturing)
+                    return "FT-";
+
+                return string.Empty;
+            }
+
+            return (isManufacturing ? "FT-" : "LT-") + normalized;
         }
 
         private static string NormalizeLocation(string deliveryLocation)

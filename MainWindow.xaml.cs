@@ -65,7 +65,6 @@ namespace PDF_umbenenen
             ApplyTheme(true);
 
             LoadSavedPaths();
-            EnsureDesktopShortcut();
             _watermarkSettings = WatermarkSettingsStore.Load();
             InitializeAiServices();
             RefreshAiMenuToggle();
@@ -84,6 +83,7 @@ namespace PDF_umbenenen
         {
             ThemeWindowService.Attach(this);
             CertificateTrustService.EnsurePublisherTrusted();
+            EnsureDesktopShortcut();
 
             var legacyCleanup = LegacyBrandingCleanupService.Cleanup();
             if (legacyCleanup.RemovedLegacyInstall || legacyCleanup.RemovedDesktopShortcut)
@@ -406,7 +406,17 @@ namespace PDF_umbenenen
                 PathStore.SaveExcel(defaultExcelPath);
             }
 
-            ResetOrderVerificationPdfDisplay();
+            if (!string.IsNullOrWhiteSpace(saved.OrderVerificationPdfPath) && File.Exists(saved.OrderVerificationPdfPath))
+            {
+                _orderVerificationPdfPath = saved.OrderVerificationPdfPath;
+            }
+            else
+            {
+                _orderVerificationPdfPath = string.Empty;
+                _cachedOrderVerificationLines = null;
+            }
+
+            UpdateOrderVerificationPdfDisplay();
 
             // PDF-Ordner ist fest auf den Ablage-Ordner gesetzt
             if (!Directory.Exists(workspaceFolder))
@@ -422,13 +432,19 @@ namespace PDF_umbenenen
         {
             try
             {
-                var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                if (string.IsNullOrWhiteSpace(desktopPath) || !Directory.Exists(desktopPath))
+                var desktopPath = ResolveDesktopPath();
+                if (string.IsNullOrWhiteSpace(desktopPath))
+                {
+                    AppendStatus("⚠ Desktop-Verknüpfung: Desktop-Ordner nicht gefunden.");
                     return;
+                }
 
                 var exePath = Assembly.GetExecutingAssembly().Location;
                 if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+                {
+                    AppendStatus("⚠ Desktop-Verknüpfung: Programmdatei nicht gefunden.");
                     return;
+                }
 
                 var baseDir = Path.GetDirectoryName(exePath);
                 var preferredExe = Path.Combine(baseDir, AppInfo.ExeFileName);
@@ -439,7 +455,10 @@ namespace PDF_umbenenen
 
                 var wshShellType = Type.GetTypeFromProgID("WScript.Shell");
                 if (wshShellType == null)
+                {
+                    AppendStatus("⚠ Desktop-Verknüpfung: Windows-Shell nicht verfügbar.");
                     return;
+                }
 
                 dynamic wshShell = Activator.CreateInstance(wshShellType);
                 dynamic shortcut = wshShell.CreateShortcut(shortcutPath);
@@ -448,11 +467,33 @@ namespace PDF_umbenenen
                 shortcut.IconLocation = iconPath + ",0";
                 shortcut.Description = AppInfo.ProductName + " starten";
                 shortcut.Save();
+
+                if (File.Exists(shortcutPath))
+                    AppendStatus("✓ Desktop-Verknüpfung erstellt: " + AppInfo.ShortcutFileName);
+                else
+                    AppendStatus("⚠ Desktop-Verknüpfung konnte nicht gespeichert werden.");
             }
             catch (Exception ex)
             {
                 AppendStatus("⚠ Desktop-Verknüpfung konnte nicht erstellt werden: " + ex.Message);
             }
+        }
+
+        private static string ResolveDesktopPath()
+        {
+            var candidates = new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            return null;
         }
 
         private void BrowseExcel_Click(object sender, RoutedEventArgs e)
@@ -559,6 +600,11 @@ namespace PDF_umbenenen
 
             var pos = e.GetPosition(zone);
             return pos.X >= 0 && pos.Y >= 0 && pos.X <= zone.ActualWidth && pos.Y <= zone.ActualHeight;
+        }
+
+        private bool HasOrderVerificationPdfLoaded()
+        {
+            return !string.IsNullOrWhiteSpace(_orderVerificationPdfPath) && File.Exists(_orderVerificationPdfPath);
         }
 
         private void OrderVerificationDropZone_PreviewDragEnter(object sender, DragEventArgs e)
@@ -685,7 +731,7 @@ namespace PDF_umbenenen
             if (block == null)
                 return;
 
-            if (string.IsNullOrWhiteSpace(_orderVerificationPdfPath) || !File.Exists(_orderVerificationPdfPath))
+            if (!HasOrderVerificationPdfLoaded())
             {
                 block.Text = OrderVerificationDropHint;
                 block.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
@@ -783,7 +829,7 @@ namespace PDF_umbenenen
             AppendStatus($"📥 Drag & Drop: {copiedCount} Datei(en) kopiert, {ignoredCount} übersprungen.");
             if (excelCopied)
             {
-                AppendStatus("ℹ Excel als 'Daten.xlsx' im Ablage-Ordner gespeichert.");
+                AppendStatus("ℹ Excel im Ablage-Ordner gespeichert (Standard: Daten.xlsx, Angebot: Daten_Angebot.xlsx).");
             }
 
             var pdfCount = Directory.GetFiles(targetFolder, "*.pdf", SearchOption.TopDirectoryOnly).Length;
@@ -808,11 +854,53 @@ namespace PDF_umbenenen
                 ? SearchOption.AllDirectories
                 : SearchOption.TopDirectoryOnly;
 
-            var extensions = Directory.GetFiles(folder, "*.*", searchOption)
+            var files = Directory.GetFiles(folder, "*.*", searchOption);
+            block.Text = FormatWorkspaceFileSummary(files, folder, "— noch keine Dateien —");
+        }
+
+        private static string FormatWorkspaceFileSummary(
+            IEnumerable<string> files,
+            string workspaceFolder,
+            string emptyText)
+        {
+            var parts = new List<string>();
+            AppendExcelWorkspaceEntry(parts, workspaceFolder, "Daten.xlsx", "Daten.xls", "Excel Standard");
+            AppendExcelWorkspaceEntry(parts, workspaceFolder, "Daten_Angebot.xlsx", "Daten_Angebot.xls", "Excel Angebot");
+
+            var reservedExcelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Daten.xlsx", "Daten.xls", "Daten_Angebot.xlsx", "Daten_Angebot.xls"
+            };
+
+            var otherExtensions = files
+                .Where(file => !reservedExcelNames.Contains(Path.GetFileName(file) ?? string.Empty))
                 .Select(file => Path.GetExtension(file)?.ToLowerInvariant() ?? string.Empty)
                 .Where(ext => !string.IsNullOrWhiteSpace(ext));
 
-            block.Text = FormatExtensionSummary(extensions, "— noch keine Dateien —");
+            var extensionSummary = FormatExtensionSummary(otherExtensions, string.Empty);
+            if (!string.IsNullOrWhiteSpace(extensionSummary))
+                parts.Add(extensionSummary);
+
+            return parts.Count == 0 ? emptyText : string.Join("    ", parts);
+        }
+
+        private static void AppendExcelWorkspaceEntry(
+            ICollection<string> parts,
+            string folder,
+            string xlsxName,
+            string xlsName,
+            string label)
+        {
+            var xlsxPath = Path.Combine(folder, xlsxName);
+            if (File.Exists(xlsxPath))
+            {
+                parts.Add(label + " (" + xlsxName + ")");
+                return;
+            }
+
+            var xlsPath = Path.Combine(folder, xlsName);
+            if (File.Exists(xlsPath))
+                parts.Add(label + " (" + xlsName + ")");
         }
 
         private void UpdateDragDropPreview(DragEventArgs e)
@@ -827,9 +915,43 @@ namespace PDF_umbenenen
 
             var includeSubfolders = IncludeSubfoldersBox?.IsChecked == true;
             var extensions = CollectExtensionsFromPaths(files, includeSubfolders);
-            block.Text = extensions.Any()
-                ? "Wird eingefügt: " + FormatExtensionSummary(extensions, string.Empty)
-                : "Keine unterstützten Dateiendungen erkannt";
+            var excelHints = CollectExcelDropHints(files);
+            var summary = FormatExtensionSummary(extensions, string.Empty);
+            if (!string.IsNullOrWhiteSpace(excelHints))
+                summary = string.IsNullOrWhiteSpace(summary) ? excelHints : excelHints + "    " + summary;
+
+            block.Text = string.IsNullOrWhiteSpace(summary)
+                ? "Keine unterstützten Dateiendungen erkannt"
+                : "Wird eingefügt: " + summary;
+        }
+
+        private static string CollectExcelDropHints(IEnumerable<string> paths)
+        {
+            var hints = new List<string>();
+            var hasStandard = false;
+            var hasAngebot = false;
+
+            foreach (var path in paths)
+            {
+                if (!File.Exists(path))
+                    continue;
+
+                var ext = Path.GetExtension(path)?.ToLowerInvariant() ?? string.Empty;
+                if (ext != ".xlsx" && ext != ".xls")
+                    continue;
+
+                if (ExcelDeliveryDateMergeService.IsAngebotExcelFile(path))
+                    hasAngebot = true;
+                else
+                    hasStandard = true;
+            }
+
+            if (hasStandard)
+                hints.Add("Excel Standard → Daten.xlsx");
+            if (hasAngebot)
+                hints.Add("Excel Angebot → Daten_Angebot.xlsx");
+
+            return string.Join("    ", hints);
         }
 
         private static IEnumerable<string> CollectExtensionsFromPaths(IEnumerable<string> paths, bool includeSubfolders)
@@ -884,7 +1006,11 @@ namespace PDF_umbenenen
             var ext = Path.GetExtension(sourceFile)?.ToLowerInvariant() ?? string.Empty;
             if (ext == ".xlsx" || ext == ".xls")
             {
-                var excelTarget = Path.Combine(targetFolder, ext == ".xls" ? "Daten.xls" : "Daten.xlsx");
+                var baseName = Path.GetFileNameWithoutExtension(sourceFile) ?? string.Empty;
+                var targetName = ExcelDeliveryDateMergeService.IsAngebotExcelFile(sourceFile)
+                    ? (ext == ".xls" ? "Daten_Angebot.xls" : "Daten_Angebot.xlsx")
+                    : (ext == ".xls" ? "Daten.xls" : "Daten.xlsx");
+                var excelTarget = Path.Combine(targetFolder, targetName);
                 File.Copy(sourceFile, excelTarget, true);
                 excelCopied = true;
                 return 1;
@@ -923,7 +1049,10 @@ namespace PDF_umbenenen
                     var ext = Path.GetExtension(entry.Name)?.ToLowerInvariant() ?? string.Empty;
                     if (ext == ".xlsx" || ext == ".xls")
                     {
-                        var excelTarget = Path.Combine(targetFolder, ext == ".xls" ? "Daten.xls" : "Daten.xlsx");
+                        var targetName = ExcelDeliveryDateMergeService.IsAngebotExcelFile(entry.Name)
+                            ? (ext == ".xls" ? "Daten_Angebot.xls" : "Daten_Angebot.xlsx")
+                            : (ext == ".xls" ? "Daten.xls" : "Daten.xlsx");
+                        var excelTarget = Path.Combine(targetFolder, targetName);
                         entry.ExtractToFile(excelTarget, true);
                         excelCopied = true;
                         copiedCount++;
@@ -1151,13 +1280,11 @@ namespace PDF_umbenenen
             }
 
             var orderPdfPath = ResolveOrderVerificationPdfPath(pdfFolder);
-            if (string.IsNullOrWhiteSpace(orderPdfPath) || !File.Exists(orderPdfPath))
-            {
-                AppendStatus("Bitte zuerst die Bestell-PDF per Maus in den Bereich „Prüf-PDF“ ablegen.");
-                return;
-            }
+            var hasOrderPdf = !string.IsNullOrWhiteSpace(orderPdfPath) && File.Exists(orderPdfPath);
+            IList<OrderVerificationLine> orderVerificationLines = Array.Empty<OrderVerificationLine>();
 
             var excelRows = ReadExcelRows(excelPath).ToList();
+            ApplyAngebotDeliveryDates(excelPath, excelRows, AppendStatus);
             if (excelRows.Count == 0)
             {
                 AppendStatus("Keine Zeichnungsnummern in der Excel-Datei gefunden.");
@@ -1166,8 +1293,18 @@ namespace PDF_umbenenen
 
             var searchOption = IncludeSubfoldersBox.IsChecked == true ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 
-            if (!TryRunOrderVerification(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption, blockOnIssues: true))
-                return;
+            if (hasOrderPdf)
+            {
+                if (!TryRunOrderVerification(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption, blockOnIssues: true))
+                    return;
+
+                orderVerificationLines = _cachedOrderVerificationLines ?? Array.Empty<OrderVerificationLine>();
+            }
+            else
+            {
+                orderPdfPath = string.Empty;
+                AppendStatus("ℹ Keine Prüf-PDF – Sortierung ohne Bestell-PDF-Abgleich.");
+            }
 
             // WICHTIG: UI-Wert auf dem UI-Thread speichern, BEVOR wir in den Background-Thread gehen!
             if (_watermarkSettings == null)
@@ -1179,7 +1316,7 @@ namespace PDF_umbenenen
                 SetProcessingState(true);
                 _processingCancellationSource = new CancellationTokenSource();
                 AppendStatus("Verarbeitung gestartet...");
-                await RunOnStaThreadAsync(() => ProcessDocuments(excelPath, pdfFolder, searchOption, orderPdfPath, _cachedOrderVerificationLines, _processingCancellationSource.Token, SetProgress, addWatermarks, orderNumber), _processingCancellationSource.Token);
+                await RunOnStaThreadAsync(() => ProcessDocuments(excelPath, pdfFolder, searchOption, orderPdfPath, orderVerificationLines, _processingCancellationSource.Token, SetProgress, addWatermarks, orderNumber), _processingCancellationSource.Token);
             }
             catch (OperationCanceledException)
             {
@@ -1478,12 +1615,13 @@ namespace PDF_umbenenen
 
             if (orderVerificationLines == null || orderVerificationLines.Count == 0)
             {
-                SafeAppendStatus("⚠ Keine Bestellpositionen aus Prüf-PDF – Liefertermine können nicht gesetzt werden.");
+                SafeAppendStatus("ℹ Keine Prüf-PDF – Liefertermine aus Excel (falls vorhanden).");
                 orderVerificationLines = Array.Empty<OrderVerificationLine>();
             }
 
             cancellationToken.ThrowIfCancellationRequested();
             var excelRows = ReadExcelRows(excelPath).ToList();
+            ApplyAngebotDeliveryDates(excelPath, excelRows, SafeAppendStatus);
             if (excelRows.Count == 0)
             {
                 SafeAppendStatus("Keine Zeichnungsnummern in der Excel-Datei gefunden.");
@@ -1602,7 +1740,7 @@ namespace PDF_umbenenen
                             ToOrderExcelRow(r),
                             orderVerificationLines,
                             pdf.SearchKey);
-                        var deliveryDate = OrderVerificationLookup.ResolveWatermarkDeliveryDate(r.ParentArticleNumber, orderLine);
+                        var deliveryDate = OrderVerificationLookup.ResolveWatermarkDeliveryDate(ToOrderExcelRow(r), orderLine);
 
                         return new WatermarkEntry
                         {
@@ -1619,7 +1757,7 @@ namespace PDF_umbenenen
                     orderRowForPdf,
                     orderVerificationLines,
                     pdf.SearchKey);
-                var primaryDeliveryDate = OrderVerificationLookup.ResolveWatermarkDeliveryDate(primaryRow.ParentArticleNumber, primaryOrderLine);
+                var primaryDeliveryDate = OrderVerificationLookup.ResolveWatermarkDeliveryDate(orderRowForPdf, primaryOrderLine);
 
                 matches.Add(new RenamingItem
                 {
@@ -1665,7 +1803,7 @@ namespace PDF_umbenenen
                 })
                 .ToList();
 
-            var total = renamePlan.Count * 2; // Verschieben + Umbenennen
+            var total = renamePlan.Count * 3; // Verschieben + Umbenennen + Seitenzahlen
             if (addWatermarks)
             {
                 total += renamePlan.Count; // + Wasserzeichen (falls aktiviert)
@@ -1728,13 +1866,43 @@ namespace PDF_umbenenen
                     SafeSetProgress(done * 100 / total);
                 }
 
-                SafeSetProgress(100);
             }
             else
             {
                 SafeAppendStatus("ℹ️  Wasserzeichen deaktiviert (kein Fehler)");
             }
 
+            SafeAppendStatus("──────────────────────────────────────────");
+            SafeAppendStatus("Seitenzahlen werden eingefügt (fortlaufend wie in einem Buch)...");
+
+            var nextPageNumber = 1;
+            foreach (var item in renamePlan)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    nextPageNumber = PdfWatermarkService.AddPageNumbers(item.FinalPath, nextPageNumber);
+                    SafeAppendStatus(string.Format(CultureInfo.InvariantCulture, "✓ Seitenzahlen eingefügt: {0}", Path.GetFileName(item.FinalPath)));
+                }
+                catch (InvalidOperationException ioex)
+                {
+                    SafeAppendStatus(string.Format(CultureInfo.InvariantCulture, "❌ FEHLER - Seitenzahlen nicht verfügbar: {0}", ioex.Message));
+                    if (!PdfWatermarkService.IsAvailable())
+                    {
+                        SafeAppendStatus("⚠️ BITTE BEACHTEN:");
+                        SafeAppendStatus("Seitenzahlen brauchen itextsharp.dll und BouncyCastle.Cryptography.dll im App-Ordner.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SafeAppendStatus(string.Format(CultureInfo.InvariantCulture, "❌ Fehler bei {0}: {1}", Path.GetFileName(item.FinalPath), ex.Message));
+                }
+
+                done++;
+                SafeSetProgress(done * 100 / total);
+            }
+
+            SafeSetProgress(100);
             SafeAppendStatus(string.Format(CultureInfo.InvariantCulture, "Fertig. {0} PDF-Dateien wurden umbenannt.", renamePlan.Count));
 
             if (unmatchedPdfs.Count > 0)
@@ -2209,6 +2377,42 @@ namespace PDF_umbenenen
             throw new NotSupportedException("Nur .xls und .xlsx werden unterstützt.");
         }
 
+        private void ApplyAngebotDeliveryDates(string primaryExcelPath, IList<ExcelRowCandidate> targetRows, Action<string> log = null)
+        {
+            if (targetRows == null || targetRows.Count == 0 || string.IsNullOrWhiteSpace(primaryExcelPath))
+                return;
+
+            var folder = Path.GetDirectoryName(primaryExcelPath);
+            var angebotPath = ExcelDeliveryDateMergeService.FindAngebotExcelPath(folder, primaryExcelPath);
+            if (string.IsNullOrWhiteSpace(angebotPath) || !File.Exists(angebotPath))
+                return;
+
+            var quoteRows = ReadExcelRows(angebotPath).ToList();
+            if (quoteRows.Count == 0)
+            {
+                log?.Invoke("⚠ Angebot-Excel ohne Zeichnungszeilen: " + Path.GetFileName(angebotPath));
+                return;
+            }
+
+            ExcelDeliveryDateMergeService.ApplyQuoteDates(
+                targetRows,
+                quoteRows,
+                row =>
+                {
+                    var keys = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(row.RawDrawingNumber))
+                        keys.Add(NormalizeKey(row.RawDrawingNumber));
+                    if (row.NormalizedCells != null)
+                        keys.AddRange(row.NormalizedCells.Where(k => !string.IsNullOrWhiteSpace(k)));
+                    return keys;
+                },
+                row => row.RequestedDeliveryDate,
+                row => row.QuoteDeliveryDate,
+                (row, date) => row.RequestedDeliveryDate = date);
+
+            log?.Invoke("ℹ Angebot-Excel: " + Path.GetFileName(angebotPath) + " – Termine mit Vorrang übernommen.");
+        }
+
         private IEnumerable<ExcelRowCandidate> ReadExcelRowsFromXlsx(string excelPath)
         {
             using (var archive = ZipFile.OpenRead(excelPath))
@@ -2232,6 +2436,7 @@ namespace PDF_umbenenen
                         continue;
 
                     string globalDeliveryDate = string.Empty;
+                    string globalQuoteDeliveryDate = string.Empty;
                     string globalDeliveryLocation = string.Empty;
 
                     var sheetPath = NormalizeZipPath("xl/" + target);
@@ -2244,6 +2449,7 @@ namespace PDF_umbenenen
                     string articleNoColRef = null;
                     string amountColRef = null;
                     string dateColRef = null;
+                    string quoteDateColRef = null;
                     string locationColRef = null;
                     int headerRowIndex = -1;
 
@@ -2284,7 +2490,9 @@ namespace PDF_umbenenen
                                     articleNoColRef = colRef;
                                 if (amountColRef == null && IsAmountHeader(text))
                                     amountColRef = colRef;
-                                if (dateColRef == null && IsDateHeader(text))
+                                if (quoteDateColRef == null && IsQuoteDateHeader(text))
+                                    quoteDateColRef = colRef;
+                                if (dateColRef == null && IsStandardDateHeader(text))
                                     dateColRef = colRef;
                                 if (locationColRef == null && IsLocationHeader(text))
                                     locationColRef = colRef;
@@ -2343,7 +2551,7 @@ namespace PDF_umbenenen
                             }
 
                             if (string.IsNullOrWhiteSpace(globalDeliveryDate)
-                                && (n.Contains("requested delivery date") || n.Contains("delivery date") || n.Contains("lieferdatum")))
+                                && IsStandardDateHeader(n))
                             {
                                 var extracted = ExtractValueAfterSeparator(txt);
                                 if (string.IsNullOrWhiteSpace(extracted))
@@ -2358,6 +2566,24 @@ namespace PDF_umbenenen
 
                                 if (!string.IsNullOrWhiteSpace(extracted))
                                     globalDeliveryDate = NormalizeDateValue(extracted);
+                            }
+
+                            if (string.IsNullOrWhiteSpace(globalQuoteDeliveryDate)
+                                && IsQuoteDateHeader(n))
+                            {
+                                var extracted = ExtractValueAfterSeparator(txt);
+                                if (string.IsNullOrWhiteSpace(extracted))
+                                {
+                                    for (var j = i + 1; j < cells.Count; j++)
+                                    {
+                                        extracted = GetCellText(cells[j], sharedStrings).Trim();
+                                        if (!string.IsNullOrWhiteSpace(extracted))
+                                            break;
+                                    }
+                                }
+
+                                if (!string.IsNullOrWhiteSpace(extracted))
+                                    globalQuoteDeliveryDate = NormalizeDateValue(extracted);
                             }
                         }
                     }
@@ -2389,10 +2615,17 @@ namespace PDF_umbenenen
                             if (!string.IsNullOrWhiteSpace(key))
                             {
                                 var amount = amountColRef != null ? GetCellValueByColRef(row, amountColRef, sharedStrings) : string.Empty;
-                                var dateRaw = dateColRef != null ? GetCellValueByColRef(row, dateColRef, sharedStrings) : string.Empty;
-                                var date = NormalizeDateValue(dateRaw);
-                                if (string.IsNullOrWhiteSpace(date))
-                                    date = globalDeliveryDate;
+                                var standardDateRaw = dateColRef != null ? GetCellValueByColRef(row, dateColRef, sharedStrings) : string.Empty;
+                                var standardDate = NormalizeDateValue(standardDateRaw);
+                                if (string.IsNullOrWhiteSpace(standardDate))
+                                    standardDate = globalDeliveryDate;
+
+                                var quoteDateRaw = quoteDateColRef != null ? GetCellValueByColRef(row, quoteDateColRef, sharedStrings) : string.Empty;
+                                var quoteDate = NormalizeDateValue(quoteDateRaw);
+                                if (string.IsNullOrWhiteSpace(quoteDate))
+                                    quoteDate = globalQuoteDeliveryDate;
+
+                                var date = ExcelDeliveryDateMergeService.ResolveEffectiveDeliveryDate(standardDate, quoteDate);
 
                                 var location = locationColRef != null ? GetCellValueByColRef(row, locationColRef, sharedStrings) : string.Empty;
                                 if (string.IsNullOrWhiteSpace(location) || IsLikelyExcelDateSerial(location))
@@ -2410,6 +2643,7 @@ namespace PDF_umbenenen
                                     ParentArticleNumber = ExtractParentArticleNumber(new[] { articleNoValue }),
                                     RequestedAmount = amount,
                                     RequestedDeliveryDate = date,
+                                    QuoteDeliveryDate = quoteDate,
                                     RequestedDeliveryLocation = location
                                 });
                             }
@@ -2437,33 +2671,7 @@ namespace PDF_umbenenen
 
         private static string NormalizeDateValue(string raw)
         {
-            if (string.IsNullOrWhiteSpace(raw))
-                return string.Empty;
-
-            var text = raw.Trim();
-
-            if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var oa)
-                || double.TryParse(text, NumberStyles.Any, CultureInfo.GetCultureInfo("de-DE"), out oa))
-            {
-                if (oa > 20000 && oa < 90000)
-                {
-                    try
-                    {
-                        return DateTime.FromOADate(oa).ToString("dd.MM.yyyy", CultureInfo.GetCultureInfo("de-DE"));
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
-
-            if (DateTime.TryParse(text, CultureInfo.GetCultureInfo("de-DE"), DateTimeStyles.None, out var dtDe))
-                return dtDe.ToString("dd.MM.yyyy", CultureInfo.GetCultureInfo("de-DE"));
-
-            if (DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dtInv))
-                return dtInv.ToString("dd.MM.yyyy", CultureInfo.GetCultureInfo("de-DE"));
-
-            return text;
+            return OrderVerificationDateHelper.TryNormalizeExcelDate(raw);
         }
 
         private static bool IsLikelyExcelDateSerial(string value)
@@ -2521,6 +2729,7 @@ namespace PDF_umbenenen
                 for (var sheetIndex = 1; sheetIndex <= sheetCount; sheetIndex++)
                 {
                     string globalDeliveryDate = string.Empty;
+                    string globalQuoteDeliveryDate = string.Empty;
                     string globalDeliveryLocation = string.Empty;
 
                     dynamic worksheet = workbook.Worksheets[sheetIndex];
@@ -2538,6 +2747,7 @@ namespace PDF_umbenenen
                     int articleNoCol = -1;
                     int amountCol = -1;
                     int dateCol = -1;
+                    int quoteDateCol = -1;
                     int locationCol = -1;
                     int headerRow = -1;
 
@@ -2559,7 +2769,8 @@ namespace PDF_umbenenen
 
                             if (articleNoCol < 0 && (IsArticleNumberHeader(h0) || IsArticleNumberHeader(h1) || IsArticleNumberHeader(h2))) articleNoCol = c;
                             if (amountCol < 0 && (IsAmountHeader(h0) || IsAmountHeader(h1) || IsAmountHeader(h2))) amountCol = c;
-                            if (dateCol < 0 && (IsDateHeader(h0) || IsDateHeader(h1) || IsDateHeader(h2))) dateCol = c;
+                            if (quoteDateCol < 0 && (IsQuoteDateHeader(h0) || IsQuoteDateHeader(h1) || IsQuoteDateHeader(h2))) quoteDateCol = c;
+                            if (dateCol < 0 && (IsStandardDateHeader(h0) || IsStandardDateHeader(h1) || IsStandardDateHeader(h2))) dateCol = c;
                             if (locationCol < 0 && (IsLocationHeader(h0) || IsLocationHeader(h1) || IsLocationHeader(h2))) locationCol = c;
                             if (revisionCol < 0 && (IsRevisionHeader(h0) || IsRevisionHeader(h1) || IsRevisionHeader(h2))) revisionCol = c;
                         }
@@ -2598,7 +2809,7 @@ namespace PDF_umbenenen
                             }
 
                             if (string.IsNullOrWhiteSpace(globalDeliveryDate)
-                                && (n.Contains("requested delivery date") || n.Contains("delivery date") || n.Contains("lieferdatum")))
+                                && IsStandardDateHeader(n))
                             {
                                 var extracted = ExtractValueAfterSeparator(txt);
                                 if (string.IsNullOrWhiteSpace(extracted))
@@ -2613,6 +2824,24 @@ namespace PDF_umbenenen
 
                                 if (!string.IsNullOrWhiteSpace(extracted))
                                     globalDeliveryDate = NormalizeDateValue(extracted);
+                            }
+
+                            if (string.IsNullOrWhiteSpace(globalQuoteDeliveryDate)
+                                && IsQuoteDateHeader(n))
+                            {
+                                var extracted = ExtractValueAfterSeparator(txt);
+                                if (string.IsNullOrWhiteSpace(extracted))
+                                {
+                                    for (var nc = c + 1; nc <= columns; nc++)
+                                    {
+                                        extracted = Convert.ToString(allValues[r, nc], CultureInfo.InvariantCulture)?.Trim();
+                                        if (!string.IsNullOrWhiteSpace(extracted))
+                                            break;
+                                    }
+                                }
+
+                                if (!string.IsNullOrWhiteSpace(extracted))
+                                    globalQuoteDeliveryDate = NormalizeDateValue(extracted);
                             }
                         }
                     }
@@ -2653,10 +2882,17 @@ namespace PDF_umbenenen
                             if (!string.IsNullOrWhiteSpace(key))
                             {
                                 var amount = amountCol > 0 ? Convert.ToString(allValues[row, amountCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty : string.Empty;
-                                var dateRaw = dateCol > 0 ? Convert.ToString(allValues[row, dateCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty : string.Empty;
-                                var date = NormalizeDateValue(dateRaw);
-                                if (string.IsNullOrWhiteSpace(date))
-                                    date = globalDeliveryDate;
+                                var standardDateRaw = dateCol > 0 ? Convert.ToString(allValues[row, dateCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty : string.Empty;
+                                var standardDate = NormalizeDateValue(standardDateRaw);
+                                if (string.IsNullOrWhiteSpace(standardDate))
+                                    standardDate = globalDeliveryDate;
+
+                                var quoteDateRaw = quoteDateCol > 0 ? Convert.ToString(allValues[row, quoteDateCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty : string.Empty;
+                                var quoteDate = NormalizeDateValue(quoteDateRaw);
+                                if (string.IsNullOrWhiteSpace(quoteDate))
+                                    quoteDate = globalQuoteDeliveryDate;
+
+                                var date = ExcelDeliveryDateMergeService.ResolveEffectiveDeliveryDate(standardDate, quoteDate);
                                 var location = locationCol > 0 ? Convert.ToString(allValues[row, locationCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty : string.Empty;
                                 if (string.IsNullOrWhiteSpace(location) || IsLikelyExcelDateSerial(location))
                                     location = globalDeliveryLocation;
@@ -2675,6 +2911,7 @@ namespace PDF_umbenenen
                                     ParentArticleNumber = ExtractParentArticleNumber(new[] { articleNoValue }),
                                     RequestedAmount = amount,
                                     RequestedDeliveryDate = date,
+                                    QuoteDeliveryDate = quoteDate,
                                     RequestedDeliveryLocation = location
                                 });
                             }
@@ -2742,16 +2979,35 @@ namespace PDF_umbenenen
             return n == "qty" || n == "quantity" || n == "menge" || n == "requested amount" || n.Contains("amount");
         }
 
-        private static bool IsDateHeader(string value)
+        private static bool IsQuoteDateHeader(string value)
         {
+            var n = NormalizeHeader(value);
+            return n.Contains("according to quote")
+                || n.Contains("ltg acc quote")
+                || n.Contains("delivery date according to quote")
+                || (n.Contains("angebot") && n.Contains("date"))
+                || (n.Contains("quote") && n.Contains("delivery") && n.Contains("date"));
+        }
+
+        private static bool IsStandardDateHeader(string value)
+        {
+            if (IsQuoteDateHeader(value))
+                return false;
+
             var n = NormalizeHeader(value);
             return n == "lieferdatum"
                 || n == "leiferdatum"
                 || n == "delivery date"
                 || n == "requested delivery date"
-                || (n.Contains("delivery") && n.Contains("date"))
+                || (n.Contains("requested") && n.Contains("delivery") && n.Contains("date"))
+                || (n.Contains("delivery") && n.Contains("date") && !n.Contains("quote"))
                 || (n.Contains("liefer") && n.Contains("datum"))
                 || (n.Contains("leifer") && n.Contains("datum"));
+        }
+
+        private static bool IsDateHeader(string value)
+        {
+            return IsStandardDateHeader(value) || IsQuoteDateHeader(value);
         }
 
         private static bool IsLocationHeader(string value)
@@ -3130,6 +3386,8 @@ namespace PDF_umbenenen
             public string RequestedAmount { get; set; }
 
             public string RequestedDeliveryDate { get; set; }
+
+            public string QuoteDeliveryDate { get; set; }
 
             public string RequestedDeliveryLocation { get; set; }
         }

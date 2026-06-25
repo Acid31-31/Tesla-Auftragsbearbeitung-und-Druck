@@ -8,7 +8,54 @@ namespace PDF_umbenenen.Services
 {
     internal static class OrderVerificationLookup
     {
-        public const string BgSubDrawingDeliveryPlaceholder = "LT-";
+        public const string DeliveryTerminPrefix = "LT-";
+        public const string ManufacturingTerminPrefix = "FT-";
+        public const string BgSubDrawingDeliveryPlaceholder = ManufacturingTerminPrefix;
+
+        public static string FormatWatermarkTermin(string rawDate, bool isManufacturingTermin)
+        {
+            if (string.IsNullOrWhiteSpace(rawDate))
+                return string.Empty;
+
+            var text = rawDate.Trim();
+
+            if (text.Equals(ManufacturingTerminPrefix, StringComparison.OrdinalIgnoreCase)
+                || text.Equals(DeliveryTerminPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return isManufacturingTermin ? ManufacturingTerminPrefix : DeliveryTerminPrefix;
+            }
+
+            if (text.StartsWith(ManufacturingTerminPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                isManufacturingTermin = true;
+                text = text.Substring(ManufacturingTerminPrefix.Length).TrimStart();
+            }
+            else if (text.StartsWith(DeliveryTerminPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                text = text.Substring(DeliveryTerminPrefix.Length).TrimStart();
+            }
+            else if (text.StartsWith("FT:", StringComparison.OrdinalIgnoreCase))
+            {
+                isManufacturingTermin = true;
+                text = text.Substring(3).TrimStart();
+            }
+            else if (text.StartsWith("LT:", StringComparison.OrdinalIgnoreCase))
+            {
+                text = text.Substring(3).TrimStart();
+            }
+
+            var prefix = isManufacturingTermin ? ManufacturingTerminPrefix : DeliveryTerminPrefix;
+            var normalizedDate = OrderVerificationDateHelper.TryNormalizeExcelDate(text);
+            if (string.IsNullOrWhiteSpace(normalizedDate))
+            {
+                if (isManufacturingTermin)
+                    return BgSubDrawingDeliveryPlaceholder;
+
+                return string.Empty;
+            }
+
+            return prefix + normalizedDate;
+        }
 
         public static bool IsBgSubDrawing(string parentArticleNumber)
         {
@@ -116,22 +163,32 @@ namespace PDF_umbenenen.Services
 
         public static string ResolveWatermarkDeliveryDate(OrderExcelRow row, OrderVerificationLine orderLine)
         {
-            if (IsBgSubDrawing(row))
-                return BgSubDrawingDeliveryPlaceholder;
+            var isManufacturingTermin = IsBgSubDrawing(row);
+
+            if (row != null && !string.IsNullOrWhiteSpace(row.DeliveryDate))
+                return FormatWatermarkTermin(row.DeliveryDate, isManufacturingTermin);
 
             if (orderLine != null && !string.IsNullOrWhiteSpace(orderLine.DeliveryDate))
-                return orderLine.DeliveryDate;
+                return FormatWatermarkTermin(orderLine.DeliveryDate, isManufacturingTermin);
+
+            if (isManufacturingTermin)
+                return BgSubDrawingDeliveryPlaceholder;
 
             return string.Empty;
         }
 
-        public static string ResolveWatermarkDeliveryDate(string parentArticleNumber, OrderVerificationLine orderLine)
+        public static string ResolveWatermarkDeliveryDate(string parentArticleNumber, OrderVerificationLine orderLine, string excelDeliveryDate = null)
         {
-            if (IsBgSubDrawing(parentArticleNumber))
-                return BgSubDrawingDeliveryPlaceholder;
+            var isManufacturingTermin = IsBgSubDrawing(parentArticleNumber);
+
+            if (!string.IsNullOrWhiteSpace(excelDeliveryDate))
+                return FormatWatermarkTermin(excelDeliveryDate, isManufacturingTermin);
 
             if (orderLine != null && !string.IsNullOrWhiteSpace(orderLine.DeliveryDate))
-                return orderLine.DeliveryDate;
+                return FormatWatermarkTermin(orderLine.DeliveryDate, isManufacturingTermin);
+
+            if (isManufacturingTermin)
+                return BgSubDrawingDeliveryPlaceholder;
 
             return string.Empty;
         }
