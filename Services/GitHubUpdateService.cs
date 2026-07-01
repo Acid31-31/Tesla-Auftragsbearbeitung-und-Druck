@@ -58,7 +58,10 @@ namespace PDF_umbenenen.Services
                     if (string.IsNullOrWhiteSpace(assetUrl))
                     {
                         if (result.UpdateAvailable)
+                        {
+                            result.UpdateAvailable = false;
                             result.ErrorMessage = "Kein Update-Paket (" + AppInfo.UpdateAssetFileName + ") in der Release gefunden.";
+                        }
                         return result;
                     }
 
@@ -68,7 +71,7 @@ namespace PDF_umbenenen.Services
             }
             catch (Exception ex)
             {
-                result.ErrorMessage = ex.Message;
+                result.ErrorMessage = DescribeUpdateError(ex);
             }
 
             return result;
@@ -213,29 +216,77 @@ namespace PDF_umbenenen.Services
 
         private static string ExtractPreferredAssetUrl(string json)
         {
-            var matches = Regex.Matches(
-                json,
-                "\\{[^{}]*\"name\"\\s*:\\s*\"([^\"]+)\"[^{}]*\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"[^{}]*\\}",
-                RegexOptions.IgnoreCase);
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
 
-            foreach (Match match in matches)
+            var preferred = FindDownloadUrlAfterAssetName(json, AppInfo.UpdateAssetFileName);
+            if (!string.IsNullOrWhiteSpace(preferred))
+                return preferred;
+
+            foreach (Match match in Regex.Matches(json, "\"name\"\\s*:\\s*\"([^\"]+)\"", RegexOptions.IgnoreCase))
             {
                 var name = match.Groups[1].Value;
-                if (name.Equals(AppInfo.UpdateAssetFileName, StringComparison.OrdinalIgnoreCase))
-                    return UnescapeJson(match.Groups[2].Value);
-            }
+                if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    continue;
 
-            foreach (Match match in matches)
-            {
-                var name = match.Groups[1].Value;
-                if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
-                    && name.IndexOf("DOK-V01", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    return UnescapeJson(match.Groups[2].Value);
-                }
+                if (name.IndexOf("DOK-V01", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                var url = FindDownloadUrlNearIndex(json, match.Index);
+                if (!string.IsNullOrWhiteSpace(url))
+                    return url;
             }
 
             return null;
+        }
+
+        private static string FindDownloadUrlAfterAssetName(string json, string assetName)
+        {
+            if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(assetName))
+                return null;
+
+            var nameMatch = Regex.Match(
+                json,
+                "\"name\"\\s*:\\s*\"" + Regex.Escape(assetName) + "\"",
+                RegexOptions.IgnoreCase);
+
+            return nameMatch.Success ? FindDownloadUrlNearIndex(json, nameMatch.Index) : null;
+        }
+
+        private static string FindDownloadUrlNearIndex(string json, int nameIndex)
+        {
+            if (nameIndex < 0 || nameIndex >= json.Length)
+                return null;
+
+            var sliceLength = Math.Min(2500, json.Length - nameIndex);
+            var slice = json.Substring(nameIndex, sliceLength);
+            var urlMatch = Regex.Match(
+                slice,
+                "\"browser_download_url\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"",
+                RegexOptions.IgnoreCase);
+
+            return urlMatch.Success ? UnescapeJson(urlMatch.Groups[1].Value) : null;
+        }
+
+        private static string DescribeUpdateError(Exception ex)
+        {
+            if (ex is HttpRequestException httpEx)
+            {
+                var message = httpEx.Message ?? string.Empty;
+                if (message.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return "GitHub-Release nicht gefunden (404). Prüfen Sie Internetverbindung und Repository-Zugriff.";
+
+                if (message.IndexOf("403", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return "GitHub-Zugriff verweigert (403). Eventuell Rate-Limit – später erneut versuchen oder github.token hinterlegen.";
+
+                if (message.IndexOf("401", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return "GitHub-Zugriff nicht autorisiert (401). Bei privatem Repository github.token in %LOCALAPPDATA%\\DOK-V01\\github.token ablegen.";
+            }
+
+            if (ex is TaskCanceledException)
+                return "Update-Prüfung hat zu lange gedauert (Zeitüberschreitung). Bitte Internetverbindung prüfen.";
+
+            return ex.Message;
         }
 
         private static string ExtractSha256FromReleaseNotes(string releaseNotes)

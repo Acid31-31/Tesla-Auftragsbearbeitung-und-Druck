@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using PDF_umbenenen.Models;
 using PDF_umbenenen.Services;
 
@@ -35,11 +36,16 @@ namespace PDF_umbenenen
 
             _isUpdating = true;
             UpdateButton.IsEnabled = false;
+            LaterButton.IsEnabled = false;
             StatusTextBlock.Text = "Update wird vorbereitet…";
+            Mouse.OverrideCursor = Cursors.Wait;
 
             try
             {
-                var progress = new Progress<string>(message => StatusTextBlock.Text = message);
+                var progress = new Progress<string>(message =>
+                {
+                    Dispatcher.Invoke(() => StatusTextBlock.Text = message);
+                });
                 var stagedRoot = await GitHubUpdateService.DownloadAndStageUpdateAsync(
                     _update,
                     progress,
@@ -52,6 +58,8 @@ namespace PDF_umbenenen
             {
                 _isUpdating = false;
                 UpdateButton.IsEnabled = true;
+                LaterButton.IsEnabled = true;
+                Mouse.OverrideCursor = null;
                 StatusTextBlock.Text = "Update fehlgeschlagen.";
                 MessageBox.Show(this, ex.Message, "Update", MessageBoxButton.OK, MessageBoxImage.Warning);
             }

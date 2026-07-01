@@ -11,6 +11,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Threading;
 using System.Xml.Linq;
 using System.Text.RegularExpressions;
@@ -95,15 +96,25 @@ namespace PDF_umbenenen
         {
             try
             {
+                if (showIfCurrent)
+                    Mouse.OverrideCursor = Cursors.Wait;
+
                 var update = await GitHubUpdateService.CheckForUpdateAsync().ConfigureAwait(true);
-                if (!string.IsNullOrWhiteSpace(update.ErrorMessage) && showIfCurrent)
-                {
-                    AppendStatus("ℹ Update-Prüfung: " + update.ErrorMessage);
-                    return;
-                }
 
                 if (!string.IsNullOrWhiteSpace(update.ErrorMessage))
+                {
+                    if (showIfCurrent)
+                    {
+                        AppendStatus("ℹ Update-Prüfung: " + update.ErrorMessage);
+                        MessageBox.Show(
+                            this,
+                            update.ErrorMessage,
+                            "Update-Prüfung",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                    }
                     return;
+                }
 
                 if (update.UpdateAvailable)
                 {
@@ -119,12 +130,29 @@ namespace PDF_umbenenen
                 }
 
                 if (showIfCurrent)
-                    AppendStatus("✓ Sie verwenden bereits die neueste Version (" + AppInfo.DisplayVersion + ").");
+                {
+                    var message = "Sie verwenden bereits die neueste Version (" + AppInfo.DisplayVersion + ").";
+                    AppendStatus("✓ " + message);
+                    MessageBox.Show(this, message, "Update-Prüfung", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
             }
             catch (Exception ex)
             {
                 if (showIfCurrent)
+                {
                     AppendStatus("ℹ Update-Prüfung fehlgeschlagen: " + ex.Message);
+                    MessageBox.Show(
+                        this,
+                        ex.Message,
+                        "Update-Prüfung",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            }
+            finally
+            {
+                if (showIfCurrent)
+                    Mouse.OverrideCursor = null;
             }
         }
 
