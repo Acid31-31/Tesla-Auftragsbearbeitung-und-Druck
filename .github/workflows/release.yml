@@ -27,7 +27,7 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Import code signing certificate
-        if: ${{ secrets.CODE_SIGNING_PFX_BASE64 != '' }}
+        if: ${{ secrets.CODE_SIGNING_PFX_BASE64 }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path cert -Force | Out-Null
@@ -39,7 +39,7 @@ jobs:
         run: msbuild PDF-umbenenen.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU
 
       - name: Sign application
-        if: ${{ secrets.CODE_SIGNING_PFX_BASE64 != '' }}
+        if: ${{ secrets.CODE_SIGNING_PFX_BASE64 }}
         shell: pwsh
         run: ./sign-app.ps1 -Configuration Release
 
