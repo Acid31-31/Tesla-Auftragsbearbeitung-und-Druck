@@ -43,6 +43,50 @@ namespace PDF_umbenenen.Services
                 .FirstOrDefault();
         }
 
+        /// <summary>
+        /// Eine Excel reicht. Bei zwei Dateien: Standard (Daten.xlsx) als Basis, Angebot separat.
+        /// Nur Angebot vorhanden → diese Datei wird verwendet.
+        /// </summary>
+        public static string ResolvePrimaryExcelPath(string folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                return null;
+
+            var standardCandidates = new[]
+            {
+                Path.Combine(folder, "Daten.xlsx"),
+                Path.Combine(folder, "Daten.xls")
+            };
+
+            foreach (var candidate in standardCandidates)
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            var angebotCandidates = new[]
+            {
+                Path.Combine(folder, "Daten_Angebot.xlsx"),
+                Path.Combine(folder, "Daten_Angebot.xls")
+            };
+
+            foreach (var candidate in angebotCandidates)
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            return Directory.GetFiles(folder, "*.xls*", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(path => File.GetLastWriteTimeUtc(path))
+                .FirstOrDefault();
+        }
+
+        public static bool HasSeparateAngebotExcel(string folder, string primaryExcelPath)
+        {
+            var angebotPath = FindAngebotExcelPath(folder, primaryExcelPath);
+            return !string.IsNullOrWhiteSpace(angebotPath) && File.Exists(angebotPath);
+        }
+
         public static string ResolveEffectiveDeliveryDate(string standardDate, string quoteDate)
         {
             if (!string.IsNullOrWhiteSpace(quoteDate))

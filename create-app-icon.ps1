@@ -1,5 +1,5 @@
 param(
-    [string]$SourcePng = ".\Assets\DOK-V01-logo-option-A-monogram.png",
+    [string]$SourcePng = ".\Assets\AppLogo.png",
     [string]$IconPath = ".\Assets\AppIcon.ico",
     [string]$LogoPath = ".\Assets\AppLogo.png"
 )

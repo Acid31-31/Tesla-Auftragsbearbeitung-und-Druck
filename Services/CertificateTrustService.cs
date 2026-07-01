@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
+using System.Windows;
 
 namespace PDF_umbenenen.Services
 {
@@ -9,15 +10,11 @@ namespace PDF_umbenenen.Services
     {
         private const string CerFileName = "CodeSigning.cer";
 
-        /// <summary>
-        /// Installiert das mitgelieferte Herausgeber-Zertifikat still in den Benutzer-Speicher,
-        /// falls es noch nicht vertrauenswürdig ist (einmalig pro PC/Benutzer).
-        /// </summary>
-        public static void EnsurePublisherTrusted()
+        public static bool TryInstallPublisherCertificateWithConsent()
         {
             var cerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CerFileName);
             if (!File.Exists(cerPath))
-                return;
+                return false;
 
             X509Certificate2 certificate;
             try
@@ -26,27 +23,60 @@ namespace PDF_umbenenen.Services
             }
             catch
             {
-                return;
+                return false;
             }
 
-            if (IsTrusted(certificate))
-                return;
+            if (IsPublisherTrusted(certificate))
+                return true;
 
+            var answer = MessageBox.Show(
+                "Für eine dauerhafte Freigabe durch Windows und Antivirus (Avira u. a.) "
+                + "sollte das Herausgeber-Zertifikat jetzt einmalig installiert werden.\n\n"
+                + "Herausgeber: " + certificate.Subject + "\n\n"
+                + "Bitte auf JA klicken – danach sollte Antivirus nicht bei jedem Start erneut warnen.",
+                AppInfo.ProductName + " – Einmalige Vertrauensfreigabe",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (answer != MessageBoxResult.Yes)
+                return false;
+
+            return TryInstallPublisherCertificate();
+        }
+
+        public static bool TryInstallPublisherCertificate()
+        {
+            var cerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CerFileName);
+            if (!File.Exists(cerPath))
+                return false;
+
+            X509Certificate2 certificate;
             try
             {
-                AddToStoreIfMissing(StoreName.Root, certificate);
-                AddToStoreIfMissing(StoreName.TrustedPublisher, certificate);
+                certificate = new X509Certificate2(cerPath);
             }
             catch
             {
-                // App startet trotzdem; ohne Zertifikat können AV-Warnungen auftreten.
+                return false;
+            }
+
+            if (IsPublisherTrusted(certificate))
+                return true;
+
+            try
+            {
+                AddToStoreIfMissing(StoreName.TrustedPublisher, certificate);
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
-        private static bool IsTrusted(X509Certificate2 certificate)
+        private static bool IsPublisherTrusted(X509Certificate2 certificate)
         {
-            return IsInStore(StoreName.Root, certificate.Thumbprint)
-                && IsInStore(StoreName.TrustedPublisher, certificate.Thumbprint);
+            return IsInStore(StoreName.TrustedPublisher, certificate.Thumbprint);
         }
 
         private static bool IsInStore(StoreName storeName, string thumbprint)

@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Xml.Linq;
 using PDF_umbenenen.Models;
 
@@ -8,6 +10,8 @@ namespace PDF_umbenenen.Services
 {
     internal static class DemoLicenseService
     {
+        private const string IntegritySalt = "DOK-V01-Demo-Integrity-v2";
+
         private static readonly string StorePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             AppInfo.ProductName,
@@ -28,6 +32,11 @@ namespace PDF_umbenenen.Services
             }
 
             var record = LoadOrCreate(DateTime.UtcNow);
+            if (record == null || record.Tampered)
+            {
+                return BuildTamperedStatus();
+            }
+
             var firstRunLocal = record.FirstRunUtc.ToLocalTime().Date;
             var expiresLocal = firstRunLocal.AddDays(AppInfo.DemoPeriodDays);
             var daysRemaining = (expiresLocal - DateTime.Now.Date).Days;
@@ -45,7 +54,7 @@ namespace PDF_umbenenen.Services
             try
             {
                 var record = LoadExisting();
-                if (record == null)
+                if (record == null || record.Tampered)
                     return;
 
                 record.WelcomeShown = true;
@@ -62,7 +71,7 @@ namespace PDF_umbenenen.Services
                 return false;
 
             var record = LoadExisting();
-            return record != null && !record.WelcomeShown;
+            return record != null && !record.Tampered && !record.WelcomeShown;
         }
 
         private static DemoRecord LoadOrCreate(DateTime nowUtc)
@@ -70,6 +79,9 @@ namespace PDF_umbenenen.Services
             var existing = LoadExisting();
             if (existing != null)
             {
+                if (existing.Tampered)
+                    return existing;
+
                 existing.LastRunUtc = nowUtc;
                 existing.IsFirstRun = false;
                 Save(existing);
@@ -81,7 +93,8 @@ namespace PDF_umbenenen.Services
                 FirstRunUtc = nowUtc,
                 LastRunUtc = nowUtc,
                 IsFirstRun = true,
-                WelcomeShown = false
+                WelcomeShown = false,
+                MachineFingerprint = GetMachineFingerprint()
             };
             Save(created);
             return created;
@@ -103,18 +116,76 @@ namespace PDF_umbenenen.Services
                 if (!firstRun.HasValue)
                     return null;
 
-                return new DemoRecord
+                var lastRun = ParseUtc((string)root.Element("LastRunUtc")) ?? firstRun.Value;
+                var welcomeShown = string.Equals((string)root.Element("WelcomeShown"), "true", StringComparison.OrdinalIgnoreCase);
+                var machineFingerprint = (string)root.Element("MachineFingerprint") ?? string.Empty;
+                var integrity = (string)root.Element("Integrity") ?? string.Empty;
+
+                var record = new DemoRecord
                 {
                     FirstRunUtc = firstRun.Value,
-                    LastRunUtc = ParseUtc((string)root.Element("LastRunUtc")) ?? firstRun.Value,
-                    WelcomeShown = string.Equals((string)root.Element("WelcomeShown"), "true", StringComparison.OrdinalIgnoreCase),
+                    LastRunUtc = lastRun,
+                    WelcomeShown = welcomeShown,
+                    MachineFingerprint = machineFingerprint,
                     IsFirstRun = false
                 };
+
+                if (IsClockTampered(record))
+                {
+                    record.Tampered = true;
+                    return record;
+                }
+
+                if (string.IsNullOrWhiteSpace(integrity))
+                {
+                    record.MachineFingerprint = GetMachineFingerprint();
+                    Save(record);
+                    return record;
+                }
+
+                if (!string.Equals(machineFingerprint, GetMachineFingerprint(), StringComparison.Ordinal))
+                {
+                    record.Tampered = true;
+                    return record;
+                }
+
+                if (!string.Equals(integrity, ComputeIntegrity(record), StringComparison.Ordinal))
+                {
+                    record.Tampered = true;
+                    return record;
+                }
+
+                return record;
             }
             catch
             {
-                return null;
+                return new DemoRecord { Tampered = true };
             }
+        }
+
+        private static bool IsClockTampered(DemoRecord record)
+        {
+            var now = DateTime.UtcNow;
+            var tolerance = TimeSpan.FromHours(2);
+            if (record.FirstRunUtc > now.Add(tolerance))
+                return true;
+
+            if (record.LastRunUtc > now.Add(tolerance))
+                return true;
+
+            return false;
+        }
+
+        private static DemoLicenseStatus BuildTamperedStatus()
+        {
+            return new DemoLicenseStatus
+            {
+                IsDemoEdition = true,
+                IsExpired = true,
+                TitleSuffix = " · Demo ungültig",
+                SummaryText = "Die Demo-Lizenz ist beschädigt oder wurde manipuliert. Bitte die App neu installieren.",
+                VersionLine = AppInfo.EditionLabel + " · ungültig"
+            };
         }
 
         private static DemoLicenseStatus BuildStatus(DemoRecord record, bool expired, int daysRemaining)
@@ -150,16 +221,51 @@ namespace PDF_umbenenen.Services
         {
             try
             {
+                record.MachineFingerprint = GetMachineFingerprint();
                 Directory.CreateDirectory(Path.GetDirectoryName(StorePath));
                 new XDocument(
                     new XElement("Demo",
                         new XElement("FirstRunUtc", record.FirstRunUtc.ToString("o", CultureInfo.InvariantCulture)),
                         new XElement("LastRunUtc", record.LastRunUtc.ToString("o", CultureInfo.InvariantCulture)),
-                        new XElement("WelcomeShown", record.WelcomeShown ? "true" : "false")))
+                        new XElement("WelcomeShown", record.WelcomeShown ? "true" : "false"),
+                        new XElement("MachineFingerprint", record.MachineFingerprint),
+                        new XElement("Integrity", ComputeIntegrity(record))))
                     .Save(StorePath);
             }
             catch
             {
+            }
+        }
+
+        private static string ComputeIntegrity(DemoRecord record)
+        {
+            var payload = string.Join("|",
+                record.FirstRunUtc.ToString("o", CultureInfo.InvariantCulture),
+                record.LastRunUtc.ToString("o", CultureInfo.InvariantCulture),
+                record.WelcomeShown ? "1" : "0",
+                record.MachineFingerprint ?? string.Empty);
+
+            using (var hmac = new HMACSHA256(GetIntegrityKey()))
+            {
+                return Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(payload)));
+            }
+        }
+
+        private static byte[] GetIntegrityKey()
+        {
+            using (var sha = SHA256.Create())
+            {
+                var material = AppInfo.ProductName + "|" + IntegritySalt + "|" + GetMachineFingerprint();
+                return sha.ComputeHash(Encoding.UTF8.GetBytes(material));
+            }
+        }
+
+        private static string GetMachineFingerprint()
+        {
+            var raw = Environment.MachineName + "|" + Environment.UserDomainName + "|" + Environment.UserName;
+            using (var sha = SHA256.Create())
+            {
+                return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(raw)));
             }
         }
 
@@ -183,6 +289,10 @@ namespace PDF_umbenenen.Services
             public bool WelcomeShown { get; set; }
 
             public bool IsFirstRun { get; set; }
+
+            public string MachineFingerprint { get; set; }
+
+            public bool Tampered { get; set; }
         }
     }
 }

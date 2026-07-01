@@ -201,7 +201,7 @@ namespace PDF_umbenenen.Services
                     searchTexts,
                     material);
 
-            if (!isAssembly && string.IsNullOrWhiteSpace(material))
+            if (!isAssembly && string.IsNullOrWhiteSpace(material) && !WatermarkProcessingContext.BatchMode)
             {
                 var ollamaResult = OllamaMaterialThicknessService.TryExtract(pdfPath, pageNumber);
                 if (ollamaResult != null)
@@ -868,7 +868,8 @@ namespace PDF_umbenenen.Services
             var textOnlyMm = ThicknessCandidateResolver.ResolveBestMm(candidates, materialRaw);
             var needsRaster = MaterialThicknessHybridResolver.NeedsRasterVerification(candidates, materialRaw, textOnlyMm);
 
-            if (needsRaster && PdfRasterLayoutService.IsAvailable)
+            if (needsRaster && PdfRasterLayoutService.IsAvailable
+                && (!WatermarkProcessingContext.BatchMode || !textOnlyMm.HasValue))
             {
                 PdfThreeViewThicknessService.TryCollectSideViewTextCandidates(
                     pdfPath,

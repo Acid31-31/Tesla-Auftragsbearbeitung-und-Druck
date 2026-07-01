@@ -35,8 +35,8 @@ foreach ($oldFile in @($pfxPath, $cerPath)) {
 Write-Host "Entferne alte Code-Signing-Zertifikate aus dem Benutzer-Speicher..."
 Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert -ErrorAction SilentlyContinue |
     Where-Object {
-        $_.Subject -like "*Tesla*" -or $_.Subject -like "*Herko*" -or
-        $_.FriendlyName -like "*Tesla*" -or $_.FriendlyName -like "*Herko*" -or
+        $_.Subject -like "*Tesla*" -or
+        $_.FriendlyName -like "*Tesla*" -or
         $_.Subject -like "*Alexander Hoelzer*" -or $_.Subject -like "*Alexander H*lzer*"
     } |
     ForEach-Object {

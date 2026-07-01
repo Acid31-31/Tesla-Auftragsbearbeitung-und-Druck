@@ -29,6 +29,7 @@ $productName = "DOK-V01"
 $exeName = "$productName.exe"
 
 $usbLauncherName = "Programm installieren.exe"
+$usbUninstallerName = "Programm deinstallieren.exe"
 
 
 
@@ -60,12 +61,12 @@ if ([string]::IsNullOrWhiteSpace($CertPassword) -and (Test-Path $CertPasswordFil
 
 Write-Host "[1/5] Icon und Build ($Configuration) starten..."
 
-& powershell -ExecutionPolicy Bypass -File (Join-Path $root "create-app-icon.ps1")
-
-if ($LASTEXITCODE -ne 0) {
-
-	throw "Icon-Erstellung fehlgeschlagen."
-
+$iconPath = Join-Path $root "Assets\AppIcon.ico"
+if (-not (Test-Path $iconPath)) {
+	& powershell -ExecutionPolicy Bypass -File (Join-Path $root "create-app-icon.ps1")
+	if ($LASTEXITCODE -ne 0) {
+		throw "Icon-Erstellung fehlgeschlagen."
+	}
 }
 
 
@@ -182,6 +183,11 @@ if (Test-Path $iconSource) {
 	Copy-Item $iconSource (Join-Path $appFolder "AppIcon.ico") -Force
 }
 
+$licenseSource = Join-Path $root "LICENSE_DE.txt"
+if (Test-Path $licenseSource) {
+	Copy-Item $licenseSource (Join-Path $appFolder "LICENSE_DE.txt") -Force
+}
+
 
 
 $exePath = Join-Path $appFolder $exeName
@@ -247,6 +253,7 @@ if ((Test-Path $CertPath) -and (Test-Path $exePath)) {
 Write-Host "[3c/5] USB-Starter wird erstellt..."
 
 Copy-Item $exePath (Join-Path $appFolder $usbLauncherName) -Force
+Copy-Item $exePath (Join-Path $appFolder $usbUninstallerName) -Force
 
 
 
@@ -280,29 +287,13 @@ Set-Content -Path (Join-Path $appFolder "STARTEN.bat") -Value $startBat -Encodin
 
 
 
-$uninstallPs1 = @"
-
-`$ErrorActionPreference = 'SilentlyContinue'
-
-`$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) '$productName.lnk'
-
-if (Test-Path `$shortcutPath) { Remove-Item `$shortcutPath -Force }
-
-Write-Host 'Desktop-Verknüpfung entfernt.'
-
-"@
-
-Set-Content -Path (Join-Path $appFolder "Deinstallieren.ps1") -Value $uninstallPs1 -Encoding UTF8
-
-
-
 $uninstallBat = @"
 
 @echo off
 
-powershell -ExecutionPolicy Bypass -File "%~dp0Deinstallieren.ps1"
+cd /d "%~dp0"
 
-pause
+start "" "$usbUninstallerName"
 
 "@
 
@@ -316,41 +307,45 @@ $productName - USB-Version
 
 
 
-Voraussetzungen auf Ziel-PC:
+EINMALIGE FESTINSTALLATION AUF JEDEM PC:
 
-- Windows
+1) USB-Stick einstecken
 
-- .NET Framework 4.8
+2) Ordner "$productName" oeffnen
 
+3) "$usbLauncherName" doppelklicken (Setup-Assistent mit Lizenz & Urheberrecht)
 
+4) Lizenz akzeptieren und Installieren klicken
 
-Start (ohne Installation):
+5) Windows-Administratorabfrage (UAC) bestaetigen
 
-1) Ordner auf USB oder Desktop kopieren
+6) Installation nach C:\Program Files\$productName
 
-2) "$usbLauncherName" doppelklicken (oder STARTEN.bat)
-
-
-
-Beim ersten Start:
-
-- Zertifikat wird automatisch installiert
-
-- Desktop-Verknüpfung "$productName" wird automatisch erstellt
+7) Desktop-Verknuepfung "$productName" wird erstellt
 
 
 
-Deinstallation der Verknüpfung:
+AB DANN:
 
-- DEINSTALLIEREN.bat ausführen
+- Nur noch Desktop-Verknuepfung nutzen (nicht USB, nicht Firmenordner-Kopie)
+
+- Arbeitsdaten/PDFs: %LOCALAPPDATA%\$productName\Ablage
+
+- Updates automatisch von GitHub
 
 
 
-Hinweise:
+Voraussetzungen:
 
-- Für Vorschau/Druck muss ein PDF-Viewer installiert sein.
+- Windows mit .NET Framework 4.8
 
-- Bei erstem Start kann Windows SmartScreen kurz nachfragen.
+- Internet für GitHub-Updates
+
+
+
+Deinstallation:
+
+- "$usbUninstallerName" oder DEINSTALLIEREN.bat (Setup-Assistent)
 
 "@
 

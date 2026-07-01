@@ -1,33 +1,26 @@
-# Sicherheitshinweis (Acronis / Antivirus)
+# Sicherheitshinweis (Antivirus / Avira)
 
 ## Warum erscheint eine Warnung?
-Die App bearbeitet viele PDF-Dateien in kurzer Zeit (Umbenennen, Wasserzeichen, Zusammenführen).
-Einige Schutzprogramme (z. B. Acronis Active Protection) bewerten dieses Muster als verdächtig.
+- Unbekannter Herausgeber (selbstsigniertes Zertifikat)
+- PDF-Massenbearbeitung (Umbenennen, Wasserzeichen) wirkt verdächtig
+- Erstes Starten von neuem Datei-Hash nach Update
 
-## Empfohlene Freigabe
-1. In Acronis bei der Meldung auf **Vertrauen** klicken.
-2. Die Datei `DOK-V01.exe` zu den Ausnahmen hinzufügen.
-3. Optional den Arbeitsordner mit den PDF-Dateien freigeben.
+## Festinstallation (empfohlen)
+1. `Programm installieren.exe` vom USB starten
+2. Windows-Administratorabfrage (UAC) bestätigen
+3. Bei Zertifikat-Dialog **JA** klicken
+4. Nur Desktop-Verknüpfung nutzen (`C:\Program Files\DOK-V01\`)
 
-## Signierte EXE (empfohlen)
-Eine digital signierte EXE reduziert SmartScreen-/Antivirus-Warnungen deutlich.
+## IT-Freigabe in Avira (einmalig)
+Ausnahme für: `C:\Program Files\DOK-V01\DOK-V01.exe`
 
-### Neues Zertifikat erzeugen (nach Leak oder AV-Block)
+## Dauerhafte Lösung für Kunden
+Händler-Code-Signing-Zertifikat (OV, ca. 220–280 €/Jahr) und signieren mit:
+`.\sign-app-commercial.ps1`
 
+## Signatur Entwicklung
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\create-selfsigned-cert.ps1
-powershell -ExecutionPolicy Bypass -File .\sign-app.ps1 -Configuration Debug
-powershell -ExecutionPolicy Bypass -File .\create-usb-version.ps1 -Configuration Release
+.\create-selfsigned-cert.ps1
+.\sign-app.ps1 -Configuration Release
+.\create-usb-version.ps1 -Configuration Release
 ```
-
-Zertifikat lokal vertrauenswürdig machen (einmal pro PC):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install-trusted-cert.ps1
-```
-
-Oder in der USB-Version: `ZERTIFIKAT_INSTALLIEREN.bat`
-
-Passwort liegt nur lokal in `cert\signing-password.txt` (nicht in Git).
-
-Hinweis: `signtool.exe` muss verfügbar sein (z. B. über Windows SDK / Visual Studio Build Tools).

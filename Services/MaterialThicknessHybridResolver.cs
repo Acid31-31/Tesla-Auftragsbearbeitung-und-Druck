@@ -88,8 +88,8 @@ namespace PDF_umbenenen.Services
                 return merged;
 
             var settings = AiSettingsStore.Load();
-            if (!settings.MaterialExtractionViaOllama)
-                return null;
+            if (WatermarkProcessingContext.BatchMode || !settings.MaterialExtractionViaOllama)
+                return merged;
 
             var ollama = OllamaMaterialThicknessService.TryExtract(pdfPath, pageNumber);
             if (ollama == null || ollama.IsAssembly)

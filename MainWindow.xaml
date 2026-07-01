@@ -242,6 +242,8 @@
         <Menu Grid.Row="1" Padding="12,2">
             <MenuItem Header="Datei">
                 <MenuItem Header="Komplette Datensicherung..." Click="CreateDataBackup_Click"/>
+                <Separator/>
+                <MenuItem Header="Nach Updates suchen…" Click="CheckForUpdatesMenu_Click"/>
             </MenuItem>
             <MenuItem Header="KI-Assistent">
                 <MenuItem x:Name="AiEnabledMenuItem"
@@ -259,6 +261,11 @@
             </MenuItem>
             <MenuItem Header="Wasserzeichen">
                 <MenuItem Header="Einstellungen..." Click="WatermarkSettingsMenu_Click"/>
+                <MenuItem Header="Wasserzeichen korrigieren..." Click="CorrectWatermarkMenu_Click"/>
+            </MenuItem>
+            <MenuItem Header="Einstellungen">
+                <MenuItem Header="Neuen Kunden anlegen..." Click="NewCustomerMenu_Click"/>
+                <MenuItem Header="Kunden verwalten..." Click="ManageCustomersMenu_Click"/>
             </MenuItem>
         </Menu>
 
@@ -300,7 +307,7 @@
                                            FontSize="18"
                                            FontWeight="Bold"
                                            HorizontalAlignment="Center"/>
-                                <TextBlock Text="PDF-Zeichnungen, ZIP-Datei(en) und Excel (.xlsx/.xls) in den oberen Bereich ziehen. Optional zwei Excel-Dateien: Standard und *_Angebot* (Liefertermine mit Vorrang). Bestell-PDF separat unten bei „Prüf-PDF“."
+                                <TextBlock Text="PDF-Zeichnungen, ZIP und Excel (.xlsx/.xls) hierher ziehen. Eine Excel reicht — optional zweite mit *Angebot* im Namen (Liefertermine haben dann Vorrang). Bestell-PDF separat unten bei „Prüf-PDF“."
                                            Foreground="{DynamicResource TextSecondary}"
                                            FontSize="13"
                                            Margin="0,8,0,0"
@@ -414,6 +421,8 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="14"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="10"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Text="⚙  Verarbeitung"
@@ -447,8 +456,32 @@
                                     Click="DeleteProcessedOrders_Click"/>
                         </StackPanel>
 
+                        <!-- Stopuhr (Mitte) -->
+                        <Border Grid.Row="4" x:Name="StopwatchPanel" Visibility="Collapsed"
+                                Margin="0,4,0,0" Padding="16,12"
+                                Background="{DynamicResource StatusBackground}"
+                                BorderBrush="{DynamicResource GroupBorder}"
+                                BorderThickness="1" CornerRadius="10">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock x:Name="StopwatchTextBlock"
+                                           Text="00:00:00"
+                                           FontSize="34"
+                                           FontWeight="Bold"
+                                           FontFamily="Consolas"
+                                           Foreground="{DynamicResource AccentBrush}"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock x:Name="StopwatchHintTextBlock"
+                                           Text="Stopuhr"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,6,0,0"
+                                           TextAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Fortschritt -->
-                        <StackPanel Grid.Row="4" x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,4,0,0">
+                        <StackPanel Grid.Row="6" x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,4,0,0">
                             <ProgressBar x:Name="BusyProgressBar"
                                          Minimum="0" Maximum="100" Value="0"
                                          Height="18"/>
@@ -457,7 +490,7 @@
                                        FontSize="12"
                                        FontWeight="Bold"
                                        Foreground="{DynamicResource ProgressFill}"
-                                       HorizontalAlignment="Right"
+                                       HorizontalAlignment="Center"
                                        Margin="0,6,0,0"/>
                         </StackPanel>
                     </Grid>

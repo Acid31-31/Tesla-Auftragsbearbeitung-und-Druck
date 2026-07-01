@@ -13,8 +13,7 @@ namespace PDF_umbenenen
 
         public static string GetOrCreateDefaultWorkspaceFolder()
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var portableFolder = Path.Combine(baseDir, "Ablage");
+            var portableFolder = Path.Combine(AppInfo.UserDataDirectory, "Ablage");
             Directory.CreateDirectory(portableFolder);
             return portableFolder;
         }

@@ -37,6 +37,8 @@ namespace PDF_umbenenen.Services
         public float FontSize { get; set; } = 22f;
 
         public bool UseRedText { get; set; }
+
+        public string Category { get; set; } = string.Empty;
     }
 
     internal static class SmartWatermarkLayoutService
@@ -53,6 +55,9 @@ namespace PDF_umbenenen.Services
             var placements = new List<WatermarkTextPlacement>();
             if (fields == null)
                 return placements;
+
+            if (PdfRasterLayoutService.IsAvailable)
+                PdfRasterLayoutService.EnsurePageGrid(pdfPath, pageNumber, pageWidth, pageHeight);
 
             var layout = PdfLayoutAnalysisService.AnalyzePage(pdfPath, pageNumber);
             if (layout.PageWidth > 0)
@@ -74,7 +79,8 @@ namespace PDF_umbenenen.Services
                     X = pageWidth - WatermarkPageScale.GetSideMargin(pageWidth, pageHeight),
                     Y = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, fontSize),
                     Alignment = 2,
-                    FontSize = fontSize
+                    FontSize = fontSize,
+                    Category = "Order"
                 };
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
@@ -85,35 +91,41 @@ namespace PDF_umbenenen.Services
                 var locationText = fields.DeliveryLocationText.Trim();
                 var fontSize = FitFontSize(locationText, pageWidth * 0.55f, 28f, 16f, pageWidth, pageHeight);
                 var placement = PlaceTopCenter(locationText, fontSize, pageWidth, pageHeight, occupied);
+                placement.Category = "Location";
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
             }
 
             if (!string.IsNullOrWhiteSpace(fields.DeliveryDateText)
-                && (fields.QuantityLines == null || fields.QuantityLines.Count <= 1))
+                && (fields.QuantityLines == null || fields.QuantityLines.Count == 0))
             {
                 var dateText = fields.DeliveryDateText.Trim();
                 var fontSize = FitFontSize(dateText, pageWidth * 0.35f, 22f, 14f, pageWidth, pageHeight);
                 var placement = PlaceTopLeftFree(dateText, fontSize, pageWidth, pageHeight, occupied);
                 placement.UseRedText = true;
+                placement.Category = "Date";
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
             }
 
             if (fields.QuantityLines != null && fields.QuantityLines.Count > 0)
             {
-                var stackPlacements = PlaceQuantityStack(fields.QuantityLines, pdfPath, pageNumber, pageWidth, pageHeight, occupied);
+                var stackPlacements = fields.QuantityLines.Count == 1
+                    ? PlaceQuantityStackTopLeft(fields.QuantityLines, pageWidth, pageHeight)
+                    : PlaceQuantityStackRight(fields.QuantityLines, pdfPath, pageNumber, pageWidth, pageHeight, occupied);
                 foreach (var placement in stackPlacements)
                 {
+                    placement.Category = "Quantity";
                     placements.Add(placement);
                     occupied.Add(MakeTextRect(placement, pageWidth));
                 }
             }
             else if (!string.IsNullOrWhiteSpace(fields.QuantityText))
             {
-                var stackPlacements = PlaceQuantityStack(new List<string> { fields.QuantityText.Trim() }, pdfPath, pageNumber, pageWidth, pageHeight, occupied);
+                var stackPlacements = PlaceQuantityStackTopLeft(new List<string> { fields.QuantityText.Trim() }, pageWidth, pageHeight);
                 foreach (var placement in stackPlacements)
                 {
+                    placement.Category = "Quantity";
                     placements.Add(placement);
                     occupied.Add(MakeTextRect(placement, pageWidth));
                 }
@@ -150,6 +162,7 @@ namespace PDF_umbenenen.Services
                     occupied);
                 foreach (var placement in materialPlacements)
                 {
+                    placement.Category = "Material";
                     placements.Add(placement);
                     occupied.Add(MakeTextRect(placement, pageWidth));
                 }
@@ -160,11 +173,326 @@ namespace PDF_umbenenen.Services
                 var bgText = fields.BgNumberText.Trim();
                 var fontSize = FitFontSize(bgText, pageWidth * 0.35f, 24f, 14f, pageWidth, pageHeight);
                 var placement = PlaceBottomLeftFree(bgText, fontSize, pdfPath, pageNumber, pageWidth, pageHeight, occupied);
+                placement.Category = "Bg";
                 placements.Add(placement);
                 occupied.Add(MakeTextRect(placement, pageWidth));
             }
 
+            return ApplyLearning(drawingNumberHint, placements, pageWidth, pageHeight, pdfPath, pageNumber, occupied);
+        }
+
+        public static List<WatermarkTextPlacement> ApplyLearning(
+            string drawingNumberHint,
+            List<WatermarkTextPlacement> placements,
+            float pageWidth,
+            float pageHeight,
+            string pdfPath,
+            int pageNumber,
+            List<PdfTextRect> occupied)
+        {
+            var drawingSpecificCategories = WatermarkLearningStore.ApplyToPlacements(drawingNumberHint, placements);
+            WatermarkLearningStore.ApplyCategoryDefaults(placements, pageWidth, pageHeight, drawingNumberHint);
+            ReflowQuantityStack(placements, pageWidth, pageHeight);
+            RefinePlacementsToFreeAreas(placements, pdfPath, pageNumber, pageWidth, pageHeight, occupied, drawingSpecificCategories);
+            ReflowQuantityStack(placements, pageWidth, pageHeight);
+            AutoLearnSuccessfulPlacements(pdfPath, pageNumber, placements, pageWidth, pageHeight, drawingSpecificCategories);
             return placements;
+        }
+
+        private static int CountQuantityPlacements(List<WatermarkTextPlacement> placements)
+        {
+            return placements == null
+                ? 0
+                : placements.Count(p => p != null && string.Equals(p.Category, "Quantity", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsFixedTopLeftPlacement(WatermarkTextPlacement placement, List<WatermarkTextPlacement> placements)
+        {
+            if (placement == null || string.IsNullOrWhiteSpace(placement.Category))
+                return false;
+
+            if (string.Equals(placement.Category, "Date", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (string.Equals(placement.Category, "Quantity", StringComparison.OrdinalIgnoreCase))
+                return CountQuantityPlacements(placements) <= 1;
+
+            return false;
+        }
+
+        private static void ReflowQuantityStack(List<WatermarkTextPlacement> placements, float pageWidth, float pageHeight)
+        {
+            if (placements == null)
+                return;
+
+            var quantityLines = placements
+                .Where(p => p != null && string.Equals(p.Category, "Quantity", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (quantityLines.Count == 0)
+                return;
+
+            var referenceFont = quantityLines.Max(p => p.FontSize > 0 ? p.FontSize : 14f);
+            var lineHeight = referenceFont + 8f;
+
+            if (quantityLines.Count == 1)
+            {
+                var x = WatermarkPageScale.GetSideMargin(pageWidth, pageHeight);
+                var topY = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, referenceFont);
+                quantityLines[0].X = x;
+                quantityLines[0].Y = topY;
+                quantityLines[0].Alignment = 0;
+                return;
+            }
+
+            var anchor = quantityLines.OrderByDescending(p => p.Y).ThenBy(p => p.Text ?? string.Empty, StringComparer.OrdinalIgnoreCase).First();
+            for (var i = 0; i < quantityLines.Count; i++)
+            {
+                quantityLines[i].X = anchor.X;
+                quantityLines[i].Y = anchor.Y - (i * lineHeight);
+                quantityLines[i].Alignment = 0;
+            }
+        }
+
+        private static AnchorSearchZone[] GetQuantityStackZones(float pageWidth, float pageHeight, float blockWidth)
+        {
+            var titleBlockTop = GetTitleBlockTopY(pageHeight);
+            var titleBlockLeft = GetTitleBlockLeftX(pageWidth);
+            return new[]
+            {
+                new AnchorSearchZone(
+                    titleBlockLeft + 5f,
+                    pageWidth - 35f,
+                    titleBlockTop + 8f,
+                    titleBlockTop + 170f,
+                    pageWidth - blockWidth - 50f,
+                    titleBlockTop + 95f)
+            };
+        }
+
+        private static bool IsRasterPlacementAcceptable(
+            string pdfPath,
+            int pageNumber,
+            float anchorX,
+            float anchorY,
+            float blockWidth,
+            float blockHeight,
+            float pageWidth,
+            float pageHeight,
+            int alignment,
+            bool isMaterial = false)
+        {
+            if (!PdfRasterLayoutService.IsAvailable)
+                return true;
+
+            return PdfRasterLayoutService.IsPlacementAcceptable(
+                pdfPath,
+                pageNumber,
+                anchorX,
+                anchorY,
+                blockWidth,
+                blockHeight,
+                pageWidth,
+                pageHeight,
+                alignment,
+                isMaterial);
+        }
+
+        private static void AutoLearnSuccessfulPlacements(
+            string pdfPath,
+            int pageNumber,
+            List<WatermarkTextPlacement> placements,
+            float pageWidth,
+            float pageHeight,
+            HashSet<string> drawingSpecificCategories)
+        {
+            if (WatermarkProcessingContext.BatchMode)
+                return;
+
+            if (!PdfRasterLayoutService.IsAvailable || placements == null || placements.Count == 0)
+                return;
+
+            var toLearn = new List<WatermarkTextPlacement>();
+            foreach (var placement in placements)
+            {
+                if (placement == null || string.IsNullOrWhiteSpace(placement.Category))
+                    continue;
+
+                if (placement.Category.Equals("Order", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var blockWidth = EstimateTextWidth(placement.Text, placement.FontSize);
+                var blockHeight = placement.FontSize + 8f;
+                var isMaterial = placement.Category.Equals("Material", StringComparison.OrdinalIgnoreCase);
+                if (!PdfRasterLayoutService.IsPlacementAcceptable(
+                        pdfPath,
+                        pageNumber,
+                        placement.X,
+                        placement.Y,
+                        blockWidth,
+                        blockHeight,
+                        pageWidth,
+                        pageHeight,
+                        placement.Alignment,
+                        isMaterial))
+                {
+                    continue;
+                }
+
+                toLearn.Add(placement);
+            }
+
+            if (toLearn.Count > 0)
+                WatermarkLearningStore.SaveCategoryDefaultsFromPlacements(toLearn, pageWidth, pageHeight);
+        }
+
+        private static void RefinePlacementsToFreeAreas(
+            List<WatermarkTextPlacement> placements,
+            string pdfPath,
+            int pageNumber,
+            float pageWidth,
+            float pageHeight,
+            List<PdfTextRect> occupied,
+            HashSet<string> drawingSpecificCategories)
+        {
+            if (!PdfRasterLayoutService.IsAvailable || placements == null)
+                return;
+
+            foreach (var placement in placements)
+            {
+                if (placement == null || string.IsNullOrWhiteSpace(placement.Category))
+                    continue;
+
+                if (IsFixedTopLeftPlacement(placement, placements))
+                    continue;
+
+                if (string.Equals(placement.Category, "Quantity", StringComparison.OrdinalIgnoreCase)
+                    && CountQuantityPlacements(placements) > 1)
+                    continue;
+
+                if (drawingSpecificCategories != null
+                    && drawingSpecificCategories.Contains(placement.Category))
+                    continue;
+
+                var blockWidth = EstimateTextWidth(placement.Text, placement.FontSize);
+                var blockHeight = placement.FontSize + 8f;
+                var isMaterial = placement.Category.Equals("Material", StringComparison.OrdinalIgnoreCase);
+                if (PdfRasterLayoutService.IsPlacementAcceptable(
+                        pdfPath,
+                        pageNumber,
+                        placement.X,
+                        placement.Y,
+                        blockWidth,
+                        blockHeight,
+                        pageWidth,
+                        pageHeight,
+                        placement.Alignment,
+                        isMaterial)
+                    && !Overlaps(occupied, placement.X, placement.Y, blockWidth, blockHeight, placement.Alignment))
+                {
+                    continue;
+                }
+
+                var zones = GetRefinementZonesForCategory(placement.Category, pageWidth, pageHeight);
+                foreach (var zone in zones)
+                {
+                    if (isMaterial
+                        && PdfRasterLayoutService.TryFindFreeCenterAnchor(
+                            pdfPath,
+                            pageNumber,
+                            blockWidth,
+                            blockHeight,
+                            pageWidth,
+                            pageHeight,
+                            zone.Left,
+                            zone.Right,
+                            zone.Bottom,
+                            zone.Top,
+                            placement.X,
+                            placement.Y,
+                            out var centerX,
+                            out var materialY))
+                    {
+                        placement.X = centerX;
+                        placement.Y = materialY;
+                        placement.Alignment = 1;
+                        break;
+                    }
+
+                    if (PdfRasterLayoutService.TryFindFreeAnchor(
+                            pdfPath,
+                            pageNumber,
+                            blockWidth,
+                            blockHeight,
+                            pageWidth,
+                            pageHeight,
+                            zone.Left,
+                            zone.Right,
+                            zone.Bottom,
+                            zone.Top,
+                            placement.X,
+                            placement.Y,
+                            out var anchorX,
+                            out var anchorY)
+                        && !Overlaps(occupied, anchorX, anchorY, blockWidth, blockHeight, placement.Alignment))
+                    {
+                        placement.X = anchorX;
+                        placement.Y = anchorY;
+                        break;
+                    }
+                }
+            }
+        }
+
+        private static AnchorSearchZone[] GetRefinementZonesForCategory(string category, float pageWidth, float pageHeight)
+        {
+            var titleBlockTop = GetTitleBlockTopY(pageHeight);
+            var titleBlockLeft = GetTitleBlockLeftX(pageWidth);
+
+            if (category.Equals("Quantity", StringComparison.OrdinalIgnoreCase))
+            {
+                return GetQuantityStackZones(pageWidth, pageHeight, 120f);
+            }
+
+            if (category.Equals("Material", StringComparison.OrdinalIgnoreCase))
+            {
+                var freeBandLeft = 35f;
+                var freeBandRight = Math.Max(160f, titleBlockLeft - 40f);
+                return new[]
+                {
+                    new AnchorSearchZone(freeBandLeft, freeBandRight, titleBlockTop + 8f, titleBlockTop + 155f, (freeBandLeft + freeBandRight) / 2f, titleBlockTop + 72f),
+                    new AnchorSearchZone(freeBandLeft, Math.Max(120f, titleBlockLeft - 70f), titleBlockTop + 8f, titleBlockTop + 130f, 48f, titleBlockTop + 66f)
+                };
+            }
+
+            if (category.Equals("Bg", StringComparison.OrdinalIgnoreCase))
+            {
+                return new[]
+                {
+                    new AnchorSearchZone(35f, Math.Max(120f, titleBlockLeft - 25f), titleBlockTop + 8f, titleBlockTop + 135f, 48f, titleBlockTop + 58f)
+                };
+            }
+
+            if (category.Equals("Date", StringComparison.OrdinalIgnoreCase))
+            {
+                return new[]
+                {
+                    new AnchorSearchZone(35f, pageWidth * 0.45f, pageHeight * 0.72f, pageHeight - 40f, 48f, pageHeight * 0.88f)
+                };
+            }
+
+            if (category.Equals("Location", StringComparison.OrdinalIgnoreCase))
+            {
+                return new[]
+                {
+                    new AnchorSearchZone(pageWidth * 0.20f, pageWidth * 0.80f, pageHeight * 0.72f, pageHeight - 35f, pageWidth / 2f, pageHeight * 0.90f)
+                };
+            }
+
+            return new[]
+            {
+                new AnchorSearchZone(35f, pageWidth - 35f, titleBlockTop + 8f, titleBlockTop + 170f, pageWidth / 2f, titleBlockTop + 90f)
+            };
         }
 
         public static WatermarkFieldData BuildFieldData(
@@ -309,14 +637,13 @@ namespace PDF_umbenenen.Services
             if (entries == null || entries.Count == 0)
                 return lines;
 
-            var showDate = entries.Count > 1;
             foreach (var entry in entries)
             {
                 var qty = NormalizeQuantity(entry.quantity);
                 if (string.IsNullOrWhiteSpace(qty))
                     continue;
 
-                if (showDate && !string.IsNullOrWhiteSpace(entry.deliveryDate))
+                if (!string.IsNullOrWhiteSpace(entry.deliveryDate))
                     lines.Add(NormalizeDate(entry.deliveryDate) + "   " + qty);
                 else
                     lines.Add(qty);
@@ -561,7 +888,43 @@ namespace PDF_umbenenen.Services
             return score;
         }
 
-        private static List<WatermarkTextPlacement> PlaceQuantityStack(
+        private static List<WatermarkTextPlacement> PlaceQuantityStackTopLeft(
+            IList<string> lines,
+            float pageWidth,
+            float pageHeight)
+        {
+            var cleanLines = lines
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Select(l => l.Trim())
+                .ToList();
+
+            if (cleanLines.Count == 0)
+                return new List<WatermarkTextPlacement>();
+
+            var longestLine = cleanLines.OrderByDescending(l => l.Length).First();
+            var fontSize = FitFontSize(longestLine, pageWidth * 0.42f, 22f, 12f, pageWidth, pageHeight);
+            var lineHeight = fontSize + 8f;
+            var sideMargin = WatermarkPageScale.GetSideMargin(pageWidth, pageHeight);
+            var topY = WatermarkPageScale.GetTopBaselineY(pageWidth, pageHeight, fontSize);
+            var result = new List<WatermarkTextPlacement>();
+
+            for (var i = 0; i < cleanLines.Count; i++)
+            {
+                result.Add(new WatermarkTextPlacement
+                {
+                    Text = cleanLines[i],
+                    X = sideMargin,
+                    Y = topY - (i * lineHeight),
+                    Alignment = 0,
+                    FontSize = fontSize,
+                    UseRedText = true
+                });
+            }
+
+            return result;
+        }
+
+        private static List<WatermarkTextPlacement> PlaceQuantityStackRight(
             IList<string> lines,
             string pdfPath,
             int pageNumber,
@@ -583,8 +946,6 @@ namespace PDF_umbenenen.Services
             var blockWidth = cleanLines.Max(l => EstimateTextWidth(l, fontSize));
             var blockHeight = (cleanLines.Count * lineHeight) + 4f;
 
-            var titleBlockTop = GetTitleBlockTopY(pageHeight);
-            var titleBlockLeft = GetTitleBlockLeftX(pageWidth);
             var anchor = FindBestFreeAnchorInZones(
                 pdfPath,
                 pageNumber,
@@ -594,15 +955,7 @@ namespace PDF_umbenenen.Services
                 pageHeight,
                 occupied,
                 preferFirstAcceptableZone: true,
-                new[]
-                {
-                    // Rechts über Schriftfeld (Standard laut Arbeitsweise)
-                    new AnchorSearchZone(titleBlockLeft + 5f, pageWidth - 35f, titleBlockTop + 8f, titleBlockTop + 170f, pageWidth - blockWidth - 50f, titleBlockTop + 95f),
-                    // Mitte rechts
-                    new AnchorSearchZone(Math.Max(titleBlockLeft - 80f, pageWidth * 0.45f), pageWidth - 35f, titleBlockTop + 8f, titleBlockTop + 170f, pageWidth * 0.68f, titleBlockTop + 92f),
-                    // Nur Fallback links
-                    new AnchorSearchZone(35f, Math.Max(140f, titleBlockLeft - 50f), titleBlockTop + 8f, titleBlockTop + 170f, 52f, titleBlockTop + 95f)
-                });
+                GetQuantityStackZones(pageWidth, pageHeight, blockWidth));
             var topY = anchor.Y + blockHeight - lineHeight;
             var result = new List<WatermarkTextPlacement>();
 
@@ -720,6 +1073,27 @@ namespace PDF_umbenenen.Services
             if (topBound < bottomBound)
                 topBound = bottomBound;
 
+            if (PdfRasterLayoutService.IsAvailable
+                && PdfRasterLayoutService.TryFindFreeAnchor(
+                    pdfPath,
+                    pageNumber,
+                    blockWidth,
+                    blockHeight,
+                    pageWidth,
+                    pageHeight,
+                    leftBound,
+                    rightBound,
+                    bottomBound,
+                    topBound,
+                    targetX,
+                    targetY,
+                    out var rasterX,
+                    out var rasterY)
+                && !Overlaps(occupied, rasterX, rasterY, blockWidth, blockHeight, 0))
+            {
+                return new PdfPoint { X = rasterX, Y = rasterY };
+            }
+
             var bestScore = float.MaxValue;
             var bestX = targetX;
             var bestY = targetY;
@@ -727,7 +1101,8 @@ namespace PDF_umbenenen.Services
             // Schnelle Text-Analyse: bevorzugte Position zuerst, dann grobes Raster (ohne PDF-Bildrendering).
             var preferredScore = ScorePlacement(targetX, targetY, blockWidth, blockHeight, 0, occupied, pageWidth, pageHeight);
             preferredScore += LocalTextDensity(targetX, targetY, blockWidth, blockHeight, occupied) * 120f;
-            if (preferredScore < 50000f)
+            if (preferredScore < 50000f
+                && IsRasterPlacementAcceptable(pdfPath, pageNumber, targetX, targetY, blockWidth, blockHeight, pageWidth, pageHeight, 0))
                 return new PdfPoint { X = targetX, Y = targetY };
 
             for (var y = bottomBound; y <= topBound; y += 16f)
@@ -741,6 +1116,9 @@ namespace PDF_umbenenen.Services
                     if (targetX > pageWidth * 0.55f && x < pageWidth * 0.45f)
                         score += 500000f;
 
+                    if (!IsRasterPlacementAcceptable(pdfPath, pageNumber, x, y, blockWidth, blockHeight, pageWidth, pageHeight, 0))
+                        score += 5000000f;
+
                     if (score < bestScore)
                     {
                         bestScore = score;
@@ -749,6 +1127,9 @@ namespace PDF_umbenenen.Services
                     }
                 }
             }
+
+            if (!IsRasterPlacementAcceptable(pdfPath, pageNumber, bestX, bestY, blockWidth, blockHeight, pageWidth, pageHeight, 0))
+                return new PdfPoint { X = targetX, Y = targetY };
 
             return new PdfPoint { X = bestX, Y = bestY };
         }

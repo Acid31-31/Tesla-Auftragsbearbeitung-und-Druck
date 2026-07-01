@@ -23,15 +23,29 @@ namespace PDF_umbenenen.Services
         private const int MaterialCellSizePx = 8;
         private const int MaterialCoarseScanStepCells = 3;
         private const int WhiteThreshold = 242;
-        private const float MaxAcceptableDarkness = 0.08f;
+        private const float MaxAcceptableDarkness = 0.035f;
         private const float MaterialMaxAcceptableDarkness = 0.025f;
         private const float MaterialFallbackMaxDarkness = 0.055f;
+        private const int MaxPageCacheEntries = 24;
+        private const int MaxGridCacheEntries = 48;
+
+        [ThreadStatic]
+        private static Action<double> _scanProgress;
+
+        /// <summary>0–1 Fortschritt innerhalb eines Raster-Scans (nur Worker-Thread).</summary>
+        internal static Action<double> ScanProgress
+        {
+            get => _scanProgress;
+            set => _scanProgress = value;
+        }
 
         private static bool _initialized;
         private static bool _available;
         private static string _loadError = string.Empty;
         private static readonly Dictionary<string, Bitmap> PageCache = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
+        private static readonly List<string> PageCacheOrder = new List<string>();
         private static readonly Dictionary<string, PageDarknessGrid> GridCache = new Dictionary<string, PageDarknessGrid>(StringComparer.OrdinalIgnoreCase);
+        private static readonly List<string> GridCacheOrder = new List<string>();
         private static readonly object CacheLock = new object();
 
         public static bool IsAvailable
@@ -58,7 +72,56 @@ namespace PDF_umbenenen.Services
                 foreach (var bitmap in PageCache.Values)
                     bitmap?.Dispose();
                 PageCache.Clear();
+                PageCacheOrder.Clear();
                 GridCache.Clear();
+                GridCacheOrder.Clear();
+            }
+        }
+
+        /// <summary>Eine Rasterisierung + Integralbild pro Seite (wird gecacht).</summary>
+        public static void EnsurePageGrid(string pdfPath, int pageNumber, float pageWidthPt, float pageHeightPt)
+        {
+            if (!_available)
+                return;
+
+            GetOrCreateDarknessGrid(pdfPath, pageNumber, pageWidthPt, pageHeightPt);
+        }
+
+        private static void RegisterPageCacheEntry(string key, Bitmap bitmap)
+        {
+            if (PageCache.TryGetValue(key, out var existing))
+            {
+                existing?.Dispose();
+                PageCache.Remove(key);
+            }
+
+            PageCacheOrder.Remove(key);
+            PageCache[key] = bitmap;
+            PageCacheOrder.Add(key);
+
+            while (PageCache.Count > MaxPageCacheEntries && PageCacheOrder.Count > 0)
+            {
+                var oldest = PageCacheOrder[0];
+                PageCacheOrder.RemoveAt(0);
+                if (!PageCache.TryGetValue(oldest, out var oldBitmap))
+                    continue;
+
+                PageCache.Remove(oldest);
+                oldBitmap?.Dispose();
+            }
+        }
+
+        private static void RegisterGridCacheEntry(string key, PageDarknessGrid grid)
+        {
+            GridCacheOrder.Remove(key);
+            GridCache[key] = grid;
+            GridCacheOrder.Add(key);
+
+            while (GridCache.Count > MaxGridCacheEntries && GridCacheOrder.Count > 0)
+            {
+                var oldest = GridCacheOrder[0];
+                GridCacheOrder.RemoveAt(0);
+                GridCache.Remove(oldest);
             }
         }
 
@@ -77,8 +140,22 @@ namespace PDF_umbenenen.Services
             public float MeasureCenterBlockDarkness(float centerXPt, float anchorYPt, float blockWidthPt, float blockHeightPt)
             {
                 var leftPt = centerXPt - (blockWidthPt / 2f);
-                var bottomPt = anchorYPt;
-                var topPt = anchorYPt + blockHeightPt;
+                return MeasureRectDarkness(leftPt, anchorYPt, blockWidthPt, blockHeightPt);
+            }
+
+            public float MeasureAnchorBlockDarkness(float anchorX, float anchorY, float blockWidthPt, float blockHeightPt, int alignment)
+            {
+                var leftPt = alignment == 2
+                    ? anchorX - blockWidthPt
+                    : alignment == 1
+                        ? anchorX - (blockWidthPt / 2f)
+                        : anchorX;
+                return MeasureRectDarkness(leftPt, anchorY, blockWidthPt, blockHeightPt);
+            }
+
+            private float MeasureRectDarkness(float leftPt, float bottomPt, float blockWidthPt, float blockHeightPt)
+            {
+                var topPt = bottomPt + blockHeightPt;
                 var leftPx = leftPt * ScaleX;
                 var rightPx = leftPx + (blockWidthPt * ScaleX);
                 var topPx = BitmapHeightPx - (topPt * ScaleY);
@@ -129,61 +206,106 @@ namespace PDF_umbenenen.Services
 
             try
             {
-                using (var bitmap = GetOrRenderPage(pdfPath, pageNumber))
+                var grid = GetOrCreateDarknessGrid(pdfPath, pageNumber, pageWidthPt, pageHeightPt);
+                if (grid == null)
+                    return false;
+
+                var maxAnchorX = Math.Max(zoneLeftPt, zoneRightPt - blockWidthPt);
+                if (maxAnchorX < zoneLeftPt)
+                    return false;
+
+                var maxAnchorY = Math.Max(zoneBottomPt, zoneTopPt - blockHeightPt);
+                if (maxAnchorY < zoneBottomPt)
+                    return false;
+
+                var quickCandidates = new[]
                 {
-                    if (bitmap == null)
-                        return false;
+                    (preferredXPt, preferredYPt),
+                    (zoneLeftPt, preferredYPt),
+                    (maxAnchorX, preferredYPt),
+                    (preferredXPt, zoneBottomPt),
+                    (preferredXPt, maxAnchorY),
+                    ((zoneLeftPt + maxAnchorX) / 2f, preferredYPt)
+                };
 
-                    var scaleX = bitmap.Width / pageWidthPt;
-                    var scaleY = bitmap.Height / pageHeightPt;
-                    var blockWidthPx = Math.Max(12, (int)Math.Ceiling(blockWidthPt * scaleX));
-                    var blockHeightPx = Math.Max(12, (int)Math.Ceiling(blockHeightPt * scaleY));
+                var stepPt = Math.Max(16f, blockWidthPt / 2f);
+                var bestScore = float.MaxValue;
+                var found = false;
 
-                    var scanLeft = (int)Math.Max(0, zoneLeftPt * scaleX);
-                    var scanRight = (int)Math.Min(bitmap.Width - blockWidthPx, zoneRightPt * scaleX);
-                    var scanTop = (int)Math.Max(0, bitmap.Height - (zoneTopPt * scaleY));
-                    var scanBottom = (int)Math.Min(bitmap.Height - blockHeightPx, bitmap.Height - (zoneBottomPt * scaleY));
+                foreach (var candidate in quickCandidates)
+                {
+                    var x = Math.Max(zoneLeftPt, Math.Min(maxAnchorX, candidate.Item1));
+                    var y = Math.Max(zoneBottomPt, Math.Min(maxAnchorY, candidate.Item2));
+                    if (!IsGridAnchorAcceptable(grid, x, y, blockWidthPt, blockHeightPt, preferredXPt, preferredYPt, pageWidthPt, pageHeightPt, out var quickScore))
+                        continue;
 
-                    if (scanRight <= scanLeft || scanBottom <= scanTop)
-                        return false;
+                    if (quickScore >= bestScore)
+                        continue;
 
-                    var bestScore = float.MaxValue;
-                    var bestX = scanLeft;
-                    var bestY = scanTop;
-
-                    for (var y = scanTop; y <= scanBottom; y += ScanStepPx)
-                    {
-                        for (var x = scanLeft; x <= scanRight; x += ScanStepPx)
-                        {
-                            var darkness = MeasureDarkness(bitmap, x, y, blockWidthPx, blockHeightPx);
-                            if (darkness > MaxAcceptableDarkness)
-                                continue;
-
-                            var candidateX = x / scaleX;
-                            var candidateY = pageHeightPt - ((y + blockHeightPx) / scaleY);
-                            var score = (darkness * 25f) + DistancePenalty(candidateX, candidateY, preferredXPt, preferredYPt, pageWidthPt, pageHeightPt);
-
-                            if (score < bestScore)
-                            {
-                                bestScore = score;
-                                bestX = x;
-                                bestY = y;
-                            }
-                        }
-                    }
-
-                    if (bestScore == float.MaxValue)
-                        return false;
-
-                    anchorX = bestX / scaleX;
-                    anchorY = pageHeightPt - ((bestY + blockHeightPx) / scaleY);
-                    return true;
+                    bestScore = quickScore;
+                    anchorX = x;
+                    anchorY = y;
+                    found = true;
                 }
+
+                if (found)
+                    return true;
+
+                bestScore = float.MaxValue;
+                found = false;
+                var scanHeight = Math.Max(1f, maxAnchorY - zoneBottomPt);
+                var rowIndex = 0;
+
+                for (var y = zoneBottomPt; y <= maxAnchorY; y += stepPt)
+                {
+                    if (rowIndex % 3 == 0)
+                        _scanProgress?.Invoke((y - zoneBottomPt) / scanHeight);
+                    rowIndex++;
+
+                    for (var x = zoneLeftPt; x <= maxAnchorX; x += stepPt)
+                    {
+                        if (!IsGridAnchorAcceptable(grid, x, y, blockWidthPt, blockHeightPt, preferredXPt, preferredYPt, pageWidthPt, pageHeightPt, out var score))
+                            continue;
+
+                        if (score >= bestScore)
+                            continue;
+
+                        bestScore = score;
+                        anchorX = x;
+                        anchorY = y;
+                        found = true;
+                    }
+                }
+
+                return found;
             }
             catch
             {
                 return false;
             }
+        }
+
+        private static bool IsGridAnchorAcceptable(
+            PageDarknessGrid grid,
+            float anchorX,
+            float anchorY,
+            float blockWidthPt,
+            float blockHeightPt,
+            float preferredXPt,
+            float preferredYPt,
+            float pageWidthPt,
+            float pageHeightPt,
+            out float score)
+        {
+            var darkness = grid.MeasureAnchorBlockDarkness(anchorX, anchorY, blockWidthPt, blockHeightPt, 0);
+            if (darkness > MaxAcceptableDarkness)
+            {
+                score = float.MaxValue;
+                return false;
+            }
+
+            score = (darkness * 25f) + DistancePenalty(anchorX, anchorY, preferredXPt, preferredYPt, pageWidthPt, pageHeightPt);
+            return true;
         }
 
         /// <summary>
@@ -467,7 +589,7 @@ namespace PDF_umbenenen.Services
                     return null;
 
                 lock (CacheLock)
-                    GridCache[key] = grid;
+                    RegisterGridCacheEntry(key, grid);
 
                 return grid;
             }
@@ -538,6 +660,78 @@ namespace PDF_umbenenen.Services
                 PageHeightPt = pageHeightPt,
                 BitmapHeightPx = bitmap.Height
             };
+        }
+
+        public static float MeasurePlacementDarkness(
+            string pdfPath,
+            int pageNumber,
+            float anchorX,
+            float anchorY,
+            float blockWidthPt,
+            float blockHeightPt,
+            float pageWidthPt,
+            float pageHeightPt,
+            int alignment)
+        {
+            EnsureLoaded();
+            if (!_available || string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
+                return 1f;
+
+            var left = alignment == 2
+                ? anchorX - blockWidthPt
+                : alignment == 1
+                    ? anchorX - (blockWidthPt / 2f)
+                    : anchorX;
+
+            try
+            {
+                var grid = GetOrCreateDarknessGrid(pdfPath, pageNumber, pageWidthPt, pageHeightPt);
+                if (grid != null)
+                    return grid.MeasureAnchorBlockDarkness(anchorX, anchorY, blockWidthPt, blockHeightPt, alignment);
+
+                using (var bitmap = GetOrRenderPage(pdfPath, pageNumber))
+                {
+                    if (bitmap == null)
+                        return 1f;
+
+                    var scaleX = bitmap.Width / pageWidthPt;
+                    var scaleY = bitmap.Height / pageHeightPt;
+                    var blockWidthPx = Math.Max(12, (int)Math.Ceiling(blockWidthPt * scaleX));
+                    var blockHeightPx = Math.Max(12, (int)Math.Ceiling(blockHeightPt * scaleY));
+                    var leftPx = (int)(left * scaleX);
+                    var topPx = (int)(bitmap.Height - ((anchorY + blockHeightPt) * scaleY));
+                    return MeasureDarkness(bitmap, leftPx, topPx, blockWidthPx, blockHeightPx);
+                }
+            }
+            catch
+            {
+                return 1f;
+            }
+        }
+
+        public static bool IsPlacementAcceptable(
+            string pdfPath,
+            int pageNumber,
+            float anchorX,
+            float anchorY,
+            float blockWidthPt,
+            float blockHeightPt,
+            float pageWidthPt,
+            float pageHeightPt,
+            int alignment,
+            bool isMaterial = false)
+        {
+            var maxDark = isMaterial ? MaterialMaxAcceptableDarkness : MaxAcceptableDarkness;
+            return MeasurePlacementDarkness(
+                       pdfPath,
+                       pageNumber,
+                       anchorX,
+                       anchorY,
+                       blockWidthPt,
+                       blockHeightPt,
+                       pageWidthPt,
+                       pageHeightPt,
+                       alignment) <= maxDark;
         }
 
         private static float DistancePenalty(float anchorX, float anchorY, float targetX, float targetY, float pageWidth, float pageHeight)
@@ -623,7 +817,8 @@ namespace PDF_umbenenen.Services
                 if (rendered == null)
                     return null;
 
-                PageCache[key] = (Bitmap)rendered.Clone();
+                var stored = (Bitmap)rendered.Clone();
+                RegisterPageCacheEntry(key, stored);
                 return rendered;
             }
         }
@@ -730,6 +925,24 @@ namespace PDF_umbenenen.Services
                 return null;
 
             return GetOrRenderPage(pdfPath, pageNumber, VisionRenderDpi);
+        }
+
+        public static Bitmap RenderPageForPreview(string pdfPath, int pageNumber)
+        {
+            EnsureLoaded();
+            if (!_available)
+                return null;
+
+            return GetOrRenderPage(pdfPath, pageNumber, 110);
+        }
+
+        public static Bitmap RenderPageForPrint(string pdfPath, int pageNumber)
+        {
+            EnsureLoaded();
+            if (!_available)
+                return null;
+
+            return GetOrRenderPage(pdfPath, pageNumber, 150);
         }
 
         public static bool TryDetectSideProfileThicknessMm(

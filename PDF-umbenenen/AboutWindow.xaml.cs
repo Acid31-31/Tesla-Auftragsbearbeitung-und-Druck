@@ -49,7 +49,7 @@ namespace PDF_umbenenen
                         System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location),
                         "..", "LICENSE.txt"),
 
-                    // Pfad 5: Zwei Ebenen höher (bin/Debug -> herko-r00)
+                    // Pfad 5: Zwei Ebenen höher (Projektstamm)
                     System.IO.Path.Combine(
                         System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location),
                         "..", "..", "LICENSE.txt"),

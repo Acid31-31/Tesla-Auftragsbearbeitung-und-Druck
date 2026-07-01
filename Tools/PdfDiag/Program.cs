@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using iTextSharp.text.pdf;
+using PDF_umbenenen;
 using PDF_umbenenen.Services;
 using PDF_umbenenen.Services.Ai;
 
@@ -19,6 +20,10 @@ namespace PdfDiag
         {
             var rulesOnly = args.Contains("--rules-only", StringComparer.OrdinalIgnoreCase);
             var dumpText = args.Contains("--dump-text", StringComparer.OrdinalIgnoreCase);
+            var watermarkTestFolder = GetArgValue(args, "--watermark-test");
+            if (!string.IsNullOrWhiteSpace(watermarkTestFolder))
+                return RunWatermarkPlacementTest(watermarkTestFolder);
+
             var batchFolder = GetArgValue(args, "--batch");
             if (!string.IsNullOrWhiteSpace(batchFolder))
             {
@@ -112,6 +117,138 @@ namespace PdfDiag
             }
 
             return null;
+        }
+
+        private static int RunWatermarkPlacementTest(string folder)
+        {
+            if (!Directory.Exists(folder))
+            {
+                Console.WriteLine("Ordner nicht gefunden: " + folder);
+                return 1;
+            }
+
+            PdfLayoutAnalysisService.ClearCache();
+            PdfRasterLayoutService.ClearCache();
+
+            var settings = WatermarkSettingsStore.Load();
+            Console.WriteLine("Wasserzeichen-Testauftrag");
+            Console.WriteLine("Ordner: " + folder);
+            Console.WriteLine("Intelligente Platzierung: " + (settings.UseSmartPlacement ? "AN" : "AUS"));
+            Console.WriteLine("PDF-Bildanalyse (Raster): " + (PdfRasterLayoutService.IsAvailable ? "VERFUEGBAR" : "NICHT VERFUEGBAR"));
+            Console.WriteLine(new string('=', 120));
+
+            var files = Directory.GetFiles(folder, "*.pdf")
+                .Where(f => !Path.GetFileName(f).StartsWith("_", StringComparison.OrdinalIgnoreCase))
+                .Where(f => !f.EndsWith(".prewm.pdf", StringComparison.OrdinalIgnoreCase))
+                .Where(f => !string.Equals(Path.GetFileName(f), "Bestellung.pdf", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (files.Count == 0)
+            {
+                Console.WriteLine("Keine PDF-Zeichnungen im Ordner.");
+                Console.WriteLine("Bitte PDFs und Daten.xlsx in die Ablage legen:");
+                Console.WriteLine(folder);
+                return 2;
+            }
+
+            var sampleEntries = new List<(string quantity, string deliveryDate, string deliveryLocation, string bgDrawingNumber, string orderNumber)>
+            {
+                ("30X", "22.06.2026", "Neuwied", "BG-12345", "TEST-2026-001")
+            };
+            var fieldData = SmartWatermarkLayoutService.BuildFieldData(sampleEntries, new List<string> { "TEST-2026-001" });
+
+            var okCount = 0;
+            var warnCount = 0;
+
+            foreach (var file in files)
+            {
+                var analysisPath = file;
+                var prewm = file + ".prewm.pdf";
+                if (File.Exists(prewm))
+                    analysisPath = prewm;
+
+                var drawing = GuessDrawingNumber(file);
+                if (!PdfWatermarkService.TryGetPageSize(analysisPath, 1, out var pageWidth, out var pageHeight))
+                {
+                    pageWidth = 595f;
+                    pageHeight = 842f;
+                }
+
+                var placements = SmartWatermarkLayoutService.Compute(analysisPath, 1, fieldData, drawing, pageWidth, pageHeight, settings);
+                var learned = WatermarkLearningStore.TryGet(drawing);
+                var source = learned != null ? "Zeichnung+KI" : "KI-Kategorie";
+
+                Console.WriteLine();
+                Console.WriteLine(Path.GetFileName(file) + " | Zeichnung: " + drawing + " | Lernquelle: " + source);
+
+                if (placements.Count == 0)
+                {
+                    Console.WriteLine("  WARNUNG: Keine Wasserzeichen-Positionen berechnet.");
+                    warnCount++;
+                    continue;
+                }
+
+                var fileOk = true;
+                foreach (var placement in placements)
+                {
+                    if (string.IsNullOrWhiteSpace(placement?.Text))
+                        continue;
+
+                    var blockWidth = Math.Max(20f, (placement.Text?.Length ?? 1) * placement.FontSize * 0.55f);
+                    var blockHeight = placement.FontSize + 8f;
+                    var isMaterial = string.Equals(placement.Category, "Material", StringComparison.OrdinalIgnoreCase);
+                    var darkness = PdfRasterLayoutService.IsAvailable
+                        ? PdfRasterLayoutService.MeasurePlacementDarkness(
+                            analysisPath, 1, placement.X, placement.Y, blockWidth, blockHeight, pageWidth, pageHeight, placement.Alignment)
+                        : -1f;
+
+                    var acceptable = !PdfRasterLayoutService.IsAvailable
+                        || PdfRasterLayoutService.IsPlacementAcceptable(
+                            analysisPath, 1, placement.X, placement.Y, blockWidth, blockHeight, pageWidth, pageHeight, placement.Alignment, isMaterial);
+
+                    var status = acceptable ? "OK" : "AUF BAUTEIL";
+                    if (!acceptable)
+                    {
+                        fileOk = false;
+                        warnCount++;
+                    }
+
+                    Console.WriteLine(string.Format(
+                        "  {0,-10} rel=({1:0.00},{2:0.00}) dunkel={3:0.000} {4} | {5}",
+                        placement.Category,
+                        placement.X / pageWidth,
+                        placement.Y / pageHeight,
+                        darkness,
+                        status,
+                        TrimText(placement.Text, 40)));
+                }
+
+                if (fileOk)
+                    okCount++;
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(new string('=', 120));
+            Console.WriteLine("Ergebnis: " + okCount + " PDF(s) frei platziert | " + warnCount + " Problem(e)");
+            Console.WriteLine("Tipp: Eine Zeichnung in der Vorschau korrigieren -> KI merkt Position fuer alle weiteren.");
+            return warnCount > 0 ? 3 : 0;
+        }
+
+        private static string GuessDrawingNumber(string pdfPath)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(pdfPath) ?? string.Empty;
+            var match = Regex.Match(fileName, @"^\d+[_\-\s]+(.+)$");
+            return match.Success ? match.Groups[1].Value.Trim() : fileName.Trim();
+        }
+
+        private static string TrimText(string text, int max)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            text = text.Replace("\r", " ").Replace("\n", " ");
+            return text.Length <= max ? text : text.Substring(0, max - 3) + "...";
         }
 
         private static int RunBatch(string folder, bool rulesOnly)

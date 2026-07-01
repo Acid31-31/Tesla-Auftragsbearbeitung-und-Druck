@@ -39,7 +39,7 @@ vorherige schriftliche Genehmigung des Urhebers nicht gestattet.
 2. URHEBERRECHT
 ═══════════════════════════════════════════════════════════════════════════════
 
-Copyright © 2026 Alexander Hölzer / Herko Industrie Software
+Copyright © 2026 Alexander Hölzer
 
 Alle Rechte vorbehalten. Der Quellcode, die Binärdateien und die damit
 verbundenen Dateien sind Eigentum von Alexander Hölzer.

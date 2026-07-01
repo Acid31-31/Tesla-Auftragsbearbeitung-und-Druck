@@ -1,0 +1,57 @@
+name: Release DOK-V01
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: ./restore-nuget.ps1
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Import code signing certificate
+        if: ${{ secrets.CODE_SIGNING_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path cert -Force | Out-Null
+          $bytes = [Convert]::FromBase64String("${{ secrets.CODE_SIGNING_PFX_BASE64 }}")
+          [IO.File]::WriteAllBytes("cert/DOK-CodeSigning.pfx", $bytes)
+          "${{ secrets.CODE_SIGNING_PASSWORD }}" | Set-Content -Path cert/signing-password.txt -NoNewline
+
+      - name: Build Release
+        run: msbuild PDF-umbenenen.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU
+
+      - name: Sign application
+        if: ${{ secrets.CODE_SIGNING_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: ./sign-app.ps1 -Configuration Release
+
+      - name: Create release package
+        shell: pwsh
+        run: ./publish-github-release.ps1 -Configuration Release -SkipBuild -SkipGh
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: DOK-V01-Release.zip
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false

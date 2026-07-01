@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 
 namespace PDF_umbenenen
@@ -6,7 +7,36 @@ namespace PDF_umbenenen
     {
         protected override void OnStartup(StartupEventArgs e)
         {
+            if (Services.UpdateApplyRunner.TryHandle(e.Args ?? Array.Empty<string>()))
+            {
+                Shutdown();
+                return;
+            }
+
             base.OnStartup(e);
+            Services.AppSecurityService.Initialize();
+
+            if (!Services.AppSecurityService.EnforceStartupSecurity())
+            {
+                Shutdown();
+                return;
+            }
+
+            if (Services.UsbInstallService.IsUsbUninstallerLaunch())
+            {
+                var uninstallWizard = new UninstallWizardWindow();
+                uninstallWizard.ShowDialog();
+                Shutdown();
+                return;
+            }
+
+            if (Services.UsbInstallService.IsUsbInstallerLaunch())
+            {
+                var installWizard = new InstallWizardWindow();
+                installWizard.ShowDialog();
+                Shutdown();
+                return;
+            }
 
             var demoStatus = Services.DemoLicenseService.Evaluate();
             if (demoStatus.IsExpired)
@@ -30,6 +60,7 @@ namespace PDF_umbenenen
             }
 
             var mainWindow = new MainWindow();
+            MainWindow = mainWindow;
             mainWindow.Show();
         }
     }

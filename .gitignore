@@ -14,9 +14,17 @@ obj/
 # NuGet packages (restore via packages.config / install scripts)
 packages/
 
-# Backups (local archives, not source)
-Backups/
+# USB deploy binaries (build artifacts)
+USB-Version/
+
+# Regenerierbares GitHub-Update-Paket
+DOK-V01-Release.zip
+
+# Keine Sicherungs-Kopien neben dem Projektordner
+DOK-V01_Komplett_*/
+DOK-V01_Datensicherung_*/
 PDF-umbenenen_BACKUP_*/
+Backups/
 
 # OS / IDE
 Thumbs.db
@@ -30,10 +38,8 @@ cert/*.pfx
 cert/*.p12
 *.pfx
 *.p12
-
-# USB deploy binaries (build artifacts)
-USB-Version/
-
-# Nested unrelated projects (separate apps)
+github.token
+**/github.token
+RELEASE_NOTES.md
 BaustelleLager/
 PdfUmbenennen-App/
