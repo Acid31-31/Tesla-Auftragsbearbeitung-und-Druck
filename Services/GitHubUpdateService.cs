@@ -214,14 +214,16 @@ namespace PDF_umbenenen.Services
                 var targetDir = AppInfo.UserDataDirectory;
                 Directory.CreateDirectory(targetDir);
                 var target = Path.Combine(targetDir, "github.token");
-                if (File.Exists(target))
-                    return;
-
-                File.Copy(installToken, target, false);
+                File.Copy(installToken, target, true);
             }
             catch
             {
             }
+        }
+
+        public static bool HasGitHubToken()
+        {
+            return !string.IsNullOrWhiteSpace(GetGitHubToken());
         }
 
         private static HttpClient CreateHttpClient()

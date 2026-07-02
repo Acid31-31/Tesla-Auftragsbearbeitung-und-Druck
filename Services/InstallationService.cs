@@ -55,6 +55,7 @@ namespace PDF_umbenenen.Services
                 {
                     progress?.Report("Programmdateien werden kopiert…");
                     CopyInstallFiles(sourceDir, targetDir);
+                    SyncUpdateToken(sourceDir, targetDir);
                 }
 
                 progress?.Report("Alte portable Dateien werden entfernt…");
@@ -134,13 +135,39 @@ namespace PDF_umbenenen.Services
             }
         }
 
+        private static void SyncUpdateToken(string sourceDir, string targetDir)
+        {
+            var tokenSource = Path.Combine(sourceDir, "github.token");
+            if (!File.Exists(tokenSource))
+                return;
+
+            try
+            {
+                File.Copy(
+                    tokenSource,
+                    AppSecurityService.ResolveSafeTargetPath(targetDir, "github.token"),
+                    true);
+
+                var userDataDir = AppInfo.UserDataDirectory;
+                Directory.CreateDirectory(userDataDir);
+                File.Copy(
+                    tokenSource,
+                    Path.Combine(userDataDir, "github.token"),
+                    true);
+            }
+            catch
+            {
+            }
+        }
+
         private static bool IsInstallFileExtension(string extension)
         {
             return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
                 || extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
                 || extension.Equals(".config", StringComparison.OrdinalIgnoreCase)
                 || extension.Equals(".cer", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".txt", StringComparison.OrdinalIgnoreCase);
+                || extension.Equals(".txt", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".token", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsSameDirectory(string left, string right)

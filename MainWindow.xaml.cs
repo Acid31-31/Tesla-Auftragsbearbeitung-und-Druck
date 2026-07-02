@@ -99,6 +99,8 @@ namespace PDF_umbenenen
                 if (showIfCurrent)
                     Mouse.OverrideCursor = Cursors.Wait;
 
+                GitHubUpdateService.EnsureUpdateTokenFromInstallFolder();
+
                 var update = await GitHubUpdateService.CheckForUpdateAsync().ConfigureAwait(true);
 
                 if (!string.IsNullOrWhiteSpace(update.ErrorMessage))
@@ -131,8 +133,21 @@ namespace PDF_umbenenen
 
                 if (showIfCurrent)
                 {
-                    var message = "Sie verwenden bereits die neueste Version (" + AppInfo.DisplayVersion + ").";
-                    AppendStatus("✓ " + message);
+                    var installed = AppInfo.DisplayVersion + " (Build " + AppInfo.ApplicationVersion.Build + ")";
+                    var remote = string.IsNullOrWhiteSpace(update.ReleaseTag)
+                        ? "unbekannt"
+                        : update.ReleaseTag;
+                    var tokenHint = GitHubUpdateService.HasGitHubToken()
+                        ? string.Empty
+                        : "\n\nHinweis: Kein github.token gefunden – bei privatem GitHub-Repository werden Updates blockiert.";
+
+                    var message = string.Format(
+                        "Kein neueres Update gefunden.\n\nInstalliert: {0}\nGitHub Release: {1}{2}",
+                        installed,
+                        remote,
+                        tokenHint);
+
+                    AppendStatus("✓ " + message.Replace("\n\n", " ").Replace("\n", " "));
                     MessageBox.Show(this, message, "Update-Prüfung", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
             }
@@ -159,6 +174,7 @@ namespace PDF_umbenenen
         private async void CheckForUpdatesMenu_Click(object sender, RoutedEventArgs e)
         {
             AppendStatus("Prüfe GitHub auf Updates…");
+            GitHubUpdateService.EnsureUpdateTokenFromInstallFolder();
             await CheckForUpdatesAsync(showIfCurrent: true);
         }
 
