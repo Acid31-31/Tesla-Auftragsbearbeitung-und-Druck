@@ -18,6 +18,8 @@ namespace PDF_umbenenen.Models
 
         public string ExpectedSha256 { get; set; } = string.Empty;
 
+        public long AssetId { get; set; }
+
         public string ErrorMessage { get; set; } = string.Empty;
     }
 }

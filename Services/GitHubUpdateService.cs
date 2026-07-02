@@ -63,8 +63,8 @@ namespace PDF_umbenenen.Services
                         return result;
                     }
 
-                    var assetUrl = ExtractPreferredAssetUrl(json);
-                    if (string.IsNullOrWhiteSpace(assetUrl))
+                    var asset = ExtractPreferredAsset(json);
+                    if (asset == null || string.IsNullOrWhiteSpace(asset.DownloadUrl))
                     {
                         if (result.UpdateAvailable)
                         {
@@ -74,8 +74,9 @@ namespace PDF_umbenenen.Services
                         return result;
                     }
 
-                    result.DownloadUrl = assetUrl;
-                    result.AssetName = AppInfo.UpdateAssetFileName;
+                    result.DownloadUrl = asset.DownloadUrl;
+                    result.AssetId = asset.AssetId;
+                    result.AssetName = asset.Name ?? AppInfo.UpdateAssetFileName;
                 }
             }
             catch (Exception ex)
@@ -91,14 +92,11 @@ namespace PDF_umbenenen.Services
             IProgress<string> progress,
             CancellationToken cancellationToken = default)
         {
-            if (update == null || string.IsNullOrWhiteSpace(update.DownloadUrl))
+            if (update == null)
                 throw new InvalidOperationException("Kein Update-Download verfügbar.");
 
-            if (!Uri.TryCreate(update.DownloadUrl, UriKind.Absolute, out var uri)
-                || !AppSecurityService.IsTrustedDownloadUrl(uri))
-            {
-                throw new InvalidOperationException("Unsicherer Download-Link blockiert.");
-            }
+            if (update.AssetId <= 0 && string.IsNullOrWhiteSpace(update.DownloadUrl))
+                throw new InvalidOperationException("Kein Update-Download verfügbar.");
 
             Directory.CreateDirectory(UpdateRoot);
             var packagePath = Path.Combine(UpdateRoot, AppSecurityService.SanitizeFileName(update.AssetName));
@@ -110,15 +108,19 @@ namespace PDF_umbenenen.Services
             progress?.Report("Update wird heruntergeladen…");
             AppSecurityService.EnsureSecureTransport();
 
-            using (var client = CreateHttpClient())
-            using (var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+            try
             {
-                response.EnsureSuccessStatusCode();
-                using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                using (var file = File.Create(packagePath))
+                using (var client = CreateHttpClient())
                 {
-                    await stream.CopyToAsync(file).ConfigureAwait(false);
+                    if (update.AssetId > 0)
+                        await DownloadReleaseAssetAsync(client, update.AssetId, packagePath, cancellationToken).ConfigureAwait(false);
+                    else
+                        await DownloadBrowserAssetAsync(client, update.DownloadUrl, packagePath, cancellationToken).ConfigureAwait(false);
                 }
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new InvalidOperationException(DescribeUpdateError(ex), ex);
             }
 
             if (string.IsNullOrWhiteSpace(update.ExpectedSha256))
@@ -283,13 +285,108 @@ namespace PDF_umbenenen.Services
             return nested == null ? null : Path.GetDirectoryName(nested);
         }
 
-        private static string ExtractPreferredAssetUrl(string json)
+        private static async Task DownloadReleaseAssetAsync(
+            HttpClient client,
+            long assetId,
+            string packagePath,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(GetGitHubToken()))
+                throw new InvalidOperationException(PrivateRepoHint);
+
+            var apiUrl = string.Format(
+                "https://api.github.com/repos/{0}/{1}/releases/assets/{2}",
+                AppInfo.GitHubOwner,
+                AppInfo.GitHubRepo,
+                assetId);
+
+            if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var uri)
+                || !AppSecurityService.IsTrustedDownloadUrl(uri))
+            {
+                throw new InvalidOperationException("Unsicherer API-Download-Link blockiert.");
+            }
+
+            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+            {
+                request.Headers.Accept.Clear();
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+
+                using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+                {
+                    await EnsureDownloadSuccessAsync(response).ConfigureAwait(false);
+                    using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    using (var file = File.Create(packagePath))
+                    {
+                        await stream.CopyToAsync(file).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        private static async Task DownloadBrowserAssetAsync(
+            HttpClient client,
+            string downloadUrl,
+            string packagePath,
+            CancellationToken cancellationToken)
+        {
+            if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri)
+                || !AppSecurityService.IsTrustedDownloadUrl(uri))
+            {
+                throw new InvalidOperationException("Unsicherer Download-Link blockiert.");
+            }
+
+            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+            using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+            {
+                await EnsureDownloadSuccessAsync(response).ConfigureAwait(false);
+                using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                using (var file = File.Create(packagePath))
+                {
+                    await stream.CopyToAsync(file).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static async Task EnsureDownloadSuccessAsync(HttpResponseMessage response)
+        {
+            if (response.IsSuccessStatusCode)
+                return;
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                if (string.IsNullOrWhiteSpace(GetGitHubToken()))
+                    throw new InvalidOperationException(PrivateRepoHint);
+
+                throw new InvalidOperationException(
+                    "Update-Paket nicht gefunden (404). Das Release-ZIP ist auf GitHub nicht erreichbar – github.token prüfen.");
+            }
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                throw new InvalidOperationException("GitHub-Token ungültig (401). Bitte github.token ersetzen.");
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+                throw new InvalidOperationException("GitHub-Download verweigert (403). Token-Berechtigung für Releases prüfen.");
+
+            throw new InvalidOperationException(
+                "Download fehlgeschlagen: " + (int)response.StatusCode + " " + response.ReasonPhrase);
+        }
+
+        private sealed class ReleaseAssetInfo
+        {
+            public long AssetId { get; set; }
+
+            public string Name { get; set; }
+
+            public string DownloadUrl { get; set; }
+        }
+
+        private static ReleaseAssetInfo ExtractPreferredAsset(string json)
         {
             if (string.IsNullOrWhiteSpace(json))
                 return null;
 
-            var preferred = FindDownloadUrlAfterAssetName(json, AppInfo.UpdateAssetFileName);
-            if (!string.IsNullOrWhiteSpace(preferred))
+            var preferred = FindAssetNearName(json, AppInfo.UpdateAssetFileName);
+            if (preferred != null)
                 return preferred;
 
             foreach (Match match in Regex.Matches(json, "\"name\"\\s*:\\s*\"([^\"]+)\"", RegexOptions.IgnoreCase))
@@ -301,25 +398,57 @@ namespace PDF_umbenenen.Services
                 if (name.IndexOf("DOK-V01", StringComparison.OrdinalIgnoreCase) < 0)
                     continue;
 
-                var url = FindDownloadUrlNearIndex(json, match.Index);
-                if (!string.IsNullOrWhiteSpace(url))
-                    return url;
+                var asset = FindAssetNearName(json, name, match.Index);
+                if (asset != null)
+                    return asset;
             }
 
             return null;
         }
 
-        private static string FindDownloadUrlAfterAssetName(string json, string assetName)
+        private static ReleaseAssetInfo FindAssetNearName(string json, string assetName, int? nameIndex = null)
         {
             if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(assetName))
                 return null;
 
-            var nameMatch = Regex.Match(
-                json,
-                "\"name\"\\s*:\\s*\"" + Regex.Escape(assetName) + "\"",
-                RegexOptions.IgnoreCase);
+            int index;
+            if (nameIndex.HasValue)
+            {
+                index = nameIndex.Value;
+            }
+            else
+            {
+                var nameMatch = Regex.Match(
+                    json,
+                    "\"name\"\\s*:\\s*\"" + Regex.Escape(assetName) + "\"",
+                    RegexOptions.IgnoreCase);
+                if (!nameMatch.Success)
+                    return null;
 
-            return nameMatch.Success ? FindDownloadUrlNearIndex(json, nameMatch.Index) : null;
+                index = nameMatch.Index;
+            }
+
+            var sliceStart = Math.Max(0, index - 900);
+            var sliceLength = Math.Min(json.Length - sliceStart, 1200);
+            var slice = json.Substring(sliceStart, sliceLength);
+
+            long assetId = 0;
+            foreach (Match idMatch in Regex.Matches(slice, "\"id\"\\s*:\\s*(\\d+)"))
+            {
+                if (long.TryParse(idMatch.Groups[1].Value, out var parsed))
+                    assetId = parsed;
+            }
+
+            if (assetId <= 0)
+                return null;
+
+            var url = FindDownloadUrlNearIndex(json, index);
+            return new ReleaseAssetInfo
+            {
+                AssetId = assetId,
+                Name = assetName,
+                DownloadUrl = url
+            };
         }
 
         private static string FindDownloadUrlNearIndex(string json, int nameIndex)

@@ -48,11 +48,12 @@ using System.Windows;
 //      Buildnummer
 //      Revision
 //
-[assembly: AssemblyVersion("1.1.0.17")]
-[assembly: AssemblyFileVersion("1.1.0.17")]
-[assembly: AssemblyInformationalVersion("1.1 R17")]
+[assembly: AssemblyVersion("1.1.0.18")]
+[assembly: AssemblyFileVersion("1.1.0.18")]
+[assembly: AssemblyInformationalVersion("1.1 R18")]
 
 [assembly: InternalsVisibleTo("PdfDiag")]
+
 
 
 
