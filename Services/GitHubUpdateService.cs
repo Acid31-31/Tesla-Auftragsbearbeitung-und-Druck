@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
@@ -21,6 +23,13 @@ namespace PDF_umbenenen.Services
             "DOK-V01",
             "Updates");
 
+        private const string PrivateRepoHint =
+            "Das GitHub-Repository ist privat. Für Updates wird ein Zugriffstoken benötigt.\n\n" +
+            "Legen Sie eine Datei github.token mit einem GitHub-Token (nur Lesezugriff auf Releases) ab unter:\n" +
+            "%LOCALAPPDATA%\\DOK-V01\\github.token\n\n" +
+            "Oder neben der DOK-V01.exe im Programmordner.\n\n" +
+            "Nach Neuinstallation aus dem Release-ZIP ist die Datei bereits enthalten.";
+
         public static async Task<AppUpdateInfo> CheckForUpdateAsync(CancellationToken cancellationToken = default)
         {
             var result = new AppUpdateInfo();
@@ -30,7 +39,7 @@ namespace PDF_umbenenen.Services
             {
                 using (var client = CreateHttpClient())
                 {
-                    var json = await client.GetStringAsync(AppInfo.GitHubLatestReleaseApiUrl).ConfigureAwait(false);
+                    var json = await FetchLatestReleaseJsonAsync(client, cancellationToken).ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
 
                     result.ReleaseTag = ExtractJsonString(json, "tag_name") ?? string.Empty;
@@ -167,6 +176,54 @@ namespace PDF_umbenenen.Services
             System.Windows.Application.Current.Shutdown();
         }
 
+        private static async Task<string> FetchLatestReleaseJsonAsync(HttpClient client, CancellationToken cancellationToken)
+        {
+            using (var response = await client.GetAsync(AppInfo.GitHubLatestReleaseApiUrl, cancellationToken).ConfigureAwait(false))
+            {
+                if (response.StatusCode == HttpStatusCode.NotFound && string.IsNullOrWhiteSpace(GetGitHubToken()))
+                    throw new InvalidOperationException(PrivateRepoHint);
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    throw new InvalidOperationException(
+                        "GitHub-Release nicht gefunden (404). Prüfen Sie, ob ein Release veröffentlicht ist.");
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    throw new InvalidOperationException(
+                        "GitHub-Token ungültig (401). Bitte github.token mit einem gültigen Token ersetzen.");
+
+                if (response.StatusCode == HttpStatusCode.Forbidden)
+                    throw new InvalidOperationException(
+                        "GitHub-Zugriff verweigert (403). Token prüfen oder später erneut versuchen.");
+
+                if (!response.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        "GitHub-API Fehler: " + (int)response.StatusCode + " " + response.ReasonPhrase);
+
+                return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+        }
+
+        public static void EnsureUpdateTokenFromInstallFolder()
+        {
+            try
+            {
+                var installToken = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "github.token");
+                if (!File.Exists(installToken))
+                    return;
+
+                var targetDir = AppInfo.UserDataDirectory;
+                Directory.CreateDirectory(targetDir);
+                var target = Path.Combine(targetDir, "github.token");
+                if (File.Exists(target))
+                    return;
+
+                File.Copy(installToken, target, false);
+            }
+            catch
+            {
+            }
+        }
+
         private static HttpClient CreateHttpClient()
         {
             var client = new HttpClient
@@ -185,21 +242,31 @@ namespace PDF_umbenenen.Services
 
         private static string GetGitHubToken()
         {
-            try
+            foreach (var path in GetGitHubTokenFileCandidates())
             {
-                var tokenFile = Path.Combine(AppInfo.UserDataDirectory, "github.token");
-                if (File.Exists(tokenFile))
+                try
                 {
-                    var fromFile = File.ReadAllText(tokenFile).Trim();
-                    if (!string.IsNullOrWhiteSpace(fromFile))
-                        return fromFile;
+                    if (!File.Exists(path))
+                        continue;
+
+                    var token = File.ReadAllText(path).Trim();
+                    if (!string.IsNullOrWhiteSpace(token))
+                        return token;
+                }
+                catch
+                {
                 }
             }
-            catch
-            {
-            }
 
-            return Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? string.Empty;
+            return Environment.GetEnvironmentVariable("GITHUB_TOKEN")
+                ?? Environment.GetEnvironmentVariable("GITHUB_UPDATE_TOKEN")
+                ?? string.Empty;
+        }
+
+        private static IEnumerable<string> GetGitHubTokenFileCandidates()
+        {
+            yield return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "github.token");
+            yield return Path.Combine(AppInfo.UserDataDirectory, "github.token");
         }
 
         private static string FindApplicationRoot(string extractPath)
@@ -270,9 +337,16 @@ namespace PDF_umbenenen.Services
 
         private static string DescribeUpdateError(Exception ex)
         {
+            if (ex is InvalidOperationException)
+                return ex.Message;
+
             if (ex is HttpRequestException httpEx)
             {
                 var message = httpEx.Message ?? string.Empty;
+                if (message.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0
+                    && string.IsNullOrWhiteSpace(GetGitHubToken()))
+                    return PrivateRepoHint;
+
                 if (message.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0)
                     return "GitHub-Release nicht gefunden (404). Prüfen Sie Internetverbindung und Repository-Zugriff.";
 
@@ -280,7 +354,7 @@ namespace PDF_umbenenen.Services
                     return "GitHub-Zugriff verweigert (403). Eventuell Rate-Limit – später erneut versuchen oder github.token hinterlegen.";
 
                 if (message.IndexOf("401", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return "GitHub-Zugriff nicht autorisiert (401). Bei privatem Repository github.token in %LOCALAPPDATA%\\DOK-V01\\github.token ablegen.";
+                    return "GitHub-Zugriff nicht autorisiert (401). Bitte github.token mit einem gültigen Token ersetzen.";
             }
 
             if (ex is TaskCanceledException)

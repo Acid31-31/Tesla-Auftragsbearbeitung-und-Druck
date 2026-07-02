@@ -81,6 +81,21 @@ if (Test-Path $cerSource) {
     Copy-Item $cerSource (Join-Path $staging "CodeSigning.cer") -Force
 }
 
+$updateToken = $env:GITHUB_UPDATE_TOKEN
+if ([string]::IsNullOrWhiteSpace($updateToken)) {
+  $gh = Get-Command gh -ErrorAction SilentlyContinue
+  if ($gh) {
+    try { $updateToken = (gh auth token 2>$null).Trim() } catch { }
+  }
+}
+if (-not [string]::IsNullOrWhiteSpace($updateToken)) {
+    Set-Content -Path (Join-Path $staging "github.token") -Value $updateToken.Trim() -NoNewline -Encoding ASCII
+    Write-Host "github.token fuer private Repo-Updates ins Paket aufgenommen."
+}
+else {
+    Write-Warning "Kein GITHUB_UPDATE_TOKEN/gh auth token - Updates nur bei oeffentlichem Repo oder mit manuell abgelegter github.token Datei."
+}
+
 $zipPath = Join-Path $root $assetName
 if (Test-Path $zipPath) {
     Remove-Item $zipPath -Force

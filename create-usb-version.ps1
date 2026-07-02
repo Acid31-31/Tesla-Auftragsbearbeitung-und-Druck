@@ -271,6 +271,18 @@ elseif (Test-Path $CertPublicPath) {
 
 }
 
+$updateToken = $env:GITHUB_UPDATE_TOKEN
+if ([string]::IsNullOrWhiteSpace($updateToken)) {
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    if ($gh) {
+        try { $updateToken = (gh auth token 2>$null).Trim() } catch { }
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($updateToken)) {
+    Set-Content -Path (Join-Path $appFolder "github.token") -Value $updateToken.Trim() -NoNewline -Encoding ASCII
+    Write-Host "github.token fuer private Repo-Updates in USB-Version aufgenommen."
+}
+
 
 
 $startBat = @"

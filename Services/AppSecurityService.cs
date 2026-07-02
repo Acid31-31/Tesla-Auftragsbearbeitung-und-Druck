@@ -230,7 +230,8 @@ namespace PDF_umbenenen.Services
                 || extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
                 || extension.Equals(".config", StringComparison.OrdinalIgnoreCase)
                 || extension.Equals(".cer", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".ico", StringComparison.OrdinalIgnoreCase);
+                || extension.Equals(".ico", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".token", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

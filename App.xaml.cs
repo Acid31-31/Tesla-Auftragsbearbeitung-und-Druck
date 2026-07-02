@@ -15,6 +15,7 @@ namespace PDF_umbenenen
 
             base.OnStartup(e);
             Services.AppSecurityService.Initialize();
+            Services.GitHubUpdateService.EnsureUpdateTokenFromInstallFolder();
 
             if (!Services.AppSecurityService.EnforceStartupSecurity())
             {
