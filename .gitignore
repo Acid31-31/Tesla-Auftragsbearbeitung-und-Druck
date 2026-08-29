@@ -14,11 +14,13 @@ obj/
 # NuGet packages (restore via packages.config / install scripts)
 packages/
 
-# USB deploy binaries (build artifacts)
+# USB / Release deploy binaries (build artifacts)
 USB-Version/
+Release-Version/
 
-# Regenerierbares GitHub-Update-Paket
+# Regenerierbare GitHub-Update-Pakete
 DOK-V01-Release.zip
+DOK-V01-Release-R*.zip
 
 # Keine Sicherungs-Kopien neben dem Projektordner
 DOK-V01_Komplett_*/
@@ -41,5 +43,6 @@ cert/*.p12
 github.token
 **/github.token
 RELEASE_NOTES.md
+RELEASE_NOTES.generated.md
 BaustelleLager/
 PdfUmbenennen-App/

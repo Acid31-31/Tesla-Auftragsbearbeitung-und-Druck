@@ -25,9 +25,10 @@ namespace PDF_umbenenen.Services
                 return isManufacturingTermin ? ManufacturingTerminPrefix : DeliveryTerminPrefix;
             }
 
+            // Vorhandenes FT-/LT- nur abstreifen – der gewünschte Typ kommt vom Aufrufer
+            // (Baugruppe/freies ET → LT, BG-Unterzeichnung → FT), nicht vom Excel-Präfix.
             if (text.StartsWith(ManufacturingTerminPrefix, StringComparison.OrdinalIgnoreCase))
             {
-                isManufacturingTermin = true;
                 text = text.Substring(ManufacturingTerminPrefix.Length).TrimStart();
             }
             else if (text.StartsWith(DeliveryTerminPrefix, StringComparison.OrdinalIgnoreCase))
@@ -36,7 +37,6 @@ namespace PDF_umbenenen.Services
             }
             else if (text.StartsWith("FT:", StringComparison.OrdinalIgnoreCase))
             {
-                isManufacturingTermin = true;
                 text = text.Substring(3).TrimStart();
             }
             else if (text.StartsWith("LT:", StringComparison.OrdinalIgnoreCase))

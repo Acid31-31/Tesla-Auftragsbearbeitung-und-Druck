@@ -1,0 +1,31 @@
+---
+description: Wasserzeichen- und Material-Platzierung – harte Regeln
+globs: Services/**/*Watermark*,Services/**/*Material*,Services/PdfRasterLayoutService.cs,Services/AiWatermarkPlacementService.cs,PdfWatermarkService.cs
+alwaysApply: false
+---
+
+# Wasserzeichen-Platzierung
+
+Details: `AGENTS.md` Abschnitt 5.
+
+## Material
+- Nur **Randkorridore** (`TryFindVisionMarginMaterialAnchor`, Margin-Zonen) – nie `TryFindGlobalFreeMaterialAnchor` zuerst
+- Hart ausschließen: `IsInsideDrawingCore`, `IsOverlappingTitleBlock`, dann Dunkelheit (`IsPlacementAcceptable`)
+- **Nie** gelernte Material-Positionen aus `WatermarkLearningStore` anwenden
+
+## Koordinaten (Alignment=1)
+- Placement: `Y` = Baseline oberste Zeile
+- Anker-Suche: liefert `anchorBottomY`
+- Umrechnung: `topY = anchorBottomY + blockHeight - lineHeight`
+- `IsPlacementAcceptable(..., materialYIsBottomAnchor: false)` für Placements, `true` für Anker
+
+## Nach Änderungen testen
+```powershell
+dotnet run --project Tools\PdfDiag\PdfDiag.csproj -- --watermark-test "<pdf-ordner>"
+```
+Exit 3 = Platzierungsprobleme.
+
+## Verboten
+- Fallback ohne Raster-/Schriftfeld-Prüfung
+- Ganze Seite als Suchzone für Material-Verfeinerung
+- `CategoryDefaults` für Material speichern wenn Raster verfügbar

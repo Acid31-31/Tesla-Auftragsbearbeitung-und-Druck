@@ -46,7 +46,7 @@ namespace PDF_umbenenen.Services
         public static double GetScreenFontSize(WatermarkTextPlacement placement, double scale)
         {
             var fontSize = placement?.FontSize ?? 22f;
-            return Math.Max(10, fontSize * scale * 0.92);
+            return Math.Max(10, fontSize * scale);
         }
 
         private static float EstimateTextWidth(string text, float fontSize)

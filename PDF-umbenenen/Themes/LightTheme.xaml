@@ -6,9 +6,13 @@
     <SolidColorBrush x:Key="CardBackground"     Color="#FFFFFF"/>
     <SolidColorBrush x:Key="HeaderBackground"   Color="#1565C0"/>
     <SolidColorBrush x:Key="HeaderForeground"   Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SidebarBackground"  Color="#E8EDF2"/>
+    <SolidColorBrush x:Key="MainContentBackground" Color="#F0F2F5"/>
+    <SolidColorBrush x:Key="FooterBackground"   Color="#E3E8EE"/>
     <SolidColorBrush x:Key="AccentBrush"        Color="#1976D2"/>
     <SolidColorBrush x:Key="AccentHover"        Color="#1565C0"/>
     <SolidColorBrush x:Key="AccentPressed"      Color="#0D47A1"/>
+    <SolidColorBrush x:Key="AccentSoftBrush"    Color="#331976D2"/>
     <SolidColorBrush x:Key="DangerBrush"        Color="#E53935"/>
     <SolidColorBrush x:Key="DangerHover"        Color="#C62828"/>
     <SolidColorBrush x:Key="SuccessBrush"       Color="#2E7D32"/>
@@ -30,5 +34,8 @@
     <SolidColorBrush x:Key="StatusBorder"       Color="#CFD8DC"/>
     <SolidColorBrush x:Key="ThemeToggleFG"      Color="#1565C0"/>
     <SolidColorBrush x:Key="SeparatorBrush"     Color="#E0E0E0"/>
+    <SolidColorBrush x:Key="ExcelAccentBrush"   Color="#2E7D32"/>
+    <SolidColorBrush x:Key="PdfAccentBrush"     Color="#1976D2"/>
+    <SolidColorBrush x:Key="HighlightCellBrush" Color="#FFE082"/>
 
 </ResourceDictionary>

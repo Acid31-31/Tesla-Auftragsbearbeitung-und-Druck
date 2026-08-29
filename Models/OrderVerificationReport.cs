@@ -108,7 +108,7 @@ namespace PDF_umbenenen.Models
                 AppendSection(lines, "In Bestell-PDF, fehlt in Excel", MissingInExcel);
                 AppendSection(lines, "Zeichnungs-PDF fehlt in Ablage", MissingDrawingPdfs);
                 AppendSection(lines, "Zeichnungs-PDF nicht in Bestell-PDF", DrawingsNotInOrderPdf);
-                AppendSection(lines, "Abweichungen (Menge)", FieldMismatches);
+                AppendSection(lines, "Abweichungen (Bestellmenge)", FieldMismatches);
                 AppendSection(lines, "Abweichungen (Liefertermin)", DateMismatches.Select(m => m.ToDisplayText()).ToList());
             }
 
@@ -130,7 +130,7 @@ namespace PDF_umbenenen.Models
             if (MissingInExcel.Count > 0)
                 sb.AppendLine("• " + MissingInExcel.Count + " PDF-Position(en) fehlen in Excel");
             if (FieldMismatches.Count > 0)
-                sb.AppendLine("• " + FieldMismatches.Count + " Abweichung(en) bei Menge");
+                sb.AppendLine("• " + FieldMismatches.Count + " Abweichung(en) bei Bestellmenge");
             if (DateMismatches.Count > 0)
                 sb.AppendLine("• " + DateMismatches.Count + " Abweichung(en) bei Liefertermin (aus Bestell-PDF übernehmbar)");
             if (MissingDrawingPdfs.Count > 0)

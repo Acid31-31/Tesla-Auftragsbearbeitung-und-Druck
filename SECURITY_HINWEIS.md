@@ -1,5 +1,22 @@
 # Sicherheitshinweis (Antivirus / Avira)
 
+## Code-Sicherheit in der App
+
+| Maßnahme | Implementierung |
+|----------|-----------------|
+| Digitale Signatur (Release) | `AppSecurityService.EnforceStartupSecurity` |
+| Update-Integrität | SHA256 im GitHub-Release + Signatur aller App-EXEs (`GitHubUpdateService`, `AppSecurityService`) |
+| Update-Anwendung | Staging nur aus `%LOCALAPPDATA%\\DOK-V01\\Updates\\staging-*`, Paketprüfung vor Installation |
+| Tesseract-Download | HTTPS-Whitelist + SHA256-Pinning (`TesseractInstallService`) |
+| Sicheres ZIP-Entpacken | Zip-Slip-Schutz in `AppSecurityService.ExtractZipSafely` |
+| Pfad-Sicherheit | `SanitizeFileName`, `ResolveSafeTargetPath`, `IsPathInsideDirectory` |
+| Download-Whitelist | Nur HTTPS zu github.com / api.github.com / objects.githubusercontent.com |
+| Geschützte Installation | Schreibschutz-Logik für `Program Files` (`AppInfo.IsProtectedInstallDirectory`) |
+
+KI-Regeln und Handoff: **`AGENTS.md`**, `.cursor/rules/security-release-git.mdc`
+
+---
+
 ## Warum erscheint eine Warnung?
 - Unbekannter Herausgeber (selbstsigniertes Zertifikat)
 - PDF-Massenbearbeitung (Umbenennen, Wasserzeichen) wirkt verdächtig

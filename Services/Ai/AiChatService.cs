@@ -40,7 +40,7 @@ namespace PDF_umbenenen.Services.Ai
             _history.Add(user);
 
             var knowledgeAnswer = AiHelpKnowledge.TryGetAnswer(userMessage, _appContext);
-            if (_orchestrator.Mode != AiBackendMode.Ollama && !string.IsNullOrWhiteSpace(knowledgeAnswer))
+            if (!string.IsNullOrWhiteSpace(knowledgeAnswer))
             {
                 var knowledgeMsg = new AiChatMessage("assistant", knowledgeAnswer);
                 _history.Add(knowledgeMsg);

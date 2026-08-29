@@ -1,0 +1,304 @@
+================================================================================
+DOK-V01 – TECHNISCHER BERICHT ZUR APP-ANALYSE
+Stand: 05.07.2026 | Version 1.1 R41 (Assembly 1.1.0.41)
+Erstellt für: Weitergabe an externe KI zur Analyse
+================================================================================
+
+1. ZWECK UND ZIELGRUPPE
+--------------------------------------------------------------------------------
+DOK-V01 ist eine Windows-Desktop-Anwendung (WPF, .NET Framework 4.8) für die
+Blechbearbeitung. Sie verarbeitet technische Zeichnungen (PDF, v. a. Tesla
+TSL-*-Zeichnungen) zusammen mit einer Excel-Auftragsdatei.
+
+Hauptworkflow:
+  1. Laden (Drag & Drop: Excel, PDFs, ZIP mit PDFs + Excel)
+  2. Sortieren & Umbenennen (Match Zeichnungsnummer ↔ Excel-Zeile → 01_…pdf)
+  3. Optional: Wasserzeichen (Auftragsnr., Lieferort, Menge, Datum, BG, Material)
+  4. Zusammenfügen zu einer _GESAMT_YYYYMMDD_HHMMSS.pdf
+  5. Automatische Updates von GitHub-Releases
+
+Zielgruppe: Fertigung / Auftragsbearbeitung mit Tesla-Zeichnungen.
+GitHub: Acid31-31/Tesla-Auftragsbearbeitung-und-Druck
+
+Es gibt KEIN Endnutzer-CLI für Sortieren – Batch läuft über MainWindow (WPF).
+Nur Tools/PdfDiag ist ein Entwickler-Diagnose-Tool.
+
+
+2. TECHNOLOGIE-STACK
+--------------------------------------------------------------------------------
+  - Sprache: C# 7.3
+  - UI: WPF (XAML)
+  - Framework: .NET Framework 4.8, Plattform AnyCPU
+  - PDF lesen/schreiben: iTextSharp 5.5.13.5
+  - PDF rasterisieren: Docnet.Core 2.6.0 + pdfium.dll (native, win-x64)
+  - OCR: Tesseract 5.4 CLI (offline, deu+eng)
+  - Excel: über vorhandene Services / COM-ähnliche Logik im Projekt
+  - Updates: GitHub Releases, ZIP mit SHA256-Prüfung
+  - Code-Signing: optional (Release), CodeSigning.cer wird mitgeliefert
+
+Projektdatei: PDF-umbenenen.csproj
+Namespace (historisch): PDF_umbenenen
+EXE-Name: DOK-V01.exe
+
+
+3. VERZEICHNISSTRUKTUR (KERN)
+--------------------------------------------------------------------------------
+PDF Sortieren/
+  MainWindow.xaml(.cs)           UI, Batch, Drag&Drop, Sortierung
+  PdfWatermarkService.cs         iTextSharp: Wasserzeichen in PDF schreiben
+  AppInfo.cs                   Version, Pfade, GitHub-Konstanten
+  PathStore.cs                   Ablage-Ordner, Excel-Pfad
+  Services/                      Geschäftslogik
+  Platform/                      Modulare Pipeline (OCR, Vision, Batch, Learning)
+  PDF-umbenenen/                 Zusatzfenster (Preview, KI, Update, Install)
+  Tools/PdfDiag/                 Diagnose-CLI
+  bin/Debug|Release/             Build-Ausgabe
+  native/win-x64/pdfium.dll      Backup für Release/Repair
+  native/win-x64/tesseract/      Portable Tesseract (seit Integration)
+
+
+4. LAUFZEIT-PFADE (WINDOWS)
+--------------------------------------------------------------------------------
+  Installation (fest):     C:\Program Files\DOK-V01\
+  Arbeitsdaten / Ablage:   %LOCALAPPDATA%\DOK-V01\Ablage\
+  Einstellungen:           %LOCALAPPDATA%\DOK-V01\
+                           (ai-settings.xml, watermark-settings.xml, …)
+  KI-Lernspeicher WM:      %LOCALAPPDATA%\DOK-V01\Learning\watermark-placements.xml
+  Tesseract (Fallback):    %LOCALAPPDATA%\DOK-V01\Tools\tesseract\
+  USB-Verteilung:          USB-Version\DOK-V01\ → Programm installieren.exe
+
+Testdaten (real): F:\DOK-V01 Soft\zeichnungen\ (26 TSL-PDFs + Excel)
+
+
+5. ARCHITEKTUR-ÜBERBLICK
+--------------------------------------------------------------------------------
+MainWindow (WPF)
+  → PlatformDocumentService (Dokument-Pipeline)
+      → Excel einlesen
+      → PDF Matching (Zeichnungsnr. ↔ Excel)
+      → SmartWatermarkLayoutService (Layout aller WM-Kategorien)
+          → PdfMaterialExtractionService (Material aus PDF)
+          → PdfRasterLayoutService (pdfium-Raster, Dunkelheits-Grid)
+          → WatermarkLearningStore (XML-Lernspeicher)
+          → AiWatermarkPlacementService (Raster-Korrektur, EnforceVisionLayout)
+      → PdfWatermarkService (iTextSharp ShowTextAligned – finale Positionen)
+  → PdfWatermarkService.AddPageNumbers (Seitenzahlen: Seite-1, Seite-2, …)
+
+Platform/ (parallel): modulare Pipeline mit OCR, Vision, Rules, Batch, Learning.
+OfflineAiOrchestrator: Regel-basierte KI ohne LLM (Ollama wurde entfernt).
+
+
+6. „KI“ IN DOK-V01 – WAS IST DAMIT GEMEINT?
+--------------------------------------------------------------------------------
+Es gibt KEIN Cloud-LLM und KEIN Ollama mehr. „KI“ bedeutet:
+
+  a) Lokale Vision (LocalVisionEnabled)
+     = pdfium-Raster-Layout: Seite wird gerendert, Dunkelheits-Grid erkennt
+       freie vs. belegte Bereiche. Steuert Wasserzeichen-Platzierung.
+
+  b) Lokales OCR (LocalOcrEnabled)
+     = Tesseract CLI für Schriftfelder ohne Textlayer (Titelblock-OCR).
+     Sprachen: deu+eng (Standard).
+
+  c) Regel-Engine / Plattform-Module
+     = Material-Erkennung, Matching, Chat-Hilfe (RuleBasedFallback),
+       ThicknessCandidateResolver, Hybrid-Resolver Schriftfeld + Seitenansicht.
+
+Einstellungen: %LOCALAPPDATA%\DOK-V01\ai-settings.xml
+  - AiEnabled (Standard: true)
+  - LocalOcrEnabled (Standard: true)
+  - LocalVisionEnabled (Standard: true)
+  - TesseractPath (optional)
+  - OcrLanguages (Standard: deu+eng)
+
+Tesseract-Integration (neu, R41-Entwicklung):
+  - TesseractBootstrapService: automatische Einrichtung beim Start
+  - Gebündelt in Release: tesseract\ neben EXE
+  - ensure-tesseract-bundle.ps1 für Release/USB-Build
+  - Kein manuelles install-tesseract.ps1 mehr nötig für Endnutzer
+
+
+7. WASSERZEICHEN-SYSTEM (KRITISCHSTER BEREICH)
+--------------------------------------------------------------------------------
+7.1 Kategorien
+  - Order      Auftragsnummer (fest oben rechts)
+  - Location   Lieferort
+  - Date       Lieferdatum (LT-…)
+  - Quantity   Menge (30X etc.)
+  - Material   z. B. VA-3,0mm, ST-2,0mm (mehrzeilig möglich)
+  - Bg         Baugruppen-Zeichnung (BG: TSL-…)
+
+Zusätzlich (separater Schritt): Seitenzahlen „Seite-N“ via PdfWatermarkService.
+
+7.2 Pipeline (vereinfacht)
+  SmartWatermarkLayoutService.Compute()
+    → Platzierungen berechnen (Regeln + Material-Stack)
+    → ApplyLearning()
+        → WatermarkLearningStore.ApplyToPlacements (pro Zeichnung)
+        → ApplyCategoryDefaults (nur wenn Vision AUS)
+        → RefinePlacementsToFreeAreas
+        → RevalidateMaterialPlacement
+        → AiWatermarkPlacementService.EnforceVisionLayout  ← Raster-Korrektur
+        → AutoLearnSuccessfulPlacements (speichert CategoryDefaults)
+
+7.3 Koordinaten-Konvention Material (Alignment=1, zentriert)
+  - placement.X = Mitte des Textblocks
+  - placement.Y = Baseline der OBERSTEN Zeile (NICHT Unterkante!)
+  - Anker-Suchfunktionen liefern anchorBottomY (Unterkante)
+  - Umrechnung: topBaselineY = anchorBottomY + blockHeight - lineHeight
+  - Prüfung Placements: materialYIsBottomAnchor: false
+  - Prüfung Anker-Suchergebnisse: materialYIsBottomAnchor: true
+
+7.4 Regeln für korrekte Platzierung
+  - Material NUR in Randkorridoren (links, oberer Rand, Streifen über Schriftfeld)
+  - NIEMALS Zeichnungsmitte, NIEMALS Toleranztabelle
+  - IsInsideDrawingCore und IsOverlappingTitleBlock VOR Dunkelheits-Check
+  - KEINE gelernten Material-Positionen aus XML anwenden (seit R41)
+  - EnforceVisionLayout läuft wenn PdfRasterLayoutService.IsAvailable
+    (nicht nur wenn KI-Schalter an)
+
+7.5 Relevante Dateien
+  Services/SmartWatermarkLayoutService.cs    Layout aller Kategorien
+  Services/AiWatermarkPlacementService.cs    EnforceVisionLayout, Zonen
+  Services/PdfRasterLayoutService.cs         Raster, IsInsideDrawingCore,
+                                             IsOverlappingTitleBlock,
+                                             IsPlacementAcceptable
+  Services/WatermarkLearningStore.cs         XML-Lernspeicher
+  PdfWatermarkService.cs                     Schreibt finale Positionen in PDF
+
+
+8. BEKANNTE PROBLEME UND SYMPTOME (STAND 05.07.2026)
+--------------------------------------------------------------------------------
+8.1 Nutzer-Meldung (aktuell, hoch priorisiert)
+  Wasserzeichen werden falsch platziert:
+  - BG-Text über Randlinie / falscher Bereich
+  - Material (z. B. ST-8,0mm) über Toleranztabelle „ZULÄSSIGE ABWEICHUNGEN…“
+  - Seitenzahl über DATEIPFAD im Schriftfeld
+
+8.2 Diagnose PdfDiag --watermark-test (26 TSL-PDFs, vor Fix-Versuch)
+  Ergebnis: 0 PDFs frei platziert, 156 Probleme („AUF BAUTEIL“)
+  Material-WERTE waren korrekt (VA-3,0mm etc.), Positionen falsch.
+  Exit-Code 3 = Platzierungsprobleme.
+
+8.3 Material-Extraktion (Batch-Test, gleiche 26 PDFs)
+  Ergebnis: 26/26 mit Wasserzeichen-Materialtext, 0 fehlend.
+  OCR/Tesseract + Regeln funktionieren für Erkennung.
+  Ausreißer:
+  - TSL-11367: VA-20,0mm statt vermutlich 5 mm (Seitenansicht-Zahl)
+  - TSL-11090, TSL-11251: nur „ST“ ohne Dicke
+
+8.4 Historische Fallstricke (AGENTS.md)
+  - Material bei rel 0.59/0.48 überall → schlechte CategoryDefaults im Lernspeicher
+  - Material auf Schriftfeld unten links → Fallback ohne Raster (R41 behoben)
+  - Prüfung „OK“ trotz Text auf Zeichnung → falsche Y-Geometrie (R41 behoben)
+  - pdfium fehlt / 0x8007000B → falsche Bitness nach Update
+  - 20 mm statt 5 mm → Seitenansicht als Dicke interpretiert
+
+8.5 Lernspeicher
+  Pfad: %LOCALAPPDATA%\DOK-V01\Learning\watermark-placements.xml
+  Bei falschen Wasserzeichen: Datei löschen, Ablage leeren, neu sortieren.
+  Material wird seit R41 NICHT mehr aus XML übernommen (ApplyToPlacements überspringt).
+
+
+9. ÄNDERUNGEN IN AKTUELLER ENTWICKLUNGSSITZUNG (UNGETESTET VOLLSTÄNDIG)
+--------------------------------------------------------------------------------
+Folgende Fixes wurden implementiert, Build Debug erfolgreich, App gestartet
+aus: E:\Programierung\PDF Sortieren\bin\Debug\DOK-V01.exe
+
+  a) PdfRasterLayoutService.IsInsideDrawingCore
+     Zeichnungskern war falsch definiert (nur schmaler Streifen 10–22% von
+     unten statt oberer Zeichnungsbereich). Korrigiert auf:
+     coreBottom = titleTop + 20, coreTop = pageHeight - 24
+
+  b) PdfRasterLayoutService.IsInsideTitleBlock
+     Schriftfeld galt nur rechts (ab 58% Blattbreite). Toleranztabelle links
+     wurde nicht geschützt. Korrigiert: volle Breite im unteren Streifen
+     (untere ~22% der Seite).
+
+  c) AiWatermarkPlacementService.IsPlacementGood
+     materialYIsBottomAnchor war fälschlich true für Material-Placements.
+     Korrigiert auf false (Placements = top baseline).
+
+  d) PdfRasterLayoutService MeasureAnchorBlockDarkness / IsPlacementAcceptable
+     Y-Geometrie für alignment=1 (zentriert) bei Dunkelheitsmessung korrigiert.
+
+  e) PdfWatermarkService DrawPageNumberOnPage
+     Seitenzahlen von unten Mitte nach oben rechts verschoben (Alignment 2).
+
+  f) TesseractBootstrapService + Bundle-Integration (separate Aufgabe)
+
+Nutzer soll testen mit Debug-EXE, nicht mit C:\Program Files\DOK-V01\.
+Lernspeicher vor Test löschen.
+
+
+10. NATIVE ABHÄNGIGKEITEN
+--------------------------------------------------------------------------------
+  pdfium.dll
+    - Muss zur Prozess-Bitness passen (64-Bit)
+    - Fehler 0x8007000B → NativeDependencyService.TryRepairAndReload
+    - Release-Paket enthält native\win-x64\pdfium.dll
+
+  Tesseract
+    - tesseract.exe + tessdata (deu, eng, osd) neben EXE oder in Tools\
+    - Layout/Platzierung = pdfium-Raster, NICHT Tesseract
+    - Tesseract nur für OCR (Schriftfeld)
+
+
+11. SICHERHEIT
+--------------------------------------------------------------------------------
+  - Release: EXE-Signaturpflicht (AppSecurityService)
+  - Update-ZIP: SHA256 + Signaturprüfung
+  - Zip-Slip-Schutz beim Entpacken
+  - Pfad-Sanitisierung
+  - Downloads nur von github.com / api.github.com / objects.githubusercontent.com
+
+
+12. BUILD UND TEST
+--------------------------------------------------------------------------------
+Debug-Build:
+  MSBuild PDF-umbenenen.csproj /t:Build /p:Configuration=Debug /p:Platform=AnyCPU
+  Start: bin\Debug\DOK-V01.exe
+
+Release + GitHub:
+  .\publish-github-release.ps1
+
+Diagnose:
+  PdfDiag --watermark-test "<pdf-ordner>"   → Exit 0=OK, 3=Platzierungsprobleme
+  PdfDiag --batch "<ordner>"                → Material-Extraktion aller PDFs
+
+Hinweis: --watermark-test auf 26 PDFs dauert sehr lange (Raster pro Seite).
+
+
+13. OFFENE FRAGEN FÜR EXTERNE KI-ANALYSE
+--------------------------------------------------------------------------------
+  1. Sind IsInsideDrawingCore / IsInsideTitleBlock nach dem Fix korrekt für
+     Tesla A4-Zeichnungen (Titelblock unten, Toleranztabelle links unten)?
+
+  2. Warum liefert EnforceVisionLayout trotzdem Positionen auf der Zeichnung?
+     Wird TryReposition ausreichend oft aufgerufen? Gibt es Kategorien die
+     übersprungen werden (IsFixedCategory nur Order)?
+
+  3. Überschreibt WatermarkLearningStore.CategoryDefaults oder gespeicherte
+     Metadaten (WatermarkMetadataStore) die korrigierten Positionen?
+
+  4. Stimmt die Reihenfolge in ApplyLearning? Sollte EnforceVisionLayout
+     als letzter Schritt laufen?
+
+  5. PdfDiag meldete für ALLE Kategorien (auch Order oben rechts) „AUF BAUTEIL“
+     mit dunkel=1.000 – deutet das auf systematischen Messfehler oder auf
+     tatsächlich falsche Platzierung hin?
+
+  6. Optimale Strategie: feste Zonen pro Kategorie vs. reine Raster-Suche?
+
+  7. Sollte der Lernspeicher komplett deaktiviert werden bis Platzierung stabil?
+
+
+14. VERSIONS- UND DEPLOYMENT-HINWEIS
+--------------------------------------------------------------------------------
+  Aktuelle Entwicklungsversion: 1.1 R41 (05.07.2026)
+  Für Tests mit Fixes: bin\Debug\DOK-V01.exe aus dem Projektordner
+  Installierte Version unter Program Files ist ggf. älter bis Release-Update.
+
+================================================================================
+ENDE DES BERICHTS
+================================================================================

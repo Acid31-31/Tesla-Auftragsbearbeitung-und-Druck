@@ -43,7 +43,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
-                   Text="Wasserzeichen verschieben und Material anpassen. Nach dem Speichern merkt sich die App die Position für künftige Zeichnungen."
+                   Text="Korrekturen werden sofort gelernt. Beim Wechsel zur nächsten Zeichnung übernimmt die App die Position automatisch."
                    TextWrapping="Wrap"
                    FontSize="12"
                    Foreground="{DynamicResource TextSecondary}"

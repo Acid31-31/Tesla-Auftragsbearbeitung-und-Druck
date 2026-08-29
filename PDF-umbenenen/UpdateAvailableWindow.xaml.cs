@@ -26,7 +26,46 @@ namespace PDF_umbenenen
 
             NotesTextBlock.Text = string.IsNullOrWhiteSpace(_update.ReleaseNotes)
                 ? "Keine Release-Notizen."
-                : _update.ReleaseNotes.Trim();
+                : FormatReleaseNotesForDisplay(_update.ReleaseNotes);
+        }
+
+        private static string FormatReleaseNotesForDisplay(string notes)
+        {
+            if (string.IsNullOrWhiteSpace(notes))
+                return string.Empty;
+
+            var text = notes.Trim();
+            if (text.Length > 0 && text[0] == '\uFEFF')
+                text = text.Substring(1).TrimStart();
+            // Falls alte Clients/APIs noch Escapes liefern.
+            if (text.IndexOf("\\n", StringComparison.Ordinal) >= 0
+                && text.IndexOf('\n') < 0)
+            {
+                text = text
+                    .Replace("\\r\\n", "\n")
+                    .Replace("\\n", "\n")
+                    .Replace("\\r", "\n")
+                    .Replace("\\t", "  ");
+            }
+
+            var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            var sb = new System.Text.StringBuilder();
+            foreach (var raw in lines)
+            {
+                var line = raw ?? string.Empty;
+                if (line.StartsWith("### ", StringComparison.Ordinal))
+                    line = line.Substring(4).Trim();
+                else if (line.StartsWith("## ", StringComparison.Ordinal))
+                    line = line.Substring(3).Trim();
+                else if (line.StartsWith("# ", StringComparison.Ordinal))
+                    line = line.Substring(2).Trim();
+                else if (line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal))
+                    line = "• " + line.Substring(2).Trim();
+
+                sb.AppendLine(line);
+            }
+
+            return sb.ToString().Trim();
         }
 
         private async void UpdateButton_Click(object sender, RoutedEventArgs e)
@@ -37,21 +76,29 @@ namespace PDF_umbenenen
             _isUpdating = true;
             UpdateButton.IsEnabled = false;
             LaterButton.IsEnabled = false;
+            NotesBorder.Visibility = Visibility.Collapsed;
+            ProgressPanel.Visibility = Visibility.Visible;
+            UpdateProgressBar.Value = 0;
+            PercentTextBlock.Text = "0 %";
             StatusTextBlock.Text = "Update wird vorbereitet…";
-            Mouse.OverrideCursor = Cursors.Wait;
 
             try
             {
-                var progress = new Progress<string>(message =>
+                var progress = new Progress<UpdateProgressInfo>(info =>
                 {
-                    Dispatcher.Invoke(() => StatusTextBlock.Text = message);
+                    UpdateProgressBar.Value = info.Percent;
+                    PercentTextBlock.Text = info.Percent + " %";
+                    StatusTextBlock.Text = info.Message;
                 });
+
                 var stagedRoot = await GitHubUpdateService.DownloadAndStageUpdateAsync(
                     _update,
                     progress,
                     CancellationToken.None).ConfigureAwait(true);
 
-                StatusTextBlock.Text = "Update wird installiert. Die App startet neu…";
+                StatusTextBlock.Text = "Installation wird gestartet…";
+                PercentTextBlock.Text = "100 %";
+                UpdateProgressBar.Value = 100;
                 GitHubUpdateService.LaunchUpdaterAndShutdown(stagedRoot);
             }
             catch (Exception ex)
@@ -59,7 +106,8 @@ namespace PDF_umbenenen
                 _isUpdating = false;
                 UpdateButton.IsEnabled = true;
                 LaterButton.IsEnabled = true;
-                Mouse.OverrideCursor = null;
+                NotesBorder.Visibility = Visibility.Visible;
+                ProgressPanel.Visibility = Visibility.Collapsed;
                 StatusTextBlock.Text = "Update fehlgeschlagen.";
                 MessageBox.Show(this, ex.Message, "Update", MessageBoxButton.OK, MessageBoxImage.Warning);
             }

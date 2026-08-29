@@ -47,11 +47,22 @@ jobs:
         shell: pwsh
         run: ./publish-github-release.ps1 -Configuration Release -SkipBuild -SkipGh
 
+      - name: Verify release notes contain SHA256
+        shell: pwsh
+        run: |
+          if (-not (Test-Path RELEASE_NOTES.generated.md)) {
+            throw 'RELEASE_NOTES.generated.md fehlt.'
+          }
+          $notes = Get-Content RELEASE_NOTES.generated.md -Raw
+          if ($notes -notmatch 'SHA256:\s*[0-9a-f]{64}') {
+            throw 'RELEASE_NOTES.generated.md enthält keine SHA256-Prüfsumme.'
+          }
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: DOK-V01-Release.zip
-          body_path: RELEASE_NOTES.md
+          files: Release-Version/DOK-V01-Release-R*.zip
+          body_path: RELEASE_NOTES.generated.md
           draft: false
           prerelease: false
           generate_release_notes: false

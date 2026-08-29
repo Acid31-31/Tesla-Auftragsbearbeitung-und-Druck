@@ -294,77 +294,42 @@ namespace PDF_umbenenen.Services
 
 
 
-            CompareValue(report, row, pdfLine, "Menge", row.Amount, pdfLine.Amount);
-
-            CompareValue(report, row, pdfLine, "Lieferdatum", row.DeliveryDate, pdfLine.DeliveryDate);
-
+            CompareAmount(report, row, pdfLine);
+            CompareDeliveryDate(report, row, pdfLine, row.DeliveryDate, pdfLine.DeliveryDate);
         }
 
-
-
-        private static void CompareValue(
-
+        private static void CompareAmount(
             OrderVerificationReport report,
-
             OrderExcelRow row,
-
-            OrderVerificationLine pdfLine,
-
-            string label,
-
-            string excelValue,
-
-            string pdfValue)
-
+            OrderVerificationLine pdfLine)
         {
+            var excelValue = row.Amount;
+            var pdfValue = pdfLine.Amount;
+            var excelHas = !string.IsNullOrWhiteSpace(excelValue);
+            var pdfHas = !string.IsNullOrWhiteSpace(pdfValue);
 
-            if (label == "Lieferdatum")
-
+            if (excelHas && !pdfHas)
             {
-
-                if (OrderVerificationLookup.IsBgSubDrawing(row))
-
-                    return;
-
-
-
-                CompareDeliveryDate(report, row, pdfLine, excelValue, pdfValue);
-
-                return;
-
-            }
-
-
-
-            if (string.IsNullOrWhiteSpace(pdfValue) || string.IsNullOrWhiteSpace(excelValue))
-
-                return;
-
-
-
-            var excelNorm = AiTextHelper.NormalizeKey(excelValue);
-
-            var pdfNorm = AiTextHelper.NormalizeKey(pdfValue);
-
-            if (excelNorm != pdfNorm)
-
-            {
-
                 report.FieldMismatches.Add(OrderVerificationReport.FormatFieldMismatch(
-
                     GetRowLabel(row, pdfLine),
-
-                    label,
-
+                    "Bestellmenge",
                     excelValue,
-
-                    pdfValue));
-
+                    "(fehlt in Bestell-PDF)"));
+                return;
             }
 
+            if (!excelHas || !pdfHas)
+                return;
+
+            if (!OrderVerificationAmountHelper.AreEqual(excelValue, pdfValue))
+            {
+                report.FieldMismatches.Add(OrderVerificationReport.FormatFieldMismatch(
+                    GetRowLabel(row, pdfLine),
+                    "Bestellmenge",
+                    excelValue,
+                    pdfValue));
+            }
         }
-
-
 
         private static void CompareDeliveryDate(
 

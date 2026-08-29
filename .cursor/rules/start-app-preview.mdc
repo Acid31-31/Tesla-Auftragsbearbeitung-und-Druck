@@ -1,18 +1,23 @@
 ---
-description: Nach Codeänderungen App bauen und als Vorschau starten
+description: Nach jeder Aktualisierung App bauen und starten (Pflicht)
 alwaysApply: true
 ---
 
-# App-Vorschau nach Programmierung
+# App nach Aktualisierung starten (Pflicht)
 
-Nach jeder abgeschlossenen Codeänderung an diesem Projekt (WPF-App **DOK-V01**):
+**Immer** nach abgeschlossener Arbeit an diesem Projekt (WPF-App **DOK-V01**), sobald sich etwas am lauffähigen Stand ändert:
 
-1. Laufende Instanz beenden, falls noch aktiv (`DOK-V01.exe`).
-2. Projekt bauen:
-   - `PDF-umbenenen.csproj` mit MSBuild, Configuration `Debug`
-3. App starten:
-   - `bin\Debug\DOK-V01.exe`
-4. Kurz prüfen, ob der Prozess läuft (Fenstertitel: „DOK-V01“).
-5. Dem Nutzer mitteilen, dass die Vorschau gestartet wurde.
+- Code-, XAML-, csproj- oder Skript-Änderungen mit Build-Bezug
+- Abhängigkeiten (pdfium, Tesseract-Bundle, native-Ordner)
+- Nach dem Ende einer Session, in der Code geändert wurde
 
-Nur überspringen, wenn der Nutzer ausdrücklich keinen Start wünscht oder die Änderung rein dokumentarisch/ohne Build-Bezug ist.
+Ablauf (ohne Nachfrage):
+
+1. Laufende Instanz beenden (`Get-Process DOK-V01 | Stop-Process`).
+2. Debug-Build:
+   - MSBuild: `PDF-umbenenen.csproj` / `Configuration=Debug` / `Platform=AnyCPU`
+3. App starten: `bin\Debug\DOK-V01.exe`
+4. Prüfen: Prozess läuft, Fenstertitel enthält „DOK-V01“.
+5. Nutzer kurz informieren: „Vorschau gestartet.“
+
+**Nicht überspringen**, außer der Nutzer sagt ausdrücklich „nicht starten“ oder die Änderung ist rein dokumentarisch ohne Build-Bezug.

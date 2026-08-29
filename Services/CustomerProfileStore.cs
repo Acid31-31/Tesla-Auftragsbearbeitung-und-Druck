@@ -10,19 +10,19 @@ namespace PDF_umbenenen.Services
 {
     internal static class CustomerProfileStore
     {
-        private static readonly string StoreDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            AppInfo.ProductName,
-            "Customers");
+        private static string StoreDirectory => Path.Combine(AppInfo.UserDataDirectory, "Customers");
 
-        private static readonly string IndexPath = Path.Combine(StoreDirectory, "profiles.xml");
+        private static string IndexPath => Path.Combine(StoreDirectory, "profiles.xml");
 
         public static IReadOnlyList<CustomerProfile> LoadAll()
         {
-            EnsureBuiltInProfiles();
-            var profiles = new List<CustomerProfile> { CreateBuiltInTesla() };
-            profiles.AddRange(LoadCustomProfiles());
-            return profiles;
+            EnsureStoreDirectory();
+            return LoadCustomProfiles();
+        }
+
+        public static bool HasAny()
+        {
+            return LoadAll().Count > 0;
         }
 
         private static List<CustomerProfile> LoadCustomProfiles()
@@ -40,8 +40,7 @@ namespace PDF_umbenenen.Services
                     var profile = ReadProfile(element);
                     if (profile != null
                         && !string.IsNullOrWhiteSpace(profile.Id)
-                        && !profile.IsBuiltIn
-                        && !string.Equals(profile.Id, CustomerProfile.TeslaId, StringComparison.OrdinalIgnoreCase))
+                        && !profile.IsBuiltIn)
                     {
                         profiles.Add(profile);
                     }
@@ -62,23 +61,17 @@ namespace PDF_umbenenen.Services
             return LoadAll().FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
         }
 
-        public static CustomerProfile GetBuiltInTesla()
-        {
-            return CreateBuiltInTesla();
-        }
-
         public static void Save(CustomerProfile profile)
         {
             if (profile == null || string.IsNullOrWhiteSpace(profile.DisplayName))
                 throw new InvalidOperationException("Kundenprofil ohne Namen kann nicht gespeichert werden.");
 
-            if (profile.IsBuiltIn)
-                throw new InvalidOperationException("Eingebaute Profile können nicht überschrieben werden.");
+            profile.IsBuiltIn = false;
 
             if (string.IsNullOrWhiteSpace(profile.Id))
                 profile.Id = CustomerProfileDraftSlug(profile.DisplayName);
 
-            EnsureBuiltInProfiles();
+            EnsureStoreDirectory();
 
             var profiles = LoadCustomProfiles()
                 .Where(p => !string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase))
@@ -90,11 +83,8 @@ namespace PDF_umbenenen.Services
 
         public static bool Delete(string id)
         {
-            if (string.IsNullOrWhiteSpace(id)
-                || string.Equals(id, CustomerProfile.TeslaId, StringComparison.OrdinalIgnoreCase))
-            {
+            if (string.IsNullOrWhiteSpace(id))
                 return false;
-            }
 
             var profiles = LoadCustomProfiles()
                 .Where(p => !string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase))
@@ -104,6 +94,7 @@ namespace PDF_umbenenen.Services
                 return false;
 
             WriteAll(profiles);
+            CustomerProfileSettingsStore.DeleteForProfile(id);
             return true;
         }
 
@@ -112,7 +103,7 @@ namespace PDF_umbenenen.Services
             return new CustomerProfileDraft().ToProfile(displayName).Id;
         }
 
-        private static void EnsureBuiltInProfiles()
+        private static void EnsureStoreDirectory()
         {
             try
             {
@@ -138,25 +129,6 @@ namespace PDF_umbenenen.Services
                 root.Add(WriteProfile(profile));
 
             new XDocument(root).Save(IndexPath);
-        }
-
-        private static CustomerProfile CreateBuiltInTesla()
-        {
-            return new CustomerProfile
-            {
-                Id = CustomerProfile.TeslaId,
-                DisplayName = "Tesla",
-                IsBuiltIn = true,
-                WorkflowKind = CustomerWorkflowKind.ExcelPrimary,
-                RequiresExcel = true,
-                RequiresOrderPdf = false,
-                DrawingNumberPattern = CustomerProfile.DefaultDrawingPattern,
-                ArticleNumberPattern = @"\bTGA\d+\b",
-                SampleDrawingNumbers = new List<string> { "TSL-1912-053", "TSL-11122-393" },
-                ExcelDrawingHeaders = new List<string> { "Drawing", "Zeichnung" },
-                ExcelAmountHeaders = new List<string> { "Qty", "Requested Amount", "Menge" },
-                LearningSummary = "Standardprofil für Tesla (Excel + optional Bestell-PDF)."
-            };
         }
 
         private static CustomerProfile ReadProfile(XElement element)
@@ -193,7 +165,7 @@ namespace PDF_umbenenen.Services
                 new XElement("WorkflowKind", profile.WorkflowKind.ToString()),
                 new XElement("RequiresExcel", profile.RequiresExcel ? "true" : "false"),
                 new XElement("RequiresOrderPdf", profile.RequiresOrderPdf ? "true" : "false"),
-                new XElement("IsBuiltIn", profile.IsBuiltIn ? "true" : "false"),
+                new XElement("IsBuiltIn", "false"),
                 new XElement("DrawingNumberPattern", profile.DrawingNumberPattern ?? string.Empty),
                 new XElement("ArticleNumberPattern", profile.ArticleNumberPattern ?? string.Empty),
                 new XElement("QuantityPattern", profile.QuantityPattern ?? string.Empty),

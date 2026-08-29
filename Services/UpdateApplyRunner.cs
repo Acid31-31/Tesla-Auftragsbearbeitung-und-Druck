@@ -3,44 +3,98 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using PDF_umbenenen.Models;
 
 namespace PDF_umbenenen.Services
 {
     internal static class UpdateApplyRunner
     {
-        public static bool TryHandle(string[] args)
+        public static bool TryParseApplyUpdateArgs(string[] args, out string stagedRoot, out string targetRoot, out int parentProcessId)
         {
+            stagedRoot = null;
+            targetRoot = null;
+            parentProcessId = 0;
+
             if (args == null || args.Length < 3)
                 return false;
 
             if (!string.Equals(args[0], "--apply-update", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            var stagedRoot = args[1];
-            var targetRoot = args[2];
+            stagedRoot = args[1];
+            targetRoot = args[2];
             if (string.IsNullOrWhiteSpace(stagedRoot) || string.IsNullOrWhiteSpace(targetRoot))
                 return false;
+
+            if (args.Length >= 4)
+                int.TryParse(args[3], out parentProcessId);
+
+            stagedRoot = Path.GetFullPath(stagedRoot);
+            targetRoot = Path.GetFullPath(targetRoot);
+            return Directory.Exists(stagedRoot);
+        }
+
+        public static bool TryHandle(string[] args)
+        {
+            return TryParseApplyUpdateArgs(args, out _, out _, out _);
+        }
+
+        public static void ApplyUpdate(
+            string stagedRoot,
+            string targetRoot,
+            IProgress<UpdateProgressInfo> progress = null,
+            CancellationToken cancellationToken = default,
+            int parentProcessId = 0)
+        {
+            if (string.IsNullOrWhiteSpace(stagedRoot) || string.IsNullOrWhiteSpace(targetRoot))
+                throw new InvalidOperationException("Update-Pfade ungültig.");
 
             stagedRoot = Path.GetFullPath(stagedRoot);
             targetRoot = Path.GetFullPath(targetRoot);
 
             if (!Directory.Exists(stagedRoot))
-                return false;
+                throw new DirectoryNotFoundException("Update-Paket nicht gefunden: " + stagedRoot);
+
+#if !DEBUG
+            if (!AppSecurityService.IsTrustedUpdateStagingDirectory(stagedRoot))
+            {
+                throw new InvalidOperationException(
+                    "Update-Quelle ist nicht vertrauenswürdig. Bitte nur über den integrierten Updater aktualisieren.");
+            }
+#endif
+
+            if (!AppInfo.IsRegisteredInstallDirectory(targetRoot))
+            {
+                throw new InvalidOperationException(
+                    "Zielordner ist keine registrierte DOK-V01-Installation: " + targetRoot);
+            }
 
             if (AppInfo.IsProtectedInstallDirectory(targetRoot)
                 && !AdminElevationService.IsRunningAsAdministrator())
             {
                 AdminElevationService.TryRelaunchAsAdministrator();
-                return true;
+                return;
             }
 
-            WaitForTargetUnlock(targetRoot);
+            Report(progress, 2, "Warte auf Beendigung der Anwendung…");
+            WaitForTargetUnlock(targetRoot, progress, cancellationToken, parentProcessId);
+
+            Report(progress, 6, "Update-Paket wird geprüft…");
+            if (!AppSecurityService.TryVerifyApplicationPackage(stagedRoot, out var stagedVerifyMessage, stagedRoot))
+                throw new InvalidOperationException("Update-Paket ungültig: " + stagedVerifyMessage);
 
             string backupRoot = null;
             try
             {
+                Report(progress, 8, "Sicherungskopie wird erstellt…");
                 backupRoot = AppSecurityService.CreateInstallBackup(targetRoot);
-                CopyApplicationFiles(stagedRoot, targetRoot);
+
+                Report(progress, 12, "Dateien werden installiert…");
+                CopyApplicationFiles(stagedRoot, targetRoot, progress, cancellationToken);
+
+                Report(progress, 94, "Installation wird geprüft…");
+                if (!AppSecurityService.TryVerifyApplicationPackage(targetRoot, out var verifyMessage, targetRoot))
+                    throw new InvalidOperationException("Update-Installation ungültig: " + verifyMessage);
             }
             catch
             {
@@ -62,6 +116,7 @@ namespace PDF_umbenenen.Services
                 AppSecurityService.DeleteDirectorySafe(backupRoot);
             }
 
+            Report(progress, 98, "Anwendung wird gestartet…");
             var exePath = Path.Combine(targetRoot, AppInfo.ExeFileName);
             if (File.Exists(exePath))
             {
@@ -73,61 +128,199 @@ namespace PDF_umbenenen.Services
                 });
             }
 
-            return true;
+            Report(progress, 100, "Update abgeschlossen.");
         }
 
-        private static void WaitForTargetUnlock(string targetRoot)
+        private static void WaitForTargetUnlock(
+            string targetRoot,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken,
+            int parentProcessId)
         {
-            var lockFile = Path.Combine(targetRoot, AppInfo.ExeFileName);
-            for (var attempt = 0; attempt < 40; attempt++)
+            if (parentProcessId > 0)
+                WaitForProcessExit(parentProcessId, progress, cancellationToken);
+
+            var lockFile = Path.GetFullPath(Path.Combine(targetRoot, AppInfo.ExeFileName));
+            for (var attempt = 0; attempt < 120; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!IsExecutableLocked(lockFile))
+                {
+                    Report(progress, 10, "Anwendung beendet, Installation läuft…");
+                    return;
+                }
+
+                var percent = 2 + attempt / 4;
+                if (percent > 10)
+                    percent = 10;
+
+                Report(progress, percent, "Warte auf Beendigung der Anwendung…");
+                Thread.Sleep(250);
+            }
+
+            throw new InvalidOperationException(
+                "Die alte Anwendung konnte nicht beendet werden. Bitte alle DOK-V01-Fenster schließen und erneut versuchen.");
+        }
+
+        private static void WaitForProcessExit(
+            int processId,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken)
+        {
+            for (var attempt = 0; attempt < 120; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    using (var process = Process.GetProcessById(processId))
+                    {
+                        if (process.HasExited)
+                            return;
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    return;
+                }
+
+                var percent = 2 + attempt / 6;
+                if (percent > 9)
+                    percent = 9;
+
+                Report(progress, percent, "Warte auf Beendigung der Anwendung…");
+                Thread.Sleep(250);
+            }
+        }
+
+        private static bool IsExecutableLocked(string executablePath)
+        {
+            foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(AppInfo.ExeFileName)))
             {
                 try
                 {
-                    if (!File.Exists(lockFile))
-                    {
-                        Thread.Sleep(250);
-                        return;
-                    }
+                    if (process.Id == Process.GetCurrentProcess().Id)
+                        continue;
 
-                    using (File.Open(lockFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    var modulePath = process.MainModule?.FileName;
+                    if (!string.IsNullOrWhiteSpace(modulePath)
+                        && string.Equals(Path.GetFullPath(modulePath), executablePath, StringComparison.OrdinalIgnoreCase))
                     {
-                        return;
+                        return true;
                     }
                 }
                 catch
                 {
-                    Thread.Sleep(250);
                 }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            if (!File.Exists(executablePath))
+                return false;
+
+            try
+            {
+                using (File.Open(executablePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    return false;
+                }
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 
-        private static void CopyApplicationFiles(string sourceRoot, string targetRoot)
+        private static void CopyApplicationFiles(
+            string sourceRoot,
+            string targetRoot,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken)
         {
             Directory.CreateDirectory(targetRoot);
 
-            foreach (var file in Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
+            var files = Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories)
+                .Where(file =>
+                {
+                    var relative = file.Substring(sourceRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (ShouldSkipRelativePath(relative))
+                        return false;
+
+                    var extension = Path.GetExtension(file);
+                    return IsApplicationFileExtension(extension);
+                })
+                .ToArray();
+
+            var total = Math.Max(1, files.Length);
+            for (var index = 0; index < files.Length; index++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var file = files[index];
                 var relative = file.Substring(sourceRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (ShouldSkipRelativePath(relative))
-                    continue;
-
-                var extension = Path.GetExtension(file);
-                if (!IsApplicationFileExtension(extension))
-                    continue;
-
                 var destination = Path.Combine(targetRoot, relative);
                 var destinationDir = Path.GetDirectoryName(destination);
                 if (!string.IsNullOrWhiteSpace(destinationDir))
                     Directory.CreateDirectory(destinationDir);
 
                 File.Copy(file, destination, true);
+
+                var percent = 12 + (int)((index + 1) * 84.0 / total);
+                Report(progress, percent, "Installiere: " + Path.GetFileName(file));
             }
+
+            CopyBundledDirectory(sourceRoot, targetRoot, "tesseract", progress, cancellationToken);
+        }
+
+        private static void CopyBundledDirectory(
+            string sourceRoot,
+            string targetRoot,
+            string folderName,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken)
+        {
+            var sourceDir = Path.Combine(sourceRoot, folderName);
+            if (!Directory.Exists(sourceDir))
+                return;
+
+            var files = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
+            var total = Math.Max(1, files.Length);
+            for (var index = 0; index < files.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var file = files[index];
+                var relative = file.Substring(sourceDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var destination = Path.Combine(targetRoot, folderName, relative);
+                var destinationDir = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrWhiteSpace(destinationDir))
+                    Directory.CreateDirectory(destinationDir);
+
+                File.Copy(file, destination, true);
+
+                if (index == files.Length - 1)
+                    Report(progress, 96, "Installiere: " + folderName);
+            }
+        }
+
+        private static void Report(IProgress<UpdateProgressInfo> progress, int percent, string message)
+        {
+            progress?.Report(new UpdateProgressInfo(percent, message));
         }
 
         private static bool ShouldSkipRelativePath(string relativePath)
         {
             var fileName = Path.GetFileName(relativePath);
-            return fileName.Equals(AppInfo.UsbLauncherFileName, StringComparison.OrdinalIgnoreCase);
+            return fileName.Equals(AppInfo.UsbLauncherFileName, StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals(AppInfo.InstallManifestFileName, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsApplicationFileExtension(string extension)

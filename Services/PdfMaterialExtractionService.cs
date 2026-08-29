@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -21,6 +22,12 @@ namespace PDF_umbenenen.Services
 
         /// <summary>Kombiniertes Wasserzeichen, z. B. ST-2,0mm.</summary>
         public string MaterialWatermarkText { get; set; }
+
+        /// <summary>Baugruppenzeichnung – keine Blechstärke.</summary>
+        public bool IsAssembly { get; set; }
+
+        /// <summary>Rohr/Hohlprofil – keine Blechstärke im Wasserzeichen.</summary>
+        public bool IsTube { get; set; }
     }
 
     /// <summary>
@@ -31,13 +38,15 @@ namespace PDF_umbenenen.Services
         private static readonly string[] MaterialLabels =
         {
             "RAW MATERIAL", "MATERIAL TYPE", "MATERIAL NR", "MATERIAL-NR", "MATERIAL", "MAT.",
-            "MATL.", "MATL", "MAT'L", "MAT.", "MAT", "WERKSTOFF-NR", "WERKSTOFFNR", "WERKSTOFF"
+            "MATL.", "MATL", "MAT'L", "MAT.", "MAT", "WERKSTOFF-NR", "WERKSTOFFNR",
+            "WERKSTOFF/HALBZEUG", "WERKSTOFF/MATERIAL", "WERKSTOFF", "HALBZEUG"
         };
 
         private static readonly string[] MaterialLabelsOrdered =
         {
-            "RAW MATERIAL", "MATERIAL TYPE", "MATERIAL NR", "MATERIAL-NR", "WERKSTOFF-NR", "WERKSTOFFNR",
-            "WERKSTOFF", "MATERIAL", "MATL.", "MAT'L", "MAT.", "MATL", "MAT"
+            "RAW MATERIAL", "MATERIAL TYPE", "MATERIAL NR", "MATERIAL-NR",
+            "WERKSTOFF/HALBZEUG", "WERKSTOFF-NR", "WERKSTOFFNR", "WERKSTOFF/MATERIAL",
+            "WERKSTOFF", "HALBZEUG", "MATERIAL", "MATL.", "MAT'L", "MAT.", "MATL", "MAT"
         };
 
         private static readonly Regex ScaleRegex = new Regex(
@@ -54,8 +63,12 @@ namespace PDF_umbenenen.Services
         };
 
         private static readonly Regex MaterialInlineRegex = new Regex(
-            @"(?:Material|MATL\.?|MAT'L|MAT\.?|Werkstoff)\s*[:\-]?\s*(\d\.\d{4}\s*/\s*[A-Z0-9][A-Z0-9./+\-\s]{0,20}|[A-Z0-9][A-Z0-9\.\+\-/]{1,24})",
+            @"(?:Material|MATL\.?|MAT'L|MAT\.?|Werkstoff(?:\s*/\s*Halbzeug)?|WERKSTOFF(?:\s*/\s*HALBZEUG)?)\s*[:\-]?\s*(\d\.\d{4}\s*/\s*[A-Z0-9][A-Z0-9./+\-\s]{0,24}|\d\.\d{4}(?:\s*/\s*[\dA-Z]+)?|[A-Z0-9][A-Z0-9\.\+\-/]{1,24})",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex EnSteelNumberOnlyRegex = new Regex(
+            @"\b(1\.(?:0\d{3}|1\d{3}))\b",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly Regex ThicknessInlineRegex = new Regex(
             @"(?:Thickness|THK\.?|THK|Dicke|Blechdicke|Stärke|Staerke|Gauge|Gage|Material\s*Thk)\s*[:\-]?\s*(\d+[.,]\d+|\d+)\s*(?:mm|MM)?",
@@ -65,16 +78,24 @@ namespace PDF_umbenenen.Services
             @"\b(?:t|thk)\s*[=:\-]?\s*(\d+[.,]\d+|\d+)\s*(?:mm|MM)?\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+        private static readonly Regex AbwicklungThicknessRegex = new Regex(
+            @"Abwicklung[^\r\n]{0,40}?\bt\s*[=:\-]?\s*(\d+[.,]\d+|\d+)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
         private static readonly Regex ThicknessGluedRegex = new Regex(
             @"(?:THK\.?|THICKNESS)\s*(\d+[.,]\d+|\d+)\s*(?:mm|MM)?",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+        private static readonly Regex BlechdickeRegex = new Regex(
+            @"Blechdicke\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:mm|MM)?",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
         private static readonly Regex MatFieldRegex = new Regex(
-            @"(?:MAT\.?|MATERIAL)\s*[:\-]?\s*([^\r\n;|]+)",
+            @"(?:MAT\.?|MATERIAL|WERKSTOFF(?:\s*/\s*HALBZEUG)?|WERKSTOFF\s*/\s*MATERIAL|HALBZEUG)\s*[:\-]?\s*([^\r\n;|]+)",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly Regex WerkstoffComboRegex = new Regex(
-            @"\b(\d\.\d{4}\s*/\s*[A-Z0-9][A-Z0-9./+\-\s]*)\b",
+            @"\b(\d\.\d{4}\s*/\s*[\dA-Z][\dA-Z./+\-\s]*)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly Regex MaterialGradeRegex = new Regex(
@@ -100,6 +121,14 @@ namespace PDF_umbenenen.Services
             "STÜCKLISTE", "STUECKLISTE", "STKLISTE", "PARTS LIST", "BILL OF MATERIAL", "BOM"
         };
 
+        private static readonly Regex AssemblyPartNameRegex = new Regex(
+            @"\b(COVER\s+HOLDER|BRACKET|SUB[\-\s]?FRAME|WELDMENT|WELD\s+ASSY|DOOR\s+ASSY|MODULE\s+ASSY|FRAME\s+ASSY|HOLDER\s+ASSY|BASE\s+ASSY|RACK\s+ASSY|CARRIER\s+ASSY)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex TubePartNameRegex = new Regex(
+            @"\b(?:TUBE|ROHR(?:PROFIL)?|QUADRATROHR|VIERKANTROHR|ROUND\s+TUBE|SQUARE\s+TUBE|RECT(?:ANGULAR)?\s+TUBE|HOLLOW\s+SECTION|RHS|SHS|CHS|PROFILROHR)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
         private static readonly Regex LabelOnlyRegex = new Regex(
             @"^(Material|MATL\.?|MAT'L|MAT\.?|MAT|Werkstoff|Thickness|THK\.?|THK|Dicke|Blechdicke|Stärke|Staerke|Gauge|Gage|SHEET THK|SHT THK)$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -122,7 +151,7 @@ namespace PDF_umbenenen.Services
         private const float TitleBlockFilterFraction = 0.42f;
         private const float TitleBlockRightFraction = 0.48f;
         private const float TitleBlockRightHeightFraction = 0.58f;
-        private const float MaterialLookupBottomFraction = 0.55f;
+        private const float MaterialLookupBottomFraction = 0.68f;
         private const float DrawingAreaBottomFraction = 0.26f;
 
         private static readonly Dictionary<string, PdfMaterialInfo> MaterialCache =
@@ -138,8 +167,6 @@ namespace PDF_umbenenen.Services
         {
             lock (MaterialCacheLock)
                 MaterialCache.Clear();
-
-            OllamaMaterialThicknessService.ClearCache();
         }
 
         public static PdfMaterialInfo Extract(string pdfPath, int pageNumber = 1)
@@ -163,6 +190,8 @@ namespace PDF_umbenenen.Services
 
         private static PdfMaterialInfo ExtractUncached(string pdfPath, int pageNumber)
         {
+            MaterialPlacementPerfStats.BeginPage();
+
             var info = new PdfMaterialInfo();
             var layout = PdfLayoutAnalysisService.AnalyzePage(pdfPath, pageNumber);
             var rects = layout.TextRects ?? new List<PdfTextRect>();
@@ -184,14 +213,59 @@ namespace PDF_umbenenen.Services
             var material = ResolveMaterial(
                 titleBlockRects,
                 materialLookupRects,
+                rects,
                 titleBlockText,
                 pageText,
                 searchTexts,
                 pageScale);
-            var isAssembly = IsAssemblyDrawing(titleBlockText, pageText, searchTexts);
-            var thickness = isAssembly
-                ? string.Empty
-                : ResolveThicknessCandidates(
+
+            if (string.IsNullOrWhiteSpace(material))
+            {
+                material = ResolveMaterialFallbackFromRects(
+                    rects,
+                    layout.PageHeight,
+                    pageScale);
+            }
+
+            if (string.IsNullOrWhiteSpace(material) && !string.IsNullOrWhiteSpace(pageText))
+            {
+                var pageScan = NormalizeMaterialSearchText(pageText);
+                material = ScanTextForWerkstoffCombo(pageScan)
+                    ?? ScanTextForEnSteelNumber(pageScan);
+
+                if (string.IsNullOrWhiteSpace(material))
+                    material = ScanTextForMaterialGrade(pageScan);
+            }
+
+            var textLayerMaterialFound = IsPlausibleMaterial(material);
+
+            var drawingHint = WatermarkProcessingContext.CurrentDrawingKey;
+            var isAssembly = WatermarkProcessingContext.IsAssemblyDrawingKey(drawingHint);
+            var isTube = IsTubePart(titleBlockText, pageText, searchTexts);
+
+            if (!WatermarkProcessingContext.BatchMode
+                && !isAssembly
+                && !isTube
+                && HasExtractableDrawingText(titleBlockText, pageText, rects))
+            {
+                isAssembly = IsAssemblyDrawing(titleBlockText, pageText, searchTexts, drawingHint);
+            }
+
+            var thickness = string.Empty;
+            var skipThickness = isAssembly || isTube;
+
+            if (!WatermarkProcessingContext.BatchMode
+                && !skipThickness
+                && !textLayerMaterialFound
+                && NeedsOcrFallback(material, thickness, titleBlockText, pageText, rects))
+            {
+                var ocrText = TryReadTitleBlockTimed(pdfPath, pageNumber);
+                ApplyRecognizedTitleText(ocrText, ref material, ref thickness);
+            }
+
+            if (!skipThickness)
+            {
+                thickness = ResolveThicknessCandidates(
                     pdfPath,
                     pageNumber,
                     layout,
@@ -199,43 +273,244 @@ namespace PDF_umbenenen.Services
                     titleBlockRects,
                     titleBlockText,
                     searchTexts,
-                    material);
+                    material,
+                    textLayerMaterialFound: textLayerMaterialFound);
 
-            if (!isAssembly && string.IsNullOrWhiteSpace(material) && !WatermarkProcessingContext.BatchMode)
-            {
-                var ollamaResult = OllamaMaterialThicknessService.TryExtract(pdfPath, pageNumber);
-                if (ollamaResult != null)
+                if (WatermarkProcessingContext.BatchMode)
                 {
-                    if (ollamaResult.IsAssembly)
+                    var ocrText = string.Empty;
+                    if (string.IsNullOrWhiteSpace(material) || string.IsNullOrWhiteSpace(thickness))
                     {
-                        isAssembly = true;
-                        thickness = string.Empty;
-                    }
-                    else if (string.IsNullOrWhiteSpace(thickness) && !string.IsNullOrWhiteSpace(ollamaResult.ThicknessText))
-                    {
-                        thickness = ollamaResult.ThicknessText;
+                        ocrText = TryReadTitleBlockTimed(pdfPath, pageNumber) ?? string.Empty;
+                        ApplyRecognizedTitleText(ocrText, ref material, ref thickness);
                     }
 
-                    if (!string.IsNullOrWhiteSpace(ollamaResult.MaterialType))
-                        material = ollamaResult.MaterialType;
+                    if (string.IsNullOrWhiteSpace(thickness))
+                    {
+                        var mergedSearch = searchTexts
+                            .Where(s => !string.IsNullOrWhiteSpace(s))
+                            .ToList();
+                        if (!string.IsNullOrWhiteSpace(ocrText))
+                            mergedSearch.Add(ocrText);
+
+                        thickness = ResolveThicknessCandidates(
+                            pdfPath,
+                            pageNumber,
+                            layout,
+                            rects,
+                            titleBlockRects,
+                            titleBlockText,
+                            mergedSearch,
+                            material,
+                            textLayerMaterialFound: textLayerMaterialFound || IsPlausibleMaterial(material));
+                    }
+
+                    textLayerMaterialFound = textLayerMaterialFound || IsPlausibleMaterial(material);
+                }
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(thickness) && !textLayerMaterialFound)
+                        TryApplyOcrThicknessFallback(pdfPath, pageNumber, ref material, ref thickness);
+
+                    if (string.IsNullOrWhiteSpace(thickness))
+                    {
+                        thickness = ResolveThicknessCandidates(
+                            pdfPath,
+                            pageNumber,
+                            layout,
+                            rects,
+                            titleBlockRects,
+                            titleBlockText,
+                            searchTexts,
+                            material,
+                            textLayerMaterialFound: textLayerMaterialFound,
+                            aggressiveFallback: true);
+                    }
                 }
             }
+
+            info.IsAssembly = isAssembly;
+            info.IsTube = isTube;
 
             if (IsPlausibleMaterial(material))
                 info.MaterialType = material.Trim();
 
             var normalizedThickness = NormalizeThickness(thickness);
-            if (!string.IsNullOrWhiteSpace(normalizedThickness))
+            if (!skipThickness && !string.IsNullOrWhiteSpace(normalizedThickness))
                 info.ThicknessText = normalizedThickness;
 
-            if (!string.IsNullOrWhiteSpace(info.MaterialType))
+            if (!skipThickness && !string.IsNullOrWhiteSpace(info.MaterialType))
                 info.MaterialAlloyPrefix = MaterialAlloyClassifier.ClassifyPrefix(info.MaterialType);
 
-            info.MaterialWatermarkText = MaterialAlloyClassifier.BuildWatermarkText(
-                info.MaterialType,
-                info.ThicknessText);
+            if (!skipThickness
+                && string.IsNullOrWhiteSpace(info.MaterialAlloyPrefix)
+                && !string.IsNullOrWhiteSpace(info.ThicknessText))
+            {
+                info.MaterialAlloyPrefix = "ST";
+            }
+
+            var materialForWatermark = !string.IsNullOrWhiteSpace(material)
+                ? material.Trim()
+                : info.MaterialAlloyPrefix;
+
+            info.MaterialWatermarkText = skipThickness
+                ? string.Empty
+                : MaterialAlloyClassifier.BuildWatermarkText(
+                    materialForWatermark,
+                    info.ThicknessText);
+
+            if (!skipThickness
+                && string.IsNullOrWhiteSpace(info.MaterialWatermarkText)
+                && !string.IsNullOrWhiteSpace(info.ThicknessText))
+            {
+                info.MaterialAlloyPrefix = string.IsNullOrWhiteSpace(info.MaterialAlloyPrefix)
+                    ? "ST"
+                    : info.MaterialAlloyPrefix;
+                info.MaterialWatermarkText = MaterialAlloyClassifier.BuildWatermarkText(
+                    info.MaterialAlloyPrefix,
+                    info.ThicknessText);
+            }
 
             return info;
+        }
+
+        private static void TryApplyOcrThicknessFallback(
+            string pdfPath,
+            int pageNumber,
+            ref string material,
+            ref string thickness)
+        {
+            if (!string.IsNullOrWhiteSpace(thickness))
+                return;
+
+            var ocrText = TryReadTitleBlockTimed(pdfPath, pageNumber);
+            ApplyRecognizedTitleText(ocrText, ref material, ref thickness);
+        }
+
+        private static string TryReadTitleBlockTimed(string pdfPath, int pageNumber)
+        {
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                return TitleBlockOcrService.TryReadTitleBlock(pdfPath, pageNumber);
+            }
+            finally
+            {
+                sw.Stop();
+                MaterialPlacementPerfStats.AddOcrMs(sw.ElapsedMilliseconds);
+            }
+        }
+
+        private static string TryReadTitleBlockThoroughTimed(string pdfPath, int pageNumber)
+        {
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                return TitleBlockOcrService.TryReadTitleBlockThorough(pdfPath, pageNumber);
+            }
+            finally
+            {
+                sw.Stop();
+                MaterialPlacementPerfStats.AddOcrMs(sw.ElapsedMilliseconds);
+            }
+        }
+
+        private static void CollectOcrThicknessCandidates(
+            string pdfPath,
+            int pageNumber,
+            ICollection<ThicknessCandidate> candidates,
+            string materialRaw)
+        {
+            if (candidates == null)
+                return;
+
+            var material = string.Empty;
+            var thickness = string.Empty;
+            var ocrText = TryReadTitleBlockThoroughTimed(pdfPath, pageNumber);
+            ApplyRecognizedTitleText(ocrText, ref material, ref thickness);
+
+            if (string.IsNullOrWhiteSpace(thickness))
+                return;
+
+            if (!TryParseThicknessValue(NormalizeToken(thickness), out var mm))
+                return;
+
+            ThicknessCandidateResolver.AddCandidate(
+                candidates,
+                mm,
+                ThicknessCandidateResolver.PriorityExplicitText,
+                "ocr-schriftfeld");
+        }
+
+        private static bool NeedsOcrFallback(
+            string material,
+            string thickness,
+            string titleBlockText,
+            string pageText,
+            IList<PdfTextRect> rects)
+        {
+            if (string.IsNullOrWhiteSpace(material) || string.IsNullOrWhiteSpace(thickness))
+                return true;
+
+            if (!PdfRasterLayoutService.IsAvailable)
+                return false;
+
+            return !HasExtractableDrawingText(titleBlockText, pageText, rects);
+        }
+
+        private static void ApplyRecognizedTitleText(string ocrText, ref string material, ref string thickness)
+        {
+            if (string.IsNullOrWhiteSpace(ocrText))
+                return;
+
+            var scan = NormalizeMaterialSearchText(ocrText);
+
+            if (string.IsNullOrWhiteSpace(material))
+            {
+                material = ScanTextForWerkstoffCombo(scan)
+                    ?? ScanTextForEnSteelNumber(scan);
+
+                if (string.IsNullOrWhiteSpace(material))
+                    material = ScanTextForMaterialGrade(scan);
+            }
+
+            if (!string.IsNullOrWhiteSpace(thickness))
+                return;
+
+            foreach (Match match in BlechdickeRegex.Matches(scan))
+            {
+                if (!match.Success)
+                    continue;
+
+                var value = match.Groups[1].Value.Trim();
+                if (IsPlausibleThicknessRaw(value))
+                {
+                    thickness = value + " mm";
+                    return;
+                }
+            }
+
+            var thkMatch = Regex.Match(
+                scan,
+                @"\b(?:t|THK)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*mm?\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+            if (thkMatch.Success && IsPlausibleThicknessRaw(thkMatch.Groups[1].Value))
+                thickness = thkMatch.Groups[1].Value.Replace(',', '.') + " mm";
+        }
+
+        private static bool HasExtractableDrawingText(
+            string titleBlockText,
+            string pageText,
+            IList<PdfTextRect> rects)
+        {
+            if ((titleBlockText?.Length ?? 0) >= 40)
+                return true;
+
+            if ((pageText?.Length ?? 0) >= 120)
+                return true;
+
+            return rects != null && rects.Count >= 12;
         }
 
         internal static bool DiagnoseIsAssemblyDrawing(string pdfPath, int pageNumber = 1)
@@ -248,10 +523,96 @@ namespace PDF_umbenenen.Services
             return IsAssemblyDrawing(titleBlockText, pageText, searchTexts);
         }
 
+        internal static bool DiagnoseIsTubePart(string pdfPath, int pageNumber = 1)
+        {
+            var layout = PdfLayoutAnalysisService.AnalyzePage(pdfPath, pageNumber);
+            var pageText = PdfLayoutAnalysisService.ExtractPageText(pdfPath, pageNumber);
+            var titleBlockRects = FilterTitleBlockRects(layout.TextRects, layout.PageWidth, layout.PageHeight);
+            var titleBlockText = BuildTitleBlockText(titleBlockRects);
+            var searchTexts = new[] { titleBlockText, pageText };
+            return IsTubePart(titleBlockText, pageText, searchTexts);
+        }
+
+        /// <summary>Liest vorhandenes Material-Wasserzeichen (ST/VA/ALU-x,xmm) aus einer bereits gestempelten PDF.</summary>
+        internal static string TryReadMaterialWatermarkFromPdf(string pdfPath, int pageNumber = 1)
+        {
+            if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
+                return string.Empty;
+
+            try
+            {
+                var layout = PdfLayoutAnalysisService.AnalyzePage(pdfPath, pageNumber);
+                foreach (var rect in layout.TextRects ?? new List<PdfTextRect>())
+                {
+                    var text = (rect.Text ?? string.Empty).Trim();
+                    if (AppWatermarkMaterialRegex.IsMatch(text))
+                        return text;
+                }
+
+                var pageText = PdfLayoutAnalysisService.ExtractPageText(pdfPath, pageNumber) ?? string.Empty;
+                var match = AppWatermarkMaterialRegex.Match(pageText);
+                return match.Success ? match.Value.Trim() : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string ScanTextForEnSteelNumber(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            text = NormalizeMaterialSearchText(text);
+            var match = EnSteelNumberOnlyRegex.Match(text);
+            if (!match.Success)
+                return string.Empty;
+
+            var combo = WerkstoffComboRegex.Match(text);
+            if (combo.Success && IsPlausibleMaterial(combo.Groups[1].Value))
+                return combo.Groups[1].Value.Trim();
+
+            var value = match.Groups[1].Value.Trim();
+            return IsPlausibleMaterial(value) ? value : string.Empty;
+        }
+
+        private static string ScanTextForWerkstoffCombo(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            text = NormalizeMaterialSearchText(text);
+
+            foreach (Match match in WerkstoffComboRegex.Matches(text))
+            {
+                if (!match.Success || !IsPlausibleMaterial(match.Groups[1].Value))
+                    continue;
+
+                return match.Groups[1].Value.Trim();
+            }
+
+            return string.Empty;
+        }
+
+        private static string NormalizeMaterialSearchText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var normalized = text;
+            normalized = Regex.Replace(normalized, @"1\s*,\s*0038", "1.0038", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            normalized = Regex.Replace(normalized, @"1\s*,\s*4301", "1.4301", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            normalized = Regex.Replace(normalized, @"1\s*,\s*4404", "1.4404", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return normalized;
+        }
+
         private static string TryExtractMatFieldValue(string titleBlockText)
         {
             if (string.IsNullOrWhiteSpace(titleBlockText))
                 return string.Empty;
+
+            titleBlockText = NormalizeMaterialSearchText(titleBlockText);
 
             var match = MatFieldRegex.Match(titleBlockText);
             if (!match.Success)
@@ -274,6 +635,7 @@ namespace PDF_umbenenen.Services
         private static string ResolveMaterial(
             IList<PdfTextRect> titleBlockRects,
             IList<PdfTextRect> materialLookupRects,
+            IList<PdfTextRect> allRects,
             string titleBlockText,
             string pageText,
             IEnumerable<string> searchTexts,
@@ -291,14 +653,19 @@ namespace PDF_umbenenen.Services
 
             var labelRects = EnumerateMaterialLabelRects(titleBlockRects, materialLookupRects).ToList();
             Add(FindMaterialNearMatLabel(labelRects, materialLookupRects, pageScale), 1);
-            Add(ExtractLabeledValue(new[] { titleBlockText }, MaterialLabelsOrdered, IsPlausibleMaterial), 2);
-            Add(TryExtractMatFieldValue(titleBlockText), 3);
-            Add(TryExtractMatFieldValue(pageText), 4);
-            Add(ScanRectsForMaterial(titleBlockRects), 5);
-            Add(FindMaterialValueNearLabel(materialLookupRects, pageScale), 6);
-            Add(ScanTextForMaterialGrade(titleBlockText), 7);
-            Add(ScanTextForMaterialGrade(pageText), 8);
-            Add(ScanRectsForMaterial(materialLookupRects), 9);
+            Add(ScanTextForEnSteelNumber(pageText), 1);
+            Add(ScanTextForEnSteelNumber(titleBlockText), 1);
+            Add(ScanTextForWerkstoffCombo(titleBlockText), 2);
+            Add(ScanTextForWerkstoffCombo(pageText), 2);
+            Add(ExtractLabeledValue(new[] { titleBlockText }, MaterialLabelsOrdered, IsPlausibleMaterial), 3);
+            Add(TryExtractMatFieldValue(titleBlockText), 4);
+            Add(TryExtractMatFieldValue(pageText), 5);
+            Add(ScanRectsForMaterial(titleBlockRects), 6);
+            Add(FindMaterialValueNearLabel(materialLookupRects, pageScale), 7);
+            Add(ScanTextForMaterialGrade(titleBlockText), 8);
+            Add(ScanTextForMaterialGrade(pageText), 9);
+            Add(ScanRectsForMaterial(materialLookupRects), 10);
+            Add(ScanRectsForMaterial(allRects), 12);
 
             foreach (var text in searchTexts.Where(t => !string.IsNullOrWhiteSpace(t)))
             {
@@ -316,6 +683,32 @@ namespace PDF_umbenenen.Services
                 .OrderBy(c => c.Priority)
                 .Select(c => c.Value)
                 .FirstOrDefault() ?? string.Empty;
+        }
+
+        private static string ResolveMaterialFallbackFromRects(
+            IList<PdfTextRect> allRects,
+            float pageHeight,
+            float pageScale)
+        {
+            if (allRects == null || allRects.Count == 0 || pageHeight <= 0f)
+                return string.Empty;
+
+            var bottomLimit = pageHeight * MaterialLookupBottomFraction;
+            var bottomRects = allRects
+                .Where(r => r.Bottom <= bottomLimit)
+                .ToList();
+
+            var fromRects = ScanRectsForMaterial(bottomRects);
+            if (!string.IsNullOrWhiteSpace(fromRects))
+                return fromRects;
+
+            var combined = BuildTitleBlockText(bottomRects);
+            combined = NormalizeMaterialSearchText(combined);
+            var fromText = ScanTextForWerkstoffCombo(combined);
+            if (!string.IsNullOrWhiteSpace(fromText))
+                return fromText;
+
+            return ScanTextForMaterialGrade(combined);
         }
 
         private static IList<PdfTextRect> FilterBottomPageRects(IList<PdfTextRect> rects, float pageHeight)
@@ -637,7 +1030,7 @@ namespace PDF_umbenenen.Services
                     && text.StartsWith(label, StringComparison.OrdinalIgnoreCase))
                 {
                     var next = text[label.Length];
-                    if (next == ' ' || next == ':' || next == '.' || next == '-')
+                    if (next == ' ' || next == ':' || next == '.' || next == '-' || next == '/')
                         return true;
                 }
             }
@@ -664,20 +1057,71 @@ namespace PDF_umbenenen.Services
         }
 
         /// <summary>
+        /// Rohre/Hohlprofile: Wandstärke ist keine Blech-Materialstärke fürs Wasserzeichen.
+        /// </summary>
+        private static bool IsTubePart(
+            string titleBlockText,
+            string pageText,
+            IEnumerable<string> searchTexts)
+        {
+            if (!string.IsNullOrWhiteSpace(titleBlockText) && TubePartNameRegex.IsMatch(titleBlockText))
+                return true;
+
+            foreach (var text in searchTexts ?? Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                if (TubePartNameRegex.IsMatch(text))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Baugruppenzeichnungen: mehrere Teile, keine sinnvolle Einzel-Blechstärke.
         /// </summary>
-        private static bool IsAssemblyDrawing(string titleBlockText, string pageText, IEnumerable<string> searchTexts)
+        private static bool IsAssemblyDrawing(
+            string titleBlockText,
+            string pageText,
+            IEnumerable<string> searchTexts,
+            string primaryDrawingHint = null)
         {
             var sanitizedTitle = SanitizeTextForBomDetection(titleBlockText);
-            var sanitizedPage = SanitizeTextForBomDetection(pageText);
 
             foreach (var label in AssemblyDrawingLabels)
             {
-                if (ContainsAssemblyLabel(sanitizedTitle, label)
-                    || ContainsAssemblyLabel(sanitizedPage, label))
-                {
+                if (ContainsAssemblyLabel(sanitizedTitle, label))
                     return true;
-                }
+            }
+
+            var primaryKey = !string.IsNullOrWhiteSpace(primaryDrawingHint)
+                ? OrderVerificationDrawingKey.Normalize(primaryDrawingHint)
+                : OrderVerificationDrawingKey.ExtractPrimaryFromTexts(titleBlockText, pageText);
+
+            if (!string.IsNullOrWhiteSpace(primaryKey)
+                && HasSinglePartTitleBlockSignature(sanitizedTitle, primaryKey))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(primaryKey))
+            {
+                if (HasMultiPartBillOfMaterials(titleBlockText, primaryKey))
+                    return true;
+
+                if (HasReferencedSubDrawings(sanitizedTitle, primaryKey))
+                    return true;
+            }
+
+            if (CountTgaArticles(sanitizedTitle) >= 2)
+                return true;
+
+            if (HasItemPositionTable(sanitizedTitle)
+                && OrderVerificationDrawingKey.CountPrefixedDrawings(sanitizedTitle) >= 2)
+            {
+                return true;
             }
 
             if (!string.IsNullOrWhiteSpace(sanitizedTitle))
@@ -685,33 +1129,95 @@ namespace PDF_umbenenen.Services
                 var hasPartsList = PartsListLabels.Any(label =>
                     sanitizedTitle.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0);
 
-                if (hasPartsList)
+                if (hasPartsList
+                    && OrderVerificationDrawingKey.CountPrefixedDrawings(sanitizedTitle) >= 2)
                 {
-                    var partCount = OrderVerificationDrawingKey.ExtractAllFromText(sanitizedTitle).Count;
-
-                    if (partCount >= 2)
-                        return true;
+                    return true;
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(sanitizedPage))
+            if (!string.IsNullOrWhiteSpace(sanitizedTitle)
+                && !string.IsNullOrWhiteSpace(primaryKey)
+                && HasAssemblyStylePartName(sanitizedTitle)
+                && (HasItemPositionTable(sanitizedTitle)
+                    || CountTgaArticles(sanitizedTitle) >= 2
+                    || OrderVerificationDrawingKey.CountOtherPrefixedDrawings(sanitizedTitle, primaryKey) >= 2
+                    || PartsListLabels.Any(label => sanitizedTitle.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0)))
             {
-                var pagePartCount = OrderVerificationDrawingKey.ExtractAllFromText(sanitizedPage).Count;
-
-                var hasPartsListOnPage = PartsListLabels.Any(label =>
-                    sanitizedPage.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0);
-
-                if (hasPartsListOnPage && pagePartCount >= 3)
-                    return true;
-
-                if (sanitizedPage.IndexOf("Specification Manufacturer", StringComparison.OrdinalIgnoreCase) >= 0
-                    && pagePartCount >= 2)
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;
+        }
+
+        private static bool HasSinglePartTitleBlockSignature(string titleBlockText, string primaryKey)
+        {
+            if (string.IsNullOrWhiteSpace(titleBlockText) || string.IsNullOrWhiteSpace(primaryKey))
+                return false;
+
+            if (AssemblyPartNameRegex.IsMatch(titleBlockText))
+                return false;
+
+            if (OrderVerificationDrawingKey.CountPrefixedDrawings(titleBlockText) > 1)
+                return false;
+
+            if (CountTgaArticles(titleBlockText) >= 2)
+                return false;
+
+            if (PartsListLabels.Any(label => titleBlockText.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0))
+                return false;
+
+            var upper = titleBlockText.ToUpperInvariant();
+            var isKnownSinglePart =
+                Regex.IsMatch(upper, @"\bCOVER\b", RegexOptions.CultureInvariant)
+                || Regex.IsMatch(upper, @"\bLOTO\s+PART\b", RegexOptions.CultureInvariant)
+                || Regex.IsMatch(upper, @"\bPLATE\b", RegexOptions.CultureInvariant)
+                || Regex.IsMatch(upper, @"\bPANEL\b", RegexOptions.CultureInvariant);
+
+            if (!isKnownSinglePart)
+                return false;
+
+            return OrderVerificationDrawingKey.CountOtherPrefixedDrawings(titleBlockText, primaryKey) < 1;
+        }
+
+        private static bool HasAssemblyStylePartName(string titleBlockText)
+        {
+            return !string.IsNullOrWhiteSpace(titleBlockText)
+                && AssemblyPartNameRegex.IsMatch(titleBlockText);
+        }
+
+        private static bool HasReferencedSubDrawings(string titleText, string primaryKey)
+        {
+            if (OrderVerificationDrawingKey.CountOtherPrefixedDrawings(titleText, primaryKey) < 2)
+                return false;
+
+            return HasItemPositionTable(titleText)
+                || PartsListLabels.Any(label => titleText.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0)
+                || CountTgaArticles(titleText) >= 2;
+        }
+
+        private static bool HasItemPositionTable(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var upper = text.ToUpperInvariant();
+
+            if (PartsListLabels.Any(label => upper.IndexOf(label.ToUpperInvariant(), StringComparison.Ordinal) >= 0))
+                return true;
+
+            var hasPosColumn = Regex.IsMatch(upper, @"\bPOS(?:ITION)?\s*\.?\b", RegexOptions.CultureInvariant);
+            var hasQty = upper.Contains("QTY") || upper.Contains("MENGE") || upper.Contains("STK");
+
+            return hasPosColumn && hasQty;
+        }
+
+        private static int CountTgaArticles(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return 0;
+
+            return Regex.Matches(text, @"\bTGA\d+\b", RegexOptions.IgnoreCase).Count;
         }
 
         private static bool ContainsAssemblyLabel(string text, string label)
@@ -809,7 +1315,7 @@ namespace PDF_umbenenen.Services
             var sanitized = SanitizeTextForBomDetection(titleBlockText);
 
             var primaryKey = OrderVerificationDrawingKey.Normalize(primaryDrawing);
-            var relatedParts = OrderVerificationDrawingKey.ExtractAllFromText(sanitized)
+            var relatedParts = OrderVerificationDrawingKey.ExtractPrefixedFromText(sanitized)
                 .Select(OrderVerificationDrawingKey.Normalize)
                 .Where(k => !string.IsNullOrWhiteSpace(k))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -821,7 +1327,7 @@ namespace PDF_umbenenen.Services
 
             var hasBomIndicator = PartsListLabels.Any(label =>
                     sanitized.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0)
-                || sanitized.IndexOf("Specification Manufacturer", StringComparison.OrdinalIgnoreCase) >= 0
+                || HasItemPositionTable(sanitized)
                 || (sanitized.IndexOf("Position", StringComparison.OrdinalIgnoreCase) >= 0
                     && sanitized.IndexOf("Description", StringComparison.OrdinalIgnoreCase) >= 0);
 
@@ -836,12 +1342,15 @@ namespace PDF_umbenenen.Services
             IList<PdfTextRect> titleBlockRects,
             string titleBlockText,
             IEnumerable<string> searchTexts,
-            string materialRaw)
+            string materialRaw,
+            bool textLayerMaterialFound = false,
+            bool aggressiveFallback = false)
         {
             var candidates = new List<ThicknessCandidate>();
             var pageScale = GetPageScale(layout.PageWidth, layout.PageHeight);
 
             CollectExplicitThicknessTextCandidates(candidates, searchTexts, materialRaw);
+            CollectBlechdickeFromRects(candidates, rects, layout.PageWidth, layout.PageHeight, materialRaw);
             CollectThicknessMmFromRects(candidates, rects, layout.PageWidth, layout.PageHeight, materialRaw);
 
             ThicknessCandidateResolver.AddCandidate(
@@ -864,13 +1373,15 @@ namespace PDF_umbenenen.Services
 
             CollectSideViewDimensionCandidates(candidates, rects, layout.PageWidth, layout.PageHeight, materialRaw);
 
-            var scaleDenominator = ExtractScaleDenominator(titleBlockText, searchTexts);
             var textOnlyMm = ThicknessCandidateResolver.ResolveBestMm(candidates, materialRaw);
-            var needsRaster = MaterialThicknessHybridResolver.NeedsRasterVerification(candidates, materialRaw, textOnlyMm);
+            var runThorough = aggressiveFallback && !WatermarkProcessingContext.BatchMode;
 
-            if (needsRaster && PdfRasterLayoutService.IsAvailable
-                && (!WatermarkProcessingContext.BatchMode || !textOnlyMm.HasValue))
+            if (!WatermarkProcessingContext.BatchMode
+                && PdfRasterLayoutService.IsAvailable
+                && (runThorough
+                    || MaterialThicknessHybridResolver.NeedsRasterVerification(candidates, materialRaw, textOnlyMm)))
             {
+                var scaleDenominator = ExtractScaleDenominator(titleBlockText, searchTexts);
                 PdfThreeViewThicknessService.TryCollectSideViewTextCandidates(
                     pdfPath,
                     pageNumber,
@@ -888,12 +1399,80 @@ namespace PDF_umbenenen.Services
                     layout.PageHeight,
                     scaleDenominator);
             }
+            else if (!WatermarkProcessingContext.BatchMode
+                     && PdfRasterLayoutService.IsAvailable
+                     && textOnlyMm.HasValue
+                     && MaterialThicknessHybridResolver.IsRuleResultSuspicious(textOnlyMm.Value, candidates, materialRaw))
+            {
+                PdfThreeViewThicknessService.TryCollectSideViewTextCandidates(
+                    pdfPath,
+                    pageNumber,
+                    layout.PageWidth,
+                    layout.PageHeight,
+                    rects,
+                    candidates,
+                    materialRaw);
+            }
 
-            var bestMm = MaterialThicknessHybridResolver.ResolveFinalMm(
-                candidates,
-                pdfPath,
-                pageNumber,
-                materialRaw);
+            var bestMm = MaterialThicknessHybridResolver.ResolveFinalMm(candidates, materialRaw);
+
+            if (!WatermarkProcessingContext.BatchMode
+                && bestMm.HasValue
+                && MaterialThicknessHybridResolver.IsRuleResultSuspicious(bestMm.Value, candidates, materialRaw)
+                && PdfRasterLayoutService.IsAvailable)
+            {
+                var scaleDenominator = ExtractScaleDenominator(titleBlockText, searchTexts);
+                PdfThreeViewThicknessService.TryCollectSideViewTextCandidates(
+                    pdfPath,
+                    pageNumber,
+                    layout.PageWidth,
+                    layout.PageHeight,
+                    rects,
+                    candidates,
+                    materialRaw);
+
+                MaterialThicknessHybridResolver.AddRasterSideProfileCandidate(
+                    candidates,
+                    pdfPath,
+                    pageNumber,
+                    layout.PageWidth,
+                    layout.PageHeight,
+                    scaleDenominator);
+
+                if (!textLayerMaterialFound)
+                    CollectOcrThicknessCandidates(pdfPath, pageNumber, candidates, materialRaw);
+                CollectExplicitThicknessTextCandidates(candidates, searchTexts, materialRaw);
+                CollectBlechdickeFromRects(candidates, rects, layout.PageWidth, layout.PageHeight, materialRaw);
+
+                bestMm = MaterialThicknessHybridResolver.ResolveFinalMm(candidates, materialRaw);
+            }
+
+            if (!WatermarkProcessingContext.BatchMode
+                && !bestMm.HasValue
+                && aggressiveFallback
+                && PdfRasterLayoutService.IsAvailable)
+            {
+                var scaleDenominator = ExtractScaleDenominator(titleBlockText, searchTexts);
+                PdfThreeViewThicknessService.TryCollectSideViewTextCandidates(
+                    pdfPath,
+                    pageNumber,
+                    layout.PageWidth,
+                    layout.PageHeight,
+                    rects,
+                    candidates,
+                    materialRaw);
+
+                MaterialThicknessHybridResolver.AddRasterSideProfileCandidate(
+                    candidates,
+                    pdfPath,
+                    pageNumber,
+                    layout.PageWidth,
+                    layout.PageHeight,
+                    scaleDenominator);
+
+                bestMm = MaterialThicknessHybridResolver.ResolveFinalMm(candidates, materialRaw);
+            }
+
             return bestMm.HasValue
                 ? bestMm.Value.ToString("0.0", CultureInfo.GetCultureInfo("de-DE"))
                 : string.Empty;
@@ -967,6 +1546,55 @@ namespace PDF_umbenenen.Services
             }
         }
 
+        private static void CollectBlechdickeFromRects(
+            ICollection<ThicknessCandidate> candidates,
+            IList<PdfTextRect> rects,
+            float pageWidth,
+            float pageHeight,
+            string materialRaw)
+        {
+            if (candidates == null || rects == null || rects.Count == 0)
+                return;
+
+            foreach (var rect in rects)
+            {
+                var text = NormalizeToken(rect.Text);
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                var match = BlechdickeRegex.Match(text);
+                if (match.Success)
+                {
+                    TryAddParsedThicknessCandidate(
+                        candidates,
+                        match.Groups[1].Value.Trim(),
+                        text,
+                        ThicknessCandidateResolver.PriorityExplicitText + 3,
+                        "blechdicke-rect",
+                        materialRaw);
+                    continue;
+                }
+
+                if (!text.Equals("Blechdicke", StringComparison.OrdinalIgnoreCase)
+                    && text.IndexOf("Blechdicke", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                var neighbor = FindNearestThicknessValue(rects, rect, GetPageScale(pageWidth, pageHeight));
+                if (!string.IsNullOrWhiteSpace(neighbor))
+                {
+                    TryAddParsedThicknessCandidate(
+                        candidates,
+                        neighbor,
+                        text + " " + neighbor,
+                        ThicknessCandidateResolver.PriorityExplicitText + 3,
+                        "blechdicke-nachbar",
+                        materialRaw);
+                }
+            }
+        }
+
         private static void CollectExplicitThicknessTextCandidates(
             ICollection<ThicknessCandidate> candidates,
             IEnumerable<string> searchTexts,
@@ -974,6 +1602,30 @@ namespace PDF_umbenenen.Services
         {
             foreach (var source in searchTexts.Where(t => !string.IsNullOrWhiteSpace(t)))
             {
+                var blechdicke = BlechdickeRegex.Match(source);
+                if (blechdicke.Success)
+                {
+                    TryAddParsedThicknessCandidate(
+                        candidates,
+                        blechdicke.Groups[1].Value.Trim(),
+                        blechdicke.Value,
+                        ThicknessCandidateResolver.PriorityExplicitText + 2,
+                        "blechdicke",
+                        materialRaw);
+                }
+
+                var abwicklung = AbwicklungThicknessRegex.Match(source);
+                if (abwicklung.Success)
+                {
+                    TryAddParsedThicknessCandidate(
+                        candidates,
+                        abwicklung.Groups[1].Value.Trim(),
+                        abwicklung.Value,
+                        ThicknessCandidateResolver.PriorityExplicitText + 2,
+                        "inline-t",
+                        materialRaw);
+                }
+
                 ThicknessCandidateResolver.AddCandidate(
                     candidates,
                     ExtractLabeledValue(new[] { source }, ThicknessLabels, IsPlausibleThicknessRaw),
@@ -1083,6 +1735,9 @@ namespace PDF_umbenenen.Services
                     || ThicknessCandidateResolver.IsLikelyHoleDiameterMm(value))
                     continue;
 
+                if (IsLikelyAbwicklungCoordinateNoise(rect, value, pageWidth, pageHeight, sideViewAnchors, GetPageScale(pageWidth, pageHeight)))
+                    continue;
+
                 var isPlateGauge = ThicknessCandidateResolver.IsPlausiblePlateThicknessMm(value);
                 if (!isPlateGauge
                     && (HasDiameterSymbolNearby(allRects, rect, GetPageScale(pageWidth, pageHeight))
@@ -1130,7 +1785,7 @@ namespace PDF_umbenenen.Services
                 var relX = centerX / Math.Max(1f, pageWidth);
                 var relY = centerY / Math.Max(1f, pageHeight);
 
-                if (Regex.IsMatch(text, @"^(8|10|12|15|20)$", RegexOptions.CultureInvariant)
+                if (Regex.IsMatch(text, @"^(5|6|8|10|12|15|20)$", RegexOptions.CultureInvariant)
                     && relX >= 0.52f
                     && relY >= 0.48f
                     && relY <= 0.86f)
@@ -1138,8 +1793,8 @@ namespace PDF_umbenenen.Services
                     ThicknessCandidateResolver.AddCandidate(
                         candidates,
                         double.Parse(text, CultureInfo.InvariantCulture),
-                        ThicknessCandidateResolver.PriorityExplicitText,
-                        "seitenansicht-platte");
+                        ThicknessCandidateResolver.PrioritySideViewText,
+                        "seitenansicht-zone");
                     continue;
                 }
 
@@ -1156,6 +1811,9 @@ namespace PDF_umbenenen.Services
 
                 if (ThicknessCandidateResolver.IsLikelyHoleOrFeatureDimension(rect.Text, value)
                     || ThicknessCandidateResolver.IsLikelyHoleDiameterMm(value))
+                    continue;
+
+                if (IsLikelyAbwicklungCoordinateNoise(rect, value, pageWidth, pageHeight, sideViewAnchors, pageScale))
                     continue;
 
                 var isPlateGauge = ThicknessCandidateResolver.IsPlausiblePlateThicknessMm(value);
@@ -1175,8 +1833,8 @@ namespace PDF_umbenenen.Services
                     ThicknessCandidateResolver.AddCandidate(
                         candidates,
                         value,
-                        ThicknessCandidateResolver.PriorityExplicitText,
-                        "seitenansicht-platte");
+                        ThicknessCandidateResolver.PrioritySideViewText,
+                        "seitenansicht-zone");
                 }
                 else
                 {
@@ -1244,6 +1902,35 @@ namespace PDF_umbenenen.Services
                 return false;
 
             return TryParseThicknessValue(match.Groups[1].Value, out value);
+        }
+
+        private static bool IsLikelyAbwicklungCoordinateNoise(
+            PdfTextRect rect,
+            double value,
+            float pageWidth,
+            float pageHeight,
+            IList<PdfTextRect> sideViewAnchors,
+            float pageScale)
+        {
+            if (ThicknessCandidateResolver.HasFractionalPart(value))
+                return false;
+
+            if (value < 4d || value > 9d)
+                return false;
+
+            var relX = ((rect.Left + rect.Right) / 2f) / Math.Max(1f, pageWidth);
+            var relY = ((rect.Bottom + rect.Top) / 2f) / Math.Max(1f, pageHeight);
+            if (relX < 0.52f)
+                return false;
+
+            if (sideViewAnchors != null && sideViewAnchors.Count > 0)
+            {
+                var nearest = sideViewAnchors.Min(a => DistanceBetween(rect, a));
+                if (nearest < 260f * pageScale)
+                    return false;
+            }
+
+            return relY >= 0.42f;
         }
 
         private static float ScoreSideViewThicknessCandidate(
@@ -1355,10 +2042,11 @@ namespace PDF_umbenenen.Services
             if (value >= 1d
                 && value <= 6d
                 && ThicknessCandidateResolver.IsStandardSheetGauge(value, 0.15d)
-                && relX >= 0.72f
-                && relY >= 0.72f)
+                && ThicknessCandidateResolver.HasFractionalPart(value)
+                && relX >= 0.55f
+                && relY >= 0.42f)
             {
-                score -= 160f;
+                score -= 90f;
             }
 
             if (ThicknessCandidateResolver.IsPlausiblePlateThicknessMm(value)
@@ -1379,9 +2067,24 @@ namespace PDF_umbenenen.Services
                 var midDist = 360f * pageScale;
                 var nearest = sideViewAnchors.Min(a => DistanceBetween(rect, a));
                 if (nearest < nearDist)
+                {
                     score -= 80f;
+                    if (ThicknessCandidateResolver.HasFractionalPart(value) && value <= 3.5d)
+                        score -= 90f;
+                }
                 else if (nearest < midDist)
                     score -= 35f;
+            }
+
+            if (ThicknessCandidateResolver.IsWholeNumber(value)
+                && value >= 4d
+                && value <= 9d
+                && relX >= 0.52f
+                && (sideViewAnchors == null
+                    || sideViewAnchors.Count == 0
+                    || sideViewAnchors.Min(a => DistanceBetween(rect, a)) >= 260f * pageScale))
+            {
+                score += 180f;
             }
 
             return score;
@@ -1831,6 +2534,9 @@ namespace PDF_umbenenen.Services
             if (WerkstoffComboRegex.IsMatch(text))
                 return true;
 
+            if (Regex.IsMatch(text, @"^\d\.\d{4}(\s*/\s*[\dA-Z]+)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                return true;
+
             return Regex.IsMatch(text, @"[A-Za-z]");
         }
 
@@ -1875,12 +2581,7 @@ namespace PDF_umbenenen.Services
 
         private static bool TryParseThicknessValue(string text, out double value)
         {
-            value = 0d;
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            return double.TryParse(text, NumberStyles.Any, CultureInfo.GetCultureInfo("de-DE"), out value)
-                   || double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+            return ThicknessCandidateResolver.TryParseThicknessMm(text, out value);
         }
 
         private static string NormalizeThickness(string raw)

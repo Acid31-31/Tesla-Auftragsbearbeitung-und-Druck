@@ -17,35 +17,60 @@ namespace PDF_umbenenen.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (keys.Count == 0 || profiles == null || profiles.Count == 0)
+            if (profiles == null || profiles.Count == 0)
             {
                 return new CustomerDetectionResult
                 {
-                    Profile = CustomerProfileStore.GetBuiltInTesla(),
+                    Profile = null,
                     MatchCount = 0,
-                    TotalCount = 0
+                    TotalCount = keys.Count
+                };
+            }
+
+            if (profiles.Count == 1)
+            {
+                var onlyProfile = profiles[0];
+                var singleScore = ScoreProfile(onlyProfile, keys);
+                return new CustomerDetectionResult
+                {
+                    Profile = onlyProfile,
+                    MatchCount = Math.Max(0, singleScore),
+                    TotalCount = keys.Count
                 };
             }
 
             CustomerProfile bestProfile = null;
             var bestScore = -1;
+            var secondScore = -1;
 
             foreach (var profile in profiles)
             {
                 var score = ScoreProfile(profile, keys);
                 if (score > bestScore)
                 {
+                    secondScore = bestScore;
                     bestScore = score;
                     bestProfile = profile;
                 }
+                else if (score > secondScore)
+                {
+                    secondScore = score;
+                }
             }
 
-            if (bestProfile == null)
-                bestProfile = CustomerProfileStore.GetBuiltInTesla();
+            if (bestProfile != null && bestScore > 0 && bestScore > secondScore)
+            {
+                return new CustomerDetectionResult
+                {
+                    Profile = bestProfile,
+                    MatchCount = bestScore,
+                    TotalCount = keys.Count
+                };
+            }
 
             return new CustomerDetectionResult
             {
-                Profile = bestProfile,
+                Profile = null,
                 MatchCount = Math.Max(0, bestScore),
                 TotalCount = keys.Count
             };

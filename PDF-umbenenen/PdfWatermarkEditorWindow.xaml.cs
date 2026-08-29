@@ -31,6 +31,7 @@ namespace PDF_umbenenen
         private double _scale = 1.0;
         private bool _suppressMaterialTextChange;
         private bool _hasUnsavedChanges;
+        private bool _learnedLayoutApplied;
 
         private Point _dragStart;
         private bool _isDragging;
@@ -42,7 +43,8 @@ namespace PDF_umbenenen
             IEnumerable<string> pdfPaths,
             string pdfFolder,
             string mergedPdfPath = null,
-            IEnumerable<string> allOrderedFilesForRemerge = null)
+            IEnumerable<string> allOrderedFilesForRemerge = null,
+            int initialIndex = 0)
         {
             InitializeComponent();
             ThemeWindowService.Attach(this);
@@ -70,7 +72,7 @@ namespace PDF_umbenenen
             if (_items.Count <= 1)
                 NavigationPanel.Visibility = Visibility.Collapsed;
 
-            _currentIndex = 0;
+            _currentIndex = Math.Max(0, Math.Min(initialIndex, _items.Count - 1));
             Loaded += (_, __) => LoadCurrentItem();
         }
 
@@ -88,6 +90,7 @@ namespace PDF_umbenenen
                 string.IsNullOrWhiteSpace(item.DrawingNumber) ? "—" : item.DrawingNumber);
 
             _currentPlacements = GetPlacementsForIndex(_currentIndex);
+            _learnedLayoutApplied = _currentIndex > 0 && HasAnyLearnedLayoutDefaults();
             RenderPreview(item);
             _hasUnsavedChanges = false;
             UpdateHint();
@@ -98,7 +101,15 @@ namespace PDF_umbenenen
             if (_editedPlacements.TryGetValue(index, out var edited))
                 return ClonePlacements(edited);
 
-            return ClonePlacements(WatermarkEditorService.BuildPlacements(_items[index], _settings));
+            return ClonePlacements(WatermarkEditorService.BuildPlacementsForEditor(_items[index], _settings));
+        }
+
+        private static bool HasAnyLearnedLayoutDefaults()
+        {
+            return WatermarkLearningStore.HasCategoryDefault("Material")
+                   || WatermarkLearningStore.HasCategoryDefault("PowderCoating")
+                   || WatermarkLearningStore.HasCategoryDefault("Anodizing")
+                   || WatermarkLearningStore.HasCategoryDefault("Bg");
         }
 
         private void RenderPreview(WatermarkEditorItem item)
@@ -137,6 +148,17 @@ namespace PDF_umbenenen
                 var border = CreateOverlay(placement, item.PageHeight);
                 PreviewCanvas.Children.Add(border);
             }
+
+            UpdateMaterialField();
+        }
+
+        private void UpdateMaterialField()
+        {
+            _suppressMaterialTextChange = true;
+            var material = _currentPlacements.FirstOrDefault(p =>
+                string.Equals(p.Category, "Material", StringComparison.OrdinalIgnoreCase));
+            MaterialTextBox.Text = material?.Text ?? string.Empty;
+            _suppressMaterialTextChange = false;
         }
 
         private Border CreateOverlay(WatermarkTextPlacement placement, float pageHeight)
@@ -154,12 +176,26 @@ namespace PDF_umbenenen
                 MaxWidth = Math.Max(180, PreviewCanvas.Width * 0.35)
             };
 
+            var useLearnedStyle = _learnedLayoutApplied
+                && (string.Equals(placement.Category, "Material", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "Bg", StringComparison.OrdinalIgnoreCase));
+
             var border = new Border
             {
                 Child = textBlock,
-                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(48, 255, 255, 120)),
-                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(180, 255, 210, 0)),
-                BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(
+                    useLearnedStyle ? (byte)56 : (byte)48,
+                    255,
+                    (byte)(useLearnedStyle ? 255 : 255),
+                    (byte)(useLearnedStyle ? 120 : 120))),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(
+                    200,
+                    (byte)(useLearnedStyle ? 70 : 255),
+                    (byte)(useLearnedStyle ? 210 : 210),
+                    (byte)(useLearnedStyle ? 120 : 0))),
+                BorderThickness = useLearnedStyle ? new Thickness(2) : new Thickness(1),
                 Padding = new Thickness(4, 2, 4, 2),
                 Cursor = Cursors.SizeAll,
                 Tag = placement.Category
@@ -227,6 +263,9 @@ namespace PDF_umbenenen
 
             _isDragging = false;
             _dragBorder = null;
+
+            if (_hasUnsavedChanges)
+                PersistLearningForSession();
         }
 
         private void SelectPlacement(WatermarkTextPlacement placement)
@@ -289,6 +328,25 @@ namespace PDF_umbenenen
             }
 
             _hasUnsavedChanges = true;
+            PersistLearningForSession();
+            UpdateHint();
+        }
+
+        private void PersistLearningForSession()
+        {
+            if (_items.Count == 0 || _currentIndex < 0 || _currentIndex >= _items.Count)
+                return;
+
+            CommitOverlayPositions();
+            WatermarkEditorService.SaveLearningFromPlacements(_items[_currentIndex], _currentPlacements);
+            ClearOtherPlacementCaches();
+            UpdateHint();
+        }
+
+        private void ClearOtherPlacementCaches()
+        {
+            foreach (var key in _editedPlacements.Keys.Where(k => k != _currentIndex).ToList())
+                _editedPlacements.Remove(key);
         }
 
         private void CommitOverlayPositions()
@@ -325,8 +383,9 @@ namespace PDF_umbenenen
                 CommitOverlayPositions();
                 var item = _items[_currentIndex];
                 _editedPlacements[_currentIndex] = ClonePlacements(_currentPlacements);
-                WatermarkEditorService.SaveItem(item, _currentPlacements, _settings);
+                WatermarkEditorService.SaveItem(item, _currentPlacements, _settings, GetOrderedPathsForPageNumbers());
                 PdfRasterLayoutService.ClearCache();
+                ClearOtherPlacementCaches();
                 _hasUnsavedChanges = false;
                 UpdateHint();
 
@@ -334,7 +393,7 @@ namespace PDF_umbenenen
                 {
                     MessageBox.Show(
                         this,
-                        "Gespeichert. Position und Material werden für ähnliche Zeichnungen gemerkt.",
+                        "Gespeichert. Die Position gilt auch für die nächsten Zeichnungen in dieser Sitzung.",
                         "Wasserzeichen",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
@@ -362,7 +421,7 @@ namespace PDF_umbenenen
                 try
                 {
                     var placements = GetPlacementsForIndex(i);
-                    WatermarkEditorService.SaveItem(_items[i], placements, _settings);
+                    WatermarkEditorService.SaveItem(_items[i], placements, _settings, GetOrderedPathsForPageNumbers());
                 }
                 catch (Exception ex)
                 {
@@ -377,11 +436,8 @@ namespace PDF_umbenenen
 
             try
             {
-                var orderedPaths = _allOrderedFiles.Count > 0
-                    ? _allOrderedFiles
-                    : _items.Select(item => item.PdfPath).ToList();
-                WatermarkEditorService.RefreshPageNumbers(orderedPaths);
-
+                var orderedPaths = GetOrderedPathsForPageNumbers();
+                // Seitenzahlen wurden bereits je Datei in SaveItem wiederhergestellt.
                 if (!string.IsNullOrWhiteSpace(_pdfFolder) && Directory.Exists(_pdfFolder))
                     MergedPdfPath = WatermarkEditorService.RemergeFolder(_pdfFolder, orderedPaths);
 
@@ -413,21 +469,8 @@ namespace PDF_umbenenen
             if (_items.Count == 0)
                 return;
 
-            if (_hasUnsavedChanges)
-            {
-                var result = MessageBox.Show(
-                    this,
-                    "Änderungen an dieser Datei speichern?",
-                    "Ungespeicherte Änderungen",
-                    MessageBoxButton.YesNoCancel,
-                    MessageBoxImage.Question);
-
-                if (result == MessageBoxResult.Cancel)
-                    return;
-
-                if (result == MessageBoxResult.Yes && !SaveCurrentItem(showMessage: false))
-                    return;
-            }
+            if (_hasUnsavedChanges && !SaveCurrentItem(showMessage: false))
+                return;
 
             _currentIndex = (_currentIndex + delta + _items.Count) % _items.Count;
             LoadCurrentItem();
@@ -457,9 +500,27 @@ namespace PDF_umbenenen
 
         private void UpdateHint()
         {
-            HintTextBlock.Text = _hasUnsavedChanges
-                ? "Ungespeicherte Änderungen – bitte Speichern klicken."
-                : "Tipp: Wasserzeichen mit der Maus ziehen. Material-Feld bearbeiten und speichern.";
+            if (_hasUnsavedChanges)
+            {
+                HintTextBlock.Text = "Ungespeicherte PDF-Änderungen – beim Weiterklicken werden Position und Lernstand übernommen.";
+                return;
+            }
+
+            if (_learnedLayoutApplied)
+            {
+                HintTextBlock.Text = "Gelernte Positionen aus vorheriger Korrektur übernommen (grüner Rahmen).";
+                return;
+            }
+
+            HintTextBlock.Text = "Tipp: Wasserzeichen ziehen – die App lernt sofort und schlägt es bei der nächsten Zeichnung vor.";
+        }
+
+        private List<string> GetOrderedPathsForPageNumbers()
+        {
+            if (_allOrderedFiles != null && _allOrderedFiles.Count > 0)
+                return _allOrderedFiles;
+
+            return _items.Select(item => item.PdfPath).ToList();
         }
 
         private static List<WatermarkTextPlacement> ClonePlacements(IEnumerable<WatermarkTextPlacement> source)

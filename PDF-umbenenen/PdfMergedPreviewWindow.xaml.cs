@@ -35,6 +35,8 @@ namespace PDF_umbenenen
         private double _scale = 1.0;
         private bool _suppressMaterialTextChange;
         private bool _editDirty;
+        private bool _mergedPdfStale;
+        private bool _isSaving;
 
         private Point _dragStart;
         private bool _isDragging;
@@ -129,11 +131,15 @@ namespace PDF_umbenenen
 
             if (!PdfRasterLayoutService.IsAvailable)
             {
+                NativeDependencyService.TryRepairAndReload(out _);
+            }
+
+            if (!PdfRasterLayoutService.IsAvailable)
+            {
                 HintTextBlock.Text = "Interne PDF-Anzeige nicht verfügbar.";
                 MessageBox.Show(
                     this,
-                    "Die eingebaute Vorschau kann nicht gerendert werden (Docnet/pdfium fehlt).\n\n" +
-                    "Bitte install-docnet.ps1 ausführen.",
+                    PdfRasterLayoutService.GetUnavailableUserMessage(),
                     "Vorschau",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -177,6 +183,7 @@ namespace PDF_umbenenen
                     }
 
                     PagesStack.Children.Add(container);
+                    PdfRasterLayoutService.TrimCache(3, 6);
                     HintTextBlock.Text = string.Format(
                         "Lade Seite {0} / {1}…",
                         entry.MergedPageNumber,
@@ -198,7 +205,7 @@ namespace PDF_umbenenen
                 }
                 else
                 {
-                    HintTextBlock.Text = "Durchscrollen wie gewohnt. Korrektur nur bei Bedarf.";
+                    HintTextBlock.Text = "Zur Zeichnung scrollen, dann „Wasserzeichen bearbeiten“.";
                 }
 
                 CorrectButton.IsEnabled = true;
@@ -216,7 +223,10 @@ namespace PDF_umbenenen
             catch (Exception ex)
             {
                 HintTextBlock.Text = "Vorschau konnte nicht geladen werden.";
-                MessageBox.Show(this, ex.Message, "Vorschau", MessageBoxButton.OK, MessageBoxImage.Warning);
+                var message = NativeDependencyService.IsBadImageFormatError(ex)
+                    ? NativeDependencyService.FormatBadImageMessage()
+                    : ex.Message;
+                MessageBox.Show(this, message, "Vorschau", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {
@@ -363,15 +373,14 @@ namespace PDF_umbenenen
             if (entry == null)
                 return null;
 
+            var sourcePath = ResolveWatermarkedPdfPath(entry.SourcePdfPath);
+            if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+                return PdfRasterLayoutService.RenderPageForPreview(sourcePath, entry.SourcePageNumber);
+
             if (!string.IsNullOrWhiteSpace(_mergedPdfPath) && File.Exists(_mergedPdfPath))
                 return PdfRasterLayoutService.RenderPageForPreview(_mergedPdfPath, entry.MergedPageNumber);
 
-            var sourcePath = ResolveWatermarkedPdfPath(entry.SourcePdfPath);
-            var pageNumber = entry.SourcePageNumber;
-            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
-                return null;
-
-            return PdfRasterLayoutService.RenderPageForPreview(sourcePath, pageNumber);
+            return null;
         }
 
         private FrameworkElement CreatePageContainer(int pageNumber, System.Drawing.Bitmap bitmap)
@@ -509,45 +518,94 @@ namespace PDF_umbenenen
             EditViewBorder.Visibility = Visibility.Collapsed;
             AllPagesScroll.Visibility = Visibility.Visible;
             HintTextBlock.Text = PagesStack.Children.Count > 0
-                ? "Durchscrollen wie gewohnt. Korrektur nur bei Bedarf."
+                ? "Zur gewünschten Zeichnung scrollen, dann „Wasserzeichen bearbeiten“."
                 : "Lade Vorschau…";
 
             ClearOverlays();
             UpdatePageInfo();
         }
 
-        private void EnterEditMode()
+        private MergedPdfPageEntry ResolveEditableEntry()
         {
+            UpdateCurrentPageFromScroll();
             var entry = GetCurrentEntry();
+            if (entry == null)
+                return null;
+
+            if (entry.SourcePageNumber == 1)
+                return entry;
+
+            var sourcePath = ResolveWatermarkedPdfPath(entry.SourcePdfPath);
+            return _pageMap
+                .Where(e => e.SourcePageNumber == 1
+                    && string.Equals(
+                        ResolveWatermarkedPdfPath(e.SourcePdfPath),
+                        sourcePath,
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderBy(e => e.MergedPageNumber)
+                .FirstOrDefault();
+        }
+
+        private async void CorrectButton_Click(object sender, RoutedEventArgs e)
+        {
+            await EnterEditModeAsync().ConfigureAwait(true);
+        }
+
+        private async Task EnterEditModeAsync()
+        {
+            if (_isSaving || _loadingPages || _editMode)
+                return;
+
+            var entry = ResolveEditableEntry();
             if (entry == null || string.IsNullOrWhiteSpace(entry.SourcePdfPath) || !File.Exists(entry.SourcePdfPath))
             {
                 MessageBox.Show(this, "Keine Zuordnung zur Quelldatei für diese Seite.", "Korrektur", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            if (entry.SourcePageNumber != 1)
+            if (entry.MergedPageNumber != _currentMergedPage)
+                ScrollToPage(entry.MergedPageNumber);
+
+            SetSavingState(true, "Korrekturmodus wird geladen…");
+
+            WatermarkEditorItem editItem = null;
+            List<WatermarkTextPlacement> placements = null;
+            try
             {
-                MessageBox.Show(
-                    this,
-                    "Wasserzeichen können nur auf der ersten Seite einer Zeichnung korrigiert werden. Bitte zur ersten Seite dieser Zeichnung scrollen.",
-                    "Korrektur",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                var sourcePath = entry.SourcePdfPath;
+                await Task.Run(() =>
+                {
+                    PdfRasterLayoutService.ClearCache();
+                    PdfLayoutAnalysisService.ClearCache();
+                    var items = WatermarkEditorService.LoadItems(new[] { sourcePath });
+                    editItem = items.FirstOrDefault();
+                    if (editItem != null)
+                        placements = WatermarkEditorService.BuildPlacementsForEditor(editItem, _settings);
+                }).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Korrektur", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
+            finally
+            {
+                SetSavingState(false);
+            }
 
-            var items = WatermarkEditorService.LoadItems(new[] { entry.SourcePdfPath });
-            _editItem = items.FirstOrDefault();
-            if (_editItem == null)
+            if (editItem == null)
             {
                 MessageBox.Show(this, "Datei konnte nicht geladen werden.", "Korrektur", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
+            _editItem = editItem;
+            _editPlacements = placements ?? new List<WatermarkTextPlacement>();
             _editMode = true;
             _editDirty = false;
-            _editingMergedPage = _currentMergedPage;
-            _editPlacements = WatermarkEditorService.BuildPlacements(_editItem, _settings);
+            _editingMergedPage = entry.MergedPageNumber;
+            _currentMergedPage = entry.MergedPageNumber;
+            UpdatePageInfo();
 
             AllPagesScroll.Visibility = Visibility.Collapsed;
             EditViewBorder.Visibility = Visibility.Visible;
@@ -590,11 +648,12 @@ namespace PDF_umbenenen
                 if (string.IsNullOrWhiteSpace(placement?.Text))
                     continue;
 
-                PreviewCanvas.Children.Add(CreateOverlay(placement));
+                var readOnly = SmartWatermarkLayoutService.IsLockedTopBandPlacement(placement, _editPlacements);
+                PreviewCanvas.Children.Add(CreateOverlay(placement, readOnly));
             }
         }
 
-        private Border CreateOverlay(WatermarkTextPlacement placement)
+        private Border CreateOverlay(WatermarkTextPlacement placement, bool readOnly = false)
         {
             var fontSize = WatermarkOverlayMapper.GetScreenFontSize(placement, _scale);
             var textBlock = new TextBlock
@@ -612,11 +671,15 @@ namespace PDF_umbenenen
             var border = new Border
             {
                 Child = textBlock,
-                Background = new SolidColorBrush(Color.FromArgb(48, 255, 255, 120)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(180, 255, 210, 0)),
+                Background = readOnly
+                    ? new SolidColorBrush(Color.FromArgb(24, 200, 200, 200))
+                    : new SolidColorBrush(Color.FromArgb(48, 255, 255, 120)),
+                BorderBrush = readOnly
+                    ? new SolidColorBrush(Color.FromArgb(100, 160, 160, 160))
+                    : new SolidColorBrush(Color.FromArgb(180, 255, 210, 0)),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(4, 2, 4, 2),
-                Cursor = Cursors.SizeAll
+                Cursor = readOnly ? Cursors.Arrow : Cursors.SizeAll
             };
 
             var topLeft = WatermarkOverlayMapper.PdfToCanvasTopLeft(placement, _editItem.PageHeight, _scale);
@@ -624,10 +687,14 @@ namespace PDF_umbenenen
             Canvas.SetTop(border, topLeft.Y);
             Panel.SetZIndex(border, 10);
 
-            border.MouseLeftButtonDown += Overlay_MouseLeftButtonDown;
-            border.MouseMove += Overlay_MouseMove;
-            border.MouseLeftButtonUp += Overlay_MouseLeftButtonUp;
-            _overlayMap[border] = placement;
+            if (!readOnly)
+            {
+                border.MouseLeftButtonDown += Overlay_MouseLeftButtonDown;
+                border.MouseMove += Overlay_MouseMove;
+                border.MouseLeftButtonUp += Overlay_MouseLeftButtonUp;
+                _overlayMap[border] = placement;
+            }
+
             return border;
         }
 
@@ -688,6 +755,17 @@ namespace PDF_umbenenen
 
             if (materialPlacements.Count == 0 && !string.IsNullOrWhiteSpace(newText) && _editItem != null)
             {
+                var refFont = _editPlacements
+                    .Where(p => p != null && p.FontSize > 0f)
+                    .Select(p => p.FontSize)
+                    .FirstOrDefault();
+                if (refFont <= 0f)
+                {
+                    refFont = _editPlacements
+                        .FirstOrDefault(p => string.Equals(p.Category, "Material", StringComparison.OrdinalIgnoreCase) && p.FontSize > 0f)
+                        ?.FontSize ?? 22f;
+                }
+
                 var placement = new WatermarkTextPlacement
                 {
                     Category = "Material",
@@ -695,7 +773,7 @@ namespace PDF_umbenenen
                     X = _editItem.PageWidth * 0.5f,
                     Y = _editItem.PageHeight * 0.5f,
                     Alignment = 1,
-                    FontSize = 22f
+                    FontSize = refFont
                 };
                 _editPlacements.Add(placement);
                 PreviewCanvas.Children.Add(CreateOverlay(placement));
@@ -767,6 +845,36 @@ namespace PDF_umbenenen
             }
         }
 
+        private void EnsureMergedPdfCurrent()
+        {
+            if (!_mergedPdfStale
+                && !string.IsNullOrWhiteSpace(_mergedPdfPath)
+                && File.Exists(_mergedPdfPath))
+            {
+                return;
+            }
+
+            PdfRasterLayoutService.ClearCache();
+            PdfLayoutAnalysisService.ClearCache();
+            _mergedPdfPath = WatermarkEditorService.RemergeFolder(_pdfFolder, _orderedFiles);
+            _pageMap = NormalizePageMap(MergedPdfPageMapService.Build(_orderedFiles));
+            MergedPdfPageMapService.Save(_mergedPdfPath, _pageMap);
+            _totalPages = Math.Max(1, _pageMap.Count);
+            _mergedPdfStale = false;
+        }
+
+        private void SetSavingState(bool isSaving, string hint = null)
+        {
+            _isSaving = isSaving;
+            SaveButton.IsEnabled = !isSaving;
+            CancelEditButton.IsEnabled = !isSaving;
+            CorrectButton.IsEnabled = !isSaving;
+            OpenPdfButton.IsEnabled = !isSaving;
+
+            if (!string.IsNullOrWhiteSpace(hint))
+                HintTextBlock.Text = hint;
+        }
+
         private bool SaveCurrentEdit()
         {
             if (!_editMode || _editItem == null)
@@ -775,12 +883,12 @@ namespace PDF_umbenenen
             try
             {
                 CommitOverlayPositions();
-                WatermarkEditorService.SaveItem(_editItem, _editPlacements, _settings);
+                PreviewImage.Source = null;
                 PdfRasterLayoutService.ClearCache();
-                _mergedPdfPath = WatermarkEditorService.RemergeFolder(_pdfFolder, _orderedFiles);
-                _pageMap = NormalizePageMap(MergedPdfPageMapService.Build(_orderedFiles));
-                MergedPdfPageMapService.Save(_mergedPdfPath, _pageMap);
-                _totalPages = Math.Max(1, _pageMap.Count);
+                PdfLayoutAnalysisService.ClearCache();
+                PdfMaterialExtractionService.ClearCache();
+                WatermarkEditorService.SaveItem(_editItem, _editPlacements, _settings, _orderedFiles);
+                _mergedPdfStale = true;
                 _editDirty = false;
                 return true;
             }
@@ -791,21 +899,55 @@ namespace PDF_umbenenen
             }
         }
 
-        private void CorrectButton_Click(object sender, RoutedEventArgs e)
-        {
-            UpdateCurrentPageFromScroll();
-            EnterEditMode();
-        }
-
         private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            var savedPage = _editingMergedPage > 0 ? _editingMergedPage : _currentMergedPage;
-
-            if (!SaveCurrentEdit())
+            if (_isSaving || !_editMode || _editItem == null)
                 return;
 
+            var savedPage = _editingMergedPage > 0 ? _editingMergedPage : _currentMergedPage;
+            var editedPath = _editItem.PdfPath;
+            var item = _editItem;
+            var placements = _editPlacements?.ToList() ?? new List<WatermarkTextPlacement>();
+            var settings = _settings;
+
+            CommitOverlayPositions();
+            PreviewImage.Source = null;
+            SetSavingState(true, "Speichere Korrektur…");
+
+            string errorMessage = null;
+            try
+            {
+                errorMessage = await Task.Run(() =>
+                {
+                    try
+                    {
+                        PdfRasterLayoutService.ClearCache();
+                        PdfLayoutAnalysisService.ClearCache();
+                        PdfMaterialExtractionService.ClearCache();
+                        WatermarkEditorService.SaveItem(item, placements, settings, _orderedFiles);
+                        return null;
+                    }
+                    catch (Exception ex)
+                    {
+                        return ex.Message;
+                    }
+                }).ConfigureAwait(true);
+            }
+            finally
+            {
+                SetSavingState(false);
+            }
+
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                MessageBox.Show(this, errorMessage, "Speichern fehlgeschlagen", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            _mergedPdfStale = true;
+            _editDirty = false;
             ShowViewMode();
-            await LoadAllPagesAsync(savedPage);
+            await RefreshPagesAfterSaveAsync(savedPage, editedPath).ConfigureAwait(true);
         }
 
         private void CancelEditButton_Click(object sender, RoutedEventArgs e)
@@ -826,8 +968,11 @@ namespace PDF_umbenenen
             ShowViewMode();
         }
 
-        private void OpenPdfButton_Click(object sender, RoutedEventArgs e)
+        private async void OpenPdfButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_isSaving)
+                return;
+
             if (_editMode && _editDirty)
             {
                 var result = MessageBox.Show(
@@ -847,6 +992,34 @@ namespace PDF_umbenenen
                     ShowViewMode();
             }
 
+            SetSavingState(true, "Erstelle Gesamt-PDF…");
+            string mergeError = null;
+            try
+            {
+                mergeError = await Task.Run(() =>
+                {
+                    try
+                    {
+                        EnsureMergedPdfCurrent();
+                        return null;
+                    }
+                    catch (Exception ex)
+                    {
+                        return ex.Message;
+                    }
+                }).ConfigureAwait(true);
+            }
+            finally
+            {
+                SetSavingState(false);
+            }
+
+            if (!string.IsNullOrWhiteSpace(mergeError))
+            {
+                MessageBox.Show(this, mergeError, "Gesamt-PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(_mergedPdfPath) || !File.Exists(_mergedPdfPath))
             {
                 MessageBox.Show(this, "Gesamt-PDF nicht gefunden.", "PDF öffnen", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -863,51 +1036,6 @@ namespace PDF_umbenenen
                     MessageBoxImage.Warning);
                 return;
             }
-
-            _allowClose = true;
-            Close();
-        }
-
-        private void EditorButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_editMode && _editDirty)
-            {
-                var result = MessageBox.Show(
-                    this,
-                    "Ungespeicherte Korrektur speichern bevor der Editor geöffnet wird?",
-                    "Korrektur",
-                    MessageBoxButton.YesNoCancel,
-                    MessageBoxImage.Question);
-
-                if (result == MessageBoxResult.Cancel)
-                    return;
-
-                if (result == MessageBoxResult.Yes && !SaveCurrentEdit())
-                    return;
-
-                if (_editMode)
-                    ShowViewMode();
-            }
-
-            if (_orderedFiles.Count == 0)
-            {
-                MessageBox.Show(this, "Keine Quelldateien für den Editor gefunden.", "Editor", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var editor = new PdfWatermarkEditorWindow(
-                _orderedFiles,
-                _pdfFolder,
-                _mergedPdfPath,
-                _orderedFiles)
-            {
-                Owner = this,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner
-            };
-            ThemeWindowService.Attach(editor);
-
-            if (editor.ShowDialog() != true || string.IsNullOrWhiteSpace(editor.MergedPdfPath))
-                return;
 
             _allowClose = true;
             Close();

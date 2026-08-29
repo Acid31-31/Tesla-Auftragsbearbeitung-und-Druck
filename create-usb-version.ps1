@@ -22,9 +22,14 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Set-Location $root
 
+. (Join-Path $root "Get-DokBuildRevision.ps1")
+$buildInfo = Get-DokRevisionFromAssembly -Root $root
+
 
 
 $productName = "DOK-V01"
+
+$productFolder = $buildInfo.ProductFolder
 
 $exeName = "$productName.exe"
 
@@ -78,6 +83,12 @@ if (Test-Path $objDir) {
 
 Write-Host "[1b/5] Build ($Configuration) startet..."
 
+$ensureTesseract = Join-Path $root "ensure-tesseract-bundle.ps1"
+if (Test-Path $ensureTesseract) {
+    Write-Host "[1a/5] Tesseract-OCR-Bundle vorbereiten..."
+    & powershell -ExecutionPolicy Bypass -File $ensureTesseract -ProjectRoot $root
+}
+
 & $msbuild $projectFile /t:Rebuild /p:Configuration=$Configuration /p:Platform="AnyCPU"
 
 if ($LASTEXITCODE -ne 0) {
@@ -111,11 +122,11 @@ if ($LASTEXITCODE -ne 0) {
 
 $usbRoot = Join-Path $root "USB-Version"
 
-$appFolder = Join-Path $usbRoot $productName
+$appFolder = Join-Path $usbRoot $productFolder
 
 
 
-Write-Host "[2/5] USB-Version bereinigen..."
+Write-Host "[2/5] USB-Version bereinigen ($productFolder)..."
 
 if (-not (Test-Path $usbRoot)) {
 
@@ -123,15 +134,13 @@ if (-not (Test-Path $usbRoot)) {
 
 }
 
-Get-ChildItem $usbRoot -Force | ForEach-Object {
+Get-ChildItem $usbRoot -Force -ErrorAction SilentlyContinue | Where-Object {
 
-	if ($_.Name -eq $productName -or $_.Name -eq "$productName.zip") {
+	$_.Name -like "$productName*" -or $_.Name -like "DOK-V01-R*"
 
-		return
+} | ForEach-Object {
 
-	}
-
-	Remove-Item $_.FullName -Recurse -Force
+	Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
 
 }
 
@@ -188,6 +197,16 @@ if (Test-Path $licenseSource) {
 	Copy-Item $licenseSource (Join-Path $appFolder "LICENSE_DE.txt") -Force
 }
 
+$nativeSource = Join-Path $releaseDir "native"
+if (Test-Path $nativeSource) {
+	Copy-Item $nativeSource (Join-Path $appFolder "native") -Recurse -Force
+}
+
+$tesseractSource = Join-Path $releaseDir "tesseract"
+if (Test-Path $tesseractSource) {
+	Copy-Item $tesseractSource (Join-Path $appFolder "tesseract") -Recurse -Force
+}
+
 
 
 $exePath = Join-Path $appFolder $exeName
@@ -200,60 +219,19 @@ if (-not (Test-Path $exePath)) {
 
 
 
-if ((Test-Path $CertPath) -and (Test-Path $exePath)) {
-
-    $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
-
-    if ([string]::IsNullOrWhiteSpace($signtool)) {
-
-        $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
-
-            Sort-Object FullName -Descending |
-
-            Select-Object -First 1 -ExpandProperty FullName
-
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($signtool)) {
-
-        Write-Host "[3b/5] Signiere EXE mit Zertifikat..."
-
-        $signArgs = @("sign", "/fd", "SHA256", "/f", $CertPath)
-
-        if (-not [string]::IsNullOrWhiteSpace($CertPassword)) {
-
-            $signArgs += @("/p", $CertPassword)
-
-        }
-
-        $signArgs += @("/tr", "http://timestamp.digicert.com", "/td", "SHA256", $exePath)
-
-
-
-        & $signtool @signArgs
-
-        if ($LASTEXITCODE -ne 0) {
-
-            Write-Warning "Signieren fehlgeschlagen (ExitCode $LASTEXITCODE). USB-Version wird trotzdem erstellt."
-
-        }
-
-    }
-
-    else {
-
-        Write-Warning "signtool.exe nicht gefunden. EXE bleibt unsigniert."
-
-    }
-
-}
-
-
-
-Write-Host "[3c/5] USB-Starter wird erstellt..."
+Write-Host "[3b/5] USB-Starter wird erstellt..."
 
 Copy-Item $exePath (Join-Path $appFolder $usbLauncherName) -Force
 Copy-Item $exePath (Join-Path $appFolder $usbUninstallerName) -Force
+
+$signPackageScript = Join-Path $root "sign-package-exes.ps1"
+if (Test-Path $signPackageScript) {
+    Write-Host "[3c/5] Signiere alle Paket-EXEs..."
+    & powershell -ExecutionPolicy Bypass -File $signPackageScript -PackageRoot $appFolder
+    if ($LASTEXITCODE -ne 0) {
+        throw "Paket-Signierung fehlgeschlagen."
+    }
+}
 
 
 
@@ -271,7 +249,9 @@ elseif (Test-Path $CertPublicPath) {
 
 }
 
+$GitHubUpdatesArePublic = $true
 $updateToken = $env:GITHUB_UPDATE_TOKEN
+if (-not $GitHubUpdatesArePublic) {
 if ([string]::IsNullOrWhiteSpace($updateToken)) {
     $gh = Get-Command gh -ErrorAction SilentlyContinue
     if ($gh) {
@@ -281,6 +261,7 @@ if ([string]::IsNullOrWhiteSpace($updateToken)) {
 if (-not [string]::IsNullOrWhiteSpace($updateToken)) {
     Set-Content -Path (Join-Path $appFolder "github.token") -Value $updateToken.Trim() -NoNewline -Encoding ASCII
     Write-Host "github.token fuer private Repo-Updates in USB-Version aufgenommen."
+}
 }
 
 
@@ -315,7 +296,7 @@ Set-Content -Path (Join-Path $appFolder "DEINSTALLIEREN.bat") -Value $uninstallB
 
 $readme = @"
 
-$productName - USB-Version
+$productName $buildInfo.RevisionLabel - USB-Version
 
 
 
@@ -323,7 +304,7 @@ EINMALIGE FESTINSTALLATION AUF JEDEM PC:
 
 1) USB-Stick einstecken
 
-2) Ordner "$productName" oeffnen
+2) Ordner "$productFolder" oeffnen
 
 3) "$usbLauncherName" doppelklicken (Setup-Assistent mit Lizenz & Urheberrecht)
 
@@ -331,7 +312,7 @@ EINMALIGE FESTINSTALLATION AUF JEDEM PC:
 
 5) Windows-Administratorabfrage (UAC) bestaetigen
 
-6) Installation nach C:\Program Files\$productName
+6) Installation im gleichen Ordner (USB / kopierter DOK-V01-Ordner)
 
 7) Desktop-Verknuepfung "$productName" wird erstellt
 
@@ -341,7 +322,7 @@ AB DANN:
 
 - Nur noch Desktop-Verknuepfung nutzen (nicht USB, nicht Firmenordner-Kopie)
 
-- Arbeitsdaten/PDFs: %LOCALAPPDATA%\$productName\Ablage
+- Programm und Arbeitsdaten liegen im Installationsordner (Unterordner Ablage)
 
 - Updates automatisch von GitHub
 
@@ -367,11 +348,12 @@ Set-Content -Path (Join-Path $appFolder "README_USB.txt") -Value $readme -Encodi
 
 Write-Host "[4/5] ZIP wird erstellt..."
 
-$zipPath = Join-Path $usbRoot "$productName.zip"
+$zipPath = Join-Path $usbRoot $buildInfo.UsbZipName
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-Compress-Archive -Path (Join-Path $appFolder "*") -DestinationPath $zipPath -Force
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory($appFolder, $zipPath)
 
 
 
@@ -383,5 +365,7 @@ Write-Host "[6/6] Fertig"
 Write-Host "Ordner: $appFolder"
 
 Write-Host "ZIP:    $zipPath"
+
+explorer.exe $appFolder
 
 

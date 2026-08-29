@@ -42,7 +42,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
-                   Text="Gesamt-PDF — alle Zeichnungen in der richtigen Reihenfolge. Zum Drucken „Gesamt-PDF öffnen“ — die Datei öffnet sich im PDF-Reader (dort Strg+P)."
+                   Text="Gesamt-PDF — durchscrollen, dann „Wasserzeichen bearbeiten“ für die sichtbare Zeichnung. Alles direkt hier, kein zweites Fenster."
                    TextWrapping="Wrap"
                    FontSize="12"
                    Foreground="{DynamicResource TextSecondary}"
@@ -122,13 +122,9 @@
 
         <DockPanel Grid.Row="4">
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-                <Button x:Name="EditorButton"
-                        Content="Wasserzeichen-Editor"
-                        Style="{StaticResource PreviewButton}"
-                        Click="EditorButton_Click"/>
                 <Button x:Name="CorrectButton"
-                        Content="Schnellkorrektur (diese Seite)"
-                        Style="{StaticResource SecondaryButton}"
+                        Content="Wasserzeichen bearbeiten"
+                        Style="{StaticResource PreviewButton}"
                         Click="CorrectButton_Click"/>
                 <Button x:Name="SaveButton"
                         Content="Speichern"

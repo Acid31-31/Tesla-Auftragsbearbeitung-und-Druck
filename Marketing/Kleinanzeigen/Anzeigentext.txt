@@ -1,0 +1,46 @@
+TITEL
+Software: Kunden-Aufträge PDF + Excel automatisch sortieren
+
+---
+
+ANZEIGENTEXT
+
+Kunden-Aufträge schneller bearbeiten – PDF + Excel
+
+Sie bekommen von Kunden Zeichnungs-PDFs und eine Excel-Bestellliste und müssen alles für die Fertigung vorbereiten: sortieren, umbenennen, Menge/Termin/Auftragsnr. eintragen, ggf. alles zusammenfügen?
+
+DOK-V01 ist eine Windows-Desktop-Software (offline am PC), die genau das automatisiert:
+
+• PDFs und Excel per Drag & Drop laden (auch ZIP)
+• Sortieren & Umbenennen nach Excel-Reihenfolge (01_, 02_, …)
+• Wasserzeichen optional: Menge, Liefertermin, Lieferort, Auftragsnr. usw.
+• Prüf-PDF: Bestell-PDF mit Excel und Zeichnungen abgleichen
+• Alles zu einer Gesamt-PDF zusammenfügen & Vorschau/Druck
+• Updates über GitHub
+
+Für wen: Lohnfertiger, Lohnanfertiger, Betriebe mit wiederkehrenden Kundenaufträgen (PDF + Excel).
+
+Basisversion: Standard-Workflow für Kunden mit Zeichnungs-PDF + Excel-Bestellliste.
+
+Weitere Kunden / andere Auftragsformate: Wenn Sie später andere Kunden oder andere Bestellsysteme (z. B. anderes Excel-Layout, andere PDF-Struktur) anbinden möchten, kann das als Zusatzleistung eingerichtet werden – separates Angebot nach Ihren Unterlagen.
+
+Kein Abo, keine Cloud – Einmalkauf, läuft am Arbeitsplatz.
+
+Preis Einmallizenz: 2.990 € (unbegrenzte Nutzung im Betrieb, mehrere Arbeitsplätze der Firma)
+Optional: Einschulung, Jahreswartung, Anbindung weiterer Kunden – auf Anfrage.
+
+Interesse? Nachricht schreiben – kurz sagen, wie viele Aufträge/Woche und ob PDF + Excel von Kunden. Demo / Kurzberatung möglich.
+
+---
+
+KURZVERSION
+
+Kunden-Aufträge: PDF + Excel automatisch sortieren, umbenennen, Wasserzeichen, Prüf-PDF, Gesamt-PDF. Für Lohnfertiger. Windows, offline, kein Abo. 2.990 € Einmallizenz. Weitere Kunden/Auftragsformate als Zusatzleistung. Demo auf Anfrage.
+
+---
+
+BILDER (Ordner Marketing\Kleinanzeigen)
+01 kleinanzeigen-01-hauptfenster.png  – Hauptfenster / Drag & Drop
+02 kleinanzeigen-02-workflow.png        – PDF + Excel → sortierte Aufträge
+03 kleinanzeigen-03-wasserzeichen.png   – Wasserzeichen auf Zeichnung
+04 kleinanzeigen-04-pruef-pdf.png       – Prüf-PDF vs Excel

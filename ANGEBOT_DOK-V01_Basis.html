@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Angebot – DOK-V01 (Basisversion)</title>
+<style>
+  @page { margin: 2cm 2.2cm; }
+  body {
+    font-family: "Segoe UI", Calibri, Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.45;
+    color: #1a1a1a;
+    max-width: 18cm;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 18pt;
+    font-weight: 600;
+    color: #1e3a5f;
+    border-bottom: 2px solid #1e3a5f;
+    padding-bottom: 8px;
+    margin: 0 0 12px 0;
+  }
+  h2 {
+    font-size: 13pt;
+    font-weight: 600;
+    color: #1e3a5f;
+    margin: 22px 0 10px 0;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: #333;
+    margin: 16px 0 8px 0;
+    page-break-after: avoid;
+  }
+  .header-block {
+    display: table;
+    width: 100%;
+    margin-bottom: 20px;
+    font-size: 10.5pt;
+  }
+  .header-left { display: table-cell; width: 55%; vertical-align: top; }
+  .header-right { display: table-cell; width: 45%; vertical-align: top; text-align: right; }
+  .recipient {
+    margin: 20px 0;
+    padding: 12px 0;
+    border-top: 1px solid #ccc;
+    border-bottom: 1px solid #ccc;
+  }
+  .recipient p { margin: 4px 0; }
+  .blank-line {
+    border-bottom: 1px solid #999;
+    height: 18px;
+    margin: 6px 0;
+    width: 80%;
+  }
+  p { margin: 8px 0; }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 16px 0;
+    font-size: 10.5pt;
+    page-break-inside: avoid;
+  }
+  th {
+    background: #1e3a5f;
+    color: #fff;
+    font-weight: 600;
+    text-align: left;
+    padding: 7px 10px;
+  }
+  th.num, td.num { text-align: right; }
+  td {
+    border: 1px solid #c5cdd6;
+    padding: 6px 10px;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f5f7fa; }
+  .price-row td:last-child { font-weight: 600; font-size: 11pt; }
+  .formula {
+    background: #f0f4f8;
+    border-left: 4px solid #1e3a5f;
+    padding: 12px 14px;
+    margin: 12px 0;
+    font-size: 10.5pt;
+    line-height: 1.7;
+  }
+  .note { font-size: 10pt; color: #555; font-style: italic; }
+  .signature {
+    margin-top: 36px;
+    page-break-inside: avoid;
+  }
+  .pilot-box {
+    background: #eef6ff;
+    border: 2px solid #1e3a5f;
+    padding: 16px 18px;
+    margin: 16px 0;
+    border-radius: 4px;
+  }
+  .pilot-box h3 { margin-top: 0; color: #1e3a5f; }
+  .strike { text-decoration: line-through; color: #888; }
+  .signature-line {
+    border-bottom: 1px solid #333;
+    width: 280px;
+    margin: 24px 0 6px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Angebot – DOK-V01 (Basisversion)</h1>
+
+<div class="header-block">
+  <div class="header-left">
+    <p><strong>Anbieter:</strong><br>
+    Alexander Hölzer<br>
+    Pfarerrosenkranz Str. 9<br>
+    56642 Kruft</p>
+    <p>E-Mail: hoelzer_alex@yahoo.de<br>
+    Tel.: 0170 8333993</p>
+  </div>
+  <div class="header-right">
+    <p>Datum: 10.07.2026<br>
+    Angebots-Nr.: DOK-V01-2026-001<br>
+    Version: 1.1 R44</p>
+  </div>
+</div>
+
+<div class="recipient">
+  <p><strong>An:</strong></p>
+  <div class="blank-line"></div>
+  <div class="blank-line"></div>
+</div>
+
+<h2>Zielgruppe</h2>
+<p><strong>DOK-V01</strong> richtet sich an <strong>Lohnfertiger und Lohnanfertiger</strong> — Betriebe, die Aufträge mit Zeichnungen, Excel-Listen und Bestell-PDFs von verschiedenen Kunden bearbeiten und für die Fertigung aufbereiten müssen.</p>
+<p>Die Basisversion enthält einen bewährten Workflow für <strong>Kunden mit Zeichnungs-PDF + Excel-Bestellliste</strong> (Standard- und Angebot-Excel). Weitere Kundenformate sind als Zusatzleistung möglich.</p>
+
+<h2>Leistungsumfang – Basislizenz DOK-V01</h2>
+<table>
+  <tr><th>Funktion</th><th>Enthalten</th></tr>
+  <tr><td>Import per Drag &amp; Drop</td><td>PDF, ZIP, Excel (Standard + Angebot)</td></tr>
+  <tr><td>Sortieren &amp; Umbenennen</td><td>nach Excel-Reihenfolge</td></tr>
+  <tr><td>Wasserzeichen</td><td>Menge, LT/FT, Lieferort, BG, Auftragsnr.</td></tr>
+  <tr><td>Zwei Excel-Dateien</td><td>Angebot-Termine mit Vorrang</td></tr>
+  <tr><td>Auswertung Dokumente (Prüf-PDF)</td><td>Bestell-PDF mit Excel und Zeichnungen abgleichen: fehlende Positionen, Terminabweichungen, fehlende Zeichnungs-PDFs, Prüfbericht</td></tr>
+  <tr><td>Seitennummern</td><td>durchgängig im Auftrag (Seite-1, Seite-2, …)</td></tr>
+  <tr><td>Zusammenfügen &amp; Vorschau</td><td>Gesamt-PDF, Druck</td></tr>
+  <tr><td>Intelligente Platzierung</td><td>lokale Bildanalyse (pdfium) für automatische Wasserzeichen-Platzierung</td></tr>
+  <tr><td>Updates &amp; Sicherheit</td><td>automatische GitHub-Updates, signierte EXE, USB-Installation</td></tr>
+  <tr><td>Bereitstellung</td><td>USB-Version, Desktop-Verknüpfung, offline am Arbeitsplatz</td></tr>
+</table>
+
+<p><strong>Nicht in der Basislizenz enthalten</strong> — <em>in diesem Angebot nicht enthalten und nicht berechnet:</em></p>
+<ul>
+  <li><strong>Material-Erkennung &amp; Wasserzeichen</strong> (Werkstoff/Stärke aus Zeichnung)</li>
+  <li><strong>RAL &amp; Oberflächenbehandlung</strong> (RAL-Nummer, Pulverbeschichtung, Elox)</li>
+  <li><strong>Lernbarkeit Wasserzeichen-Platzierungen</strong> (manuelle Korrekturen pro Zeichnung speichern und beim nächsten Mal übernehmen)</li>
+</ul>
+<p class="note">Wenn Sie diese Zusatzfunktionen später wünschen, werden sie in der Vollversion aktiviert und als <strong>separate Zusatzleistung</strong> berechnet — nicht Teil dieses Angebots.</p>
+<p><strong>Weitere Zusatzleistungen</strong> (auf Anfrage):</p>
+<ul>
+  <li>Weitere Kunden / andere Bestellsysteme</li>
+  <li>Kundenprofile anlegen, automatische Kundenerkennung</li>
+  <li>Individuelle Anpassungen außerhalb des enthaltenen Standard-Workflows</li>
+</ul>
+
+<h2>Nutzenberechnung (ohne Entwickler-Stundenlohn)</h2>
+<p>Der Preis orientiert sich ausschließlich am Nutzen im Betrieb — an der Zeit, die Sie bei der Auftragsvorbereitung einsparen. Es werden keine Entwickler-Stunden oder Herstellkosten in die Kalkulation einbezogen.</p>
+
+<h3>Was manuell anfällt (ohne DOK-V01)</h3>
+<p>Pro Bauteil müssen u. a. Sortierung, Umbenennung und Wasserzeichen-Einträge (Menge, Termin, Auftragsnr. usw.) von Hand erledigt werden.</p>
+<table>
+  <tr><th>Situation</th><th class="num">Zeitaufwand manuell</th></tr>
+  <tr><td>1 Bauteil bearbeiten</td><td class="num"><strong>ca. 2 Minuten</strong></td></tr>
+  <tr><td>Auftrag mit 40 Bauteilen</td><td class="num"><strong>ca. 30 Minuten</strong></td></tr>
+</table>
+
+<h3>Mit DOK-V01 (Basisversion – ohne Werkstoff/RAL)</h3>
+<p>Dateien per Drag &amp; Drop laden, Verarbeitung starten — Sortierung, Umbenennung und Wasserzeichen laufen automatisch im Batch.</p>
+<table>
+  <tr><th>Situation</th><th class="num">Zeitaufwand mit DOK-V01 (Basis)</th></tr>
+  <tr><td>1 Bauteil</td><td class="num"><strong>ca. 0,7 Sekunden</strong></td></tr>
+  <tr><td>Auftrag mit 40 Bauteilen</td><td class="num"><strong>ca. 0,7 Sekunden</strong> (gesamt)</td></tr>
+</table>
+<p class="note">Mit Werkstoff- und RAL-Erkennung (Vollversion / separate Zusatzleistung): vergleichbarer Auftrag ca. <strong>1 Minute</strong>.</p>
+
+<h3>Ersparnis — Beispielrechnung</h3>
+<table>
+  <tr>
+    <th>Auftrag</th>
+    <th class="num">Manuell</th>
+    <th class="num">Mit DOK-V01 (Basis)</th>
+    <th class="num">Ersparnis</th>
+  </tr>
+  <tr><td>1 Bauteil</td><td class="num">2 Min</td><td class="num">~0,7 Sek</td><td class="num"><strong>~2 Min</strong></td></tr>
+  <tr><td>40 Bauteile</td><td class="num">30 Min</td><td class="num">~0,7 Sek</td><td class="num"><strong>~30 Min</strong></td></tr>
+  <tr><td>15 Bauteile (hochgerechnet)</td><td class="num">~11 Min</td><td class="num">~0,7 Sek</td><td class="num"><strong>~11 Min</strong></td></tr>
+</table>
+<p class="note">Hochrechnung 15 Teile manuell: 30 Min ÷ 40 × 15 ≈ 11 Min · Mit Werkstoff/RAL (Zusatz): ca. 1 Min statt 0,7 Sek</p>
+
+<h3>Jahresnutzen — Rechenbeispiel</h3>
+<table>
+  <tr><th>Größe</th><th>Wert</th></tr>
+  <tr><td>Aktive Monate/Jahr</td><td>10</td></tr>
+  <tr><td>Aufträge/Woche (in aktiver Phase)</td><td>6,5</td></tr>
+  <tr><td>Aufträge/Jahr</td><td>10 × 4,3 × 6,5 ≈ <strong>280</strong></td></tr>
+  <tr><td>Ø Bauteile/Auftrag</td><td><strong>19</strong> (Mix aus kleinen und großen Aufträgen)</td></tr>
+</table>
+
+<div class="formula">
+<strong>Zeitersparnis pro Jahr:</strong><br>
+Manuell: 280 Aufträge × (30 Min ÷ 40 × 19 Teile) ≈ 280 × 14 Min ≈ 3.920 Min<br>
+Mit App: 280 Aufträge × ~0,7 Sek ≈ 3 Min<br>
+<strong>Ersparnis: ≈ 3.917 Min ≈ 65 Stunden/Jahr</strong>
+</div>
+
+<table>
+  <tr><th></th><th class="num">Wert</th></tr>
+  <tr><td>Zeitersparnis/Jahr</td><td class="num"><strong>~65 h</strong></td></tr>
+  <tr><td>Nutzen bei 45 €/h</td><td class="num"><strong>~2.925 €/Jahr</strong></td></tr>
+</table>
+<p class="note">Bei größeren Aufträgen (z. B. häufig 40 Teile à 30 Min manuell) steigt der Nutzen entsprechend — ein einzelner 40-Teile-Auftrag spart bereits knapp eine halbe Arbeitsstunde.</p>
+
+<h3>Amortisation der Lizenz</h3>
+<table>
+  <tr><th>Bezug</th><th>Rechnung</th><th>Ergebnis</th></tr>
+  <tr><td>Große Aufträge (40 Teile)</td><td>2.240 € ÷ ~30 Min Ersparnis</td><td>Lizenz nach <strong>~103</strong> solcher Aufträgen refinanziert (Pilotpreis)</td></tr>
+  <tr><td>Durchschnittsmix (19 Teile)</td><td>2.240 € ÷ ~2.925 € Nutzen/Jahr</td><td><strong>ca. 9 Monate</strong> Amortisation (Pilotpreis)</td></tr>
+  <tr><td>Regulärer Preis (2.990 €)</td><td>2.990 € ÷ ~2.925 € Nutzen/Jahr</td><td><strong>ca. 12 Monate</strong> Amortisation</td></tr>
+  <tr><td>Ein großer Auftrag</td><td>~30 Min gespart</td><td>entspricht <strong>~23 €</strong> frei werdender Kapazität (bei 45 €/h)</td></tr>
+</table>
+<p><strong>Fazit:</strong> Die Einmallizenz zahlt sich durch wegfallende manuelle Eintragungszeit aus — nicht durch eine technische Stundenkalkulation.</p>
+
+<h2>Investition</h2>
+
+<h3>Regulärer Preis</h3>
+<table>
+  <tr><th>Position</th><th class="num">Betrag</th></tr>
+  <tr class="price-row">
+    <td><strong>Einmallizenz DOK-V01 Basis</strong> (unbegrenzte Nutzung, mehrere Arbeitsplätze der Firma)</td>
+    <td class="num"><strong>2.990 €</strong></td>
+  </tr>
+  <tr><td>Optional: Einschulung (remote/vor Ort, ca. 2 h)</td><td class="num">450 €</td></tr>
+  <tr><td>Optional: Jahreswartung (Updates, kleine Anpassungen)</td><td class="num">490 € / Jahr</td></tr>
+  <tr><td>Zusatz: weitere Kunden / Kundenprofile</td><td class="num">990 – 1.490 €</td></tr>
+</table>
+
+<div class="pilot-box">
+  <h3>Pilotkunden-Kondition (einmalig)</h3>
+  <p>Für Betriebe, deren <strong>Auftragsunterlagen</strong> (PDF, Excel, Bestelllisten) zur Mitentwicklung der Basisversion beigetragen haben:</p>
+  <table>
+    <tr><th>Position</th><th class="num">Regulär</th><th class="num">Ihr Preis</th></tr>
+    <tr>
+      <td>Einmallizenz DOK-V01 Basis</td>
+      <td class="num"><span class="strike">2.990 €</span></td>
+      <td class="num"><strong>2.240 €</strong></td>
+    </tr>
+    <tr><td>Einschulung (2 h)</td><td class="num">450 €</td><td class="num"><strong>inklusive</strong></td></tr>
+    <tr><td>Updates (12 Monate)</td><td class="num">490 €</td><td class="num"><strong>inklusive</strong></td></tr>
+    <tr><td><strong>Pilotrabatt</strong></td><td class="num"></td><td class="num"><strong>25 %</strong></td></tr>
+  </table>
+  <p><strong>Begründung:</strong> Mitentwicklung mit Ihren realen Auftragsunterlagen — die Software wurde an Ihrem Workflow ausgerichtet.</p>
+  <p><strong>Gegenleistung:</strong></p>
+  <ul>
+    <li>Kurzes Feedback nach 4–6 Wochen Nutzung</li>
+    <li>Erlaubnis für anonymisierte Referenz (Betriebsname oder Region)</li>
+  </ul>
+  <p><strong>Gültigkeit Pilotkondition:</strong> _______________</p>
+</div>
+
+<p><strong>Zahlungsbedingungen:</strong> _______________<br>
+<strong>Lieferung:</strong> USB-Stick oder digitaler Download inkl. Kurzanleitung<br>
+<strong>Gültigkeit dieses Angebots:</strong> 30 Tage</p>
+<p>Keine laufenden Cloud- oder SaaS-Gebühren · <strong>offline am Arbeitsplatz</strong></p>
+
+<h2>Hinweis: Code-Signatur und Antivirus</h2>
+<p>DOK-V01 verfügt derzeit <strong>nicht über ein offizielles Händler-Code-Signing-Zertifikat</strong> (OV-Zertifikat eines anerkannten Zertifizierungsdienstes). Die App wird mit einem <strong>selbstsignierten Entwicklerzertifikat</strong> ausgeliefert.</p>
+<p><strong>Auswirkung:</strong> Beim Start oder nach Updates kann <strong>Antivirus-Software</strong> (z. B. Avira, Windows Defender) eine <strong>Warnung</strong> anzeigen — z. B. „unbekannter Herausgeber“ oder auffälliges Verhalten bei PDF-Massenbearbeitung. Dies ist <strong>kein Hinweis auf Schadsoftware</strong>, sondern folgt aus der fehlenden offiziellen Signatur.</p>
+<p><strong>Abhilfe:</strong> Einmalige Freigabe in der IT bzw. Bestätigung des mitgelieferten Zertifikats (<code>CodeSigning.cer</code>) bei der Installation. Nach Festinstallation unter <code>C:\Program Files\DOK-V01\</code> die Desktop-Verknüpfung nutzen.</p>
+<p><strong>Preisbezug:</strong> Ein offizielles Händlerzertifikat kostet <strong>ca. 220–280 € pro Jahr</strong> und müsste in den Lizenzpreis eingerechnet werden. Um den <strong>Einmalkaufpreis niedrig zu halten</strong>, ist dieses Zertifikat <strong>nicht</strong> enthalten. Mit offiziellem Zertifikat wäre die App entsprechend <strong>teurer</strong>.</p>
+
+<h2>Rechtliches</h2>
+<p>Software als <strong>proprietäre Einzellizenz</strong>. Nutzung nur für den oben genannten Auftraggeber. Weitergabe, Unterlizenzierung oder Veröffentlichung ohne schriftliche Zustimmung nicht gestattet.</p>
+
+<div class="signature">
+  <p><strong>Unterschrift Anbieter</strong></p>
+  <p>Alexander Hölzer</p>
+  <div class="signature-line"></div>
+  <p>Datum: ___________</p>
+</div>
+
+</body>
+</html>

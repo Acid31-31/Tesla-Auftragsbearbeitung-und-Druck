@@ -65,9 +65,10 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Image Grid.Column="0" Source="pack://application:,,,/Assets/AppLogo.png"
-                       Width="48" Height="48" Margin="0,0,16,0"/>
+                       Height="48" Margin="0,0,16,0" Stretch="Uniform"
+                       SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="DOK-V01 Setup" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource HeaderForeground}"/>
+                    <TextBlock Text="Setup" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource HeaderForeground}"/>
                     <TextBlock x:Name="StepTitleTextBlock" FontSize="13" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
                 </StackPanel>
             </Grid>
@@ -78,7 +79,7 @@
                 <StackPanel x:Name="WelcomePanel" Visibility="Visible">
                     <TextBlock Text="Willkommen beim Installationsassistenten" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
                     <TextBlock TextWrapping="Wrap" FontSize="14" LineHeight="22"
-                               Text="Dieser Assistent installiert DOK-V01 fest auf Ihrem Computer. Bitte lesen Sie die Lizenz- und Urheberrechtsbedingungen auf der nächsten Seite."/>
+                               Text="Dieser Assistent richtet DOK-V01 im gewählten Ordner ein — standardmäßig hier, wo USB-Stick oder kopierter Ordner liegt. Programm, Ablage und Einstellungen bleiben zusammen in diesem Ordner."/>
                     <TextBlock x:Name="WelcomeVersionTextBlock" Margin="0,16,0,8" FontSize="13" Style="{StaticResource WizardSecondaryText}"/>
                     <TextBlock x:Name="WelcomeCopyrightTextBlock" TextWrapping="Wrap" FontSize="13" Style="{StaticResource WizardSecondaryText}"/>
                 </StackPanel>
@@ -103,15 +104,22 @@
                 <StackPanel x:Name="OptionsPanel" Visibility="Collapsed">
                     <TextBlock Text="Installationsoptionen" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
                     <TextBlock Text="Zielordner:" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TargetPathTextBox" Style="{StaticResource WizardTextBox}" IsReadOnly="True" Margin="0,0,0,12"/>
-                    <TextBlock Text="Benutzerdaten (PDF-Ablage):" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="TargetPathTextBox" Grid.Column="0" Style="{StaticResource WizardTextBox}" Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" Content="Durchsuchen…" Click="BrowseTargetFolder_Click" Style="{StaticResource WizardButton}" MinWidth="120"/>
+                    </Grid>
+                    <TextBlock Text="Ablage (PDF-Arbeitsordner):" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBox x:Name="UserDataPathTextBox" Style="{StaticResource WizardTextBox}" IsReadOnly="True" Margin="0,0,0,16"/>
                     <CheckBox x:Name="InstallCertificateCheckBox" Style="{StaticResource WizardCheckBox}"
                               Content="Herausgeber-Zertifikat installieren (empfohlen für Antivirus-Freigabe)" IsChecked="True"/>
                     <CheckBox x:Name="LaunchAfterInstallCheckBox" Style="{StaticResource WizardCheckBox}"
                               Content="DOK-V01 nach der Installation starten" IsChecked="True"/>
                     <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" FontSize="12" Style="{StaticResource WizardSecondaryText}"
-                               Text="Für die Festinstallation ist eine einmalige Windows-Administratorfreigabe (UAC) erforderlich."/>
+                               Text="Standard: dieser Ordner (USB oder kopierter DOK-V01-Ordner). Sie können bei Bedarf einen anderen Ordner wählen — Programm und Ablage liegen dann gemeinsam dort."/>
                 </StackPanel>
 
                 <StackPanel x:Name="ProgressPanel" Visibility="Collapsed" VerticalAlignment="Center">

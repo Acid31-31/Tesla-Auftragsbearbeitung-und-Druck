@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Forms;
 using PDF_umbenenen.Models;
 using PDF_umbenenen.Services;
 
@@ -21,8 +23,8 @@ namespace PDF_umbenenen
             WelcomeCopyrightTextBlock.Text = LicenseContentService.GetCopyrightSummary();
             FooterCopyrightTextBlock.Text = LicenseContentService.GetCopyrightSummary();
             LicenseTextBlock.Text = LicenseContentService.LoadLicenseText();
-            TargetPathTextBox.Text = AppInfo.DefaultInstallDirectory;
-            UserDataPathTextBox.Text = System.IO.Path.Combine(AppInfo.UserDataDirectory, "Ablage");
+            TargetPathTextBox.Text = AppInfo.GetSuggestedInstallDirectory();
+            UpdateWorkspacePreview();
 
             Loaded += InstallWizardWindow_Loaded;
             ShowStep(0);
@@ -36,6 +38,32 @@ namespace PDF_umbenenen
             _isRunning = true;
             ShowStep(3);
             await RunInstallAsync(pending).ConfigureAwait(true);
+        }
+
+        private void UpdateWorkspacePreview()
+        {
+            var target = (TargetPathTextBox.Text ?? string.Empty).Trim();
+            UserDataPathTextBox.Text = string.IsNullOrWhiteSpace(target)
+                ? string.Empty
+                : Path.Combine(target, "Ablage");
+        }
+
+        private void BrowseTargetFolder_Click(object sender, RoutedEventArgs e)
+        {
+            using (var dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = "Installationsordner für DOK-V01 wählen";
+                dialog.ShowNewFolderButton = true;
+                if (!string.IsNullOrWhiteSpace(TargetPathTextBox.Text))
+                    dialog.SelectedPath = TargetPathTextBox.Text;
+
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK
+                    && !string.IsNullOrWhiteSpace(dialog.SelectedPath))
+                {
+                    TargetPathTextBox.Text = dialog.SelectedPath;
+                    UpdateWorkspacePreview();
+                }
+            }
         }
 
         private void ShowStep(int step)
@@ -83,14 +111,13 @@ namespace PDF_umbenenen
         {
             if (_step == 1 && AcceptLicenseCheckBox.IsChecked != true)
             {
-                MessageBox.Show(this, "Bitte akzeptieren Sie die Lizenz- und Urheberrechtsbedingungen.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                System.Windows.MessageBox.Show(this, "Bitte akzeptieren Sie die Lizenz- und Urheberrechtsbedingungen.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (_step < 2)
             {
                 ShowStep(_step + 1);
-                return;
             }
         }
 
@@ -98,8 +125,15 @@ namespace PDF_umbenenen
         {
             if (AcceptLicenseCheckBox.IsChecked != true)
             {
-                MessageBox.Show(this, "Bitte akzeptieren Sie zuerst die Lizenzbedingungen.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                System.Windows.MessageBox.Show(this, "Bitte akzeptieren Sie zuerst die Lizenzbedingungen.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
                 ShowStep(1);
+                return;
+            }
+
+            var targetDirectory = (TargetPathTextBox.Text ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(targetDirectory))
+            {
+                System.Windows.MessageBox.Show(this, "Bitte wählen Sie einen Installationsordner.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -108,21 +142,9 @@ namespace PDF_umbenenen
                 LicenseAccepted = true,
                 InstallPublisherCertificate = InstallCertificateCheckBox.IsChecked == true,
                 LaunchAfterInstall = LaunchAfterInstallCheckBox.IsChecked == true,
-                SourceDirectory = InstallationService.GetSourceDirectory()
+                SourceDirectory = InstallationService.GetSourceDirectory(),
+                TargetDirectory = targetDirectory
             };
-
-            if (!AdminElevationService.IsRunningAsAdministrator())
-            {
-                InstallSessionStore.SavePending(options);
-                if (!AdminElevationService.TryRelaunchAsAdministrator())
-                {
-                    MessageBox.Show(this, "Administratorfreigabe abgebrochen.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                Close();
-                return;
-            }
 
             _isRunning = true;
             ShowStep(3);
@@ -134,6 +156,7 @@ namespace PDF_umbenenen
             var progress = new Progress<string>(message => ProgressStatusTextBlock.Text = message);
             var result = await Task.Run(() => InstallationService.RunInstall(
                 options.SourceDirectory,
+                options.TargetDirectory,
                 options.InstallPublisherCertificate,
                 options.LaunchAfterInstall,
                 progress)).ConfigureAwait(true);
@@ -141,14 +164,15 @@ namespace PDF_umbenenen
             _isRunning = false;
             if (!result.Success)
             {
-                MessageBox.Show(this, result.Message, Title, MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Windows.MessageBox.Show(this, result.Message, Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 ShowStep(2);
                 return;
             }
 
+            var installDir = Path.GetFullPath(options.TargetDirectory);
             FinishMessageTextBlock.Text =
-                "DOK-V01 wurde installiert unter:\n" + AppInfo.DefaultInstallDirectory
-                + "\n\nArbeitsdaten:\n" + System.IO.Path.Combine(AppInfo.UserDataDirectory, "Ablage")
+                "DOK-V01 wurde installiert unter:\n" + installDir
+                + "\n\nAblage und Einstellungen:\n" + Path.Combine(installDir, "Ablage")
                 + "\n\nBitte starten Sie die Anwendung künftig über die Desktop-Verknüpfung.";
             ShowStep(4);
         }

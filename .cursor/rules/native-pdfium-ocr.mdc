@@ -1,0 +1,23 @@
+---
+description: pdfium, Docnet, Tesseract – native Abhängigkeiten
+globs: Services/NativeDependencyService.cs,Services/PdfRasterLayoutService.cs,Services/TesseractInstallService.cs,Services/**/*Ocr*,install-*.ps1
+alwaysApply: false
+---
+
+# Native Abhängigkeiten
+
+## pdfium / Docnet
+- `pdfium.dll` muss zur Prozess-Bitness passen (64-Bit Release → `native\win-x64\pdfium.dll`)
+- Fehler `0x8007000B` oder „pdfium fehlt“ → `NativeDependencyService.TryRepairAndReload`
+- Release-ZIP und USB-Version müssen Ordner `native\` enthalten (seit R37)
+- Vorschau: `PdfMergedPreviewWindow` – nutzerfreundliche Meldungen, kein `install-docnet.ps1` in UI
+
+## Tesseract (optional)
+- Nur für **OCR** (Schriftfeld ohne Textlayer), nicht für Layout-Platzierung
+- Layout/Platzierung = **pdfium-Raster** (`PdfRasterLayoutService`)
+- Einstellungen: `ai-settings.xml` → `LocalOcrEnabled`, `TesseractPath`
+- Install: `install-tesseract.ps1`
+
+## Nach pdfium-Änderungen
+- `PdfRasterLayoutService.ResetAvailability()` beim App-Start (`App.xaml.cs`)
+- Debug + Release testen, Preview-Fenster öffnen

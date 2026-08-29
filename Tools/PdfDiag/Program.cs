@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using iTextSharp.text.pdf;
 using PDF_umbenenen;
 using PDF_umbenenen.Services;
-using PDF_umbenenen.Services.Ai;
+using PDF_umbenenen.Services.Cli;
 
 namespace PdfDiag
 {
@@ -18,6 +18,13 @@ namespace PdfDiag
 
         private static int Main(string[] args)
         {
+            if (args.Any(a => string.Equals(a, "--license-key", StringComparison.OrdinalIgnoreCase)))
+                return RunLicenseKeyTool(args);
+
+            var frameTestPath = GetArgValue(args, "--frame-test");
+            if (!string.IsNullOrWhiteSpace(frameTestPath))
+                return RunFrameBoundsTest(frameTestPath);
+
             var rulesOnly = args.Contains("--rules-only", StringComparer.OrdinalIgnoreCase);
             var dumpText = args.Contains("--dump-text", StringComparer.OrdinalIgnoreCase);
             var watermarkTestFolder = GetArgValue(args, "--watermark-test");
@@ -43,11 +50,10 @@ namespace PdfDiag
 
             PdfMaterialExtractionService.ClearCache();
             PdfLayoutAnalysisService.ClearCache();
-            if (!rulesOnly)
-                OllamaMaterialThicknessService.ClearCache();
+            PdfVectorOccupancyService.ClearCache();
             PdfRasterLayoutService.ClearCache();
 
-            Console.WriteLine("Ollama: " + (rulesOnly ? "SKIP" : (CheckOllama() ? "OK" : "NICHT ERREICHBAR")));
+            Console.WriteLine("OCR (Tesseract): " + (TesseractCliService.IsAvailable() ? "OK" : "NICHT GEFUNDEN"));
             Console.WriteLine("Raster: " + PdfRasterLayoutService.IsAvailable);
             Console.WriteLine();
 
@@ -57,7 +63,6 @@ namespace PdfDiag
                 Console.WriteLine("Pages: " + reader.NumberOfPages);
                 Console.WriteLine(new string('=', 110));
 
-                var ollamaHits = 0;
                 var finalHits = 0;
                 var materialHits = 0;
                 var classHits = 0;
@@ -69,7 +74,6 @@ namespace PdfDiag
                         continue;
 
                     var stats = DumpPage(pdfPath, page, rulesOnly, dumpText);
-                    if (stats.OllamaUsed) ollamaHits++;
                     if (stats.HasFinalThickness) finalHits++;
                     if (stats.HasMaterial) materialHits++;
                     if (stats.HasClass) classHits++;
@@ -77,31 +81,14 @@ namespace PdfDiag
                 }
 
                 Console.WriteLine(new string('=', 110));
-                Console.WriteLine($"Summary | thickness: {finalHits} | material: {materialHits} | class ST/VA/ALU: {classHits} | assembly empty: {assembly} | ollama: {ollamaHits}");
+                Console.WriteLine($"Summary | thickness: {finalHits} | material: {materialHits} | class ST/VA/ALU: {classHits} | assembly empty: {assembly}");
             }
 
             return 0;
         }
 
-        private static bool CheckOllama()
-        {
-            try
-            {
-                using (var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(5) })
-                {
-                    var resp = client.GetAsync("http://localhost:11434/api/tags").GetAwaiter().GetResult();
-                    return resp.IsSuccessStatusCode;
-                }
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
         private struct PageStats
         {
-            public bool OllamaUsed;
             public bool HasFinalThickness;
             public bool HasMaterial;
             public bool HasClass;
@@ -119,6 +106,28 @@ namespace PdfDiag
             return null;
         }
 
+        private static int RunLicenseKeyTool(string[] args)
+        {
+            var machineCode = GetArgValue(args, "--license-key");
+            if (string.Equals(machineCode, "--license-key", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(machineCode))
+            {
+                // Aufruf nur mit --license-key ohne Wert → Schlüssel für diesen PC + Master
+                machineCode = null;
+            }
+
+            Console.WriteLine("DOK-V01 Lizenzschlüssel");
+            Console.WriteLine("PC-Code (dieser Rechner): " + LicenseActivationService.GetMachineCode());
+            Console.WriteLine("Maschinen-Schlüssel:     " + LicenseActivationService.GenerateMachineKey(machineCode));
+#if DEBUG
+            Console.WriteLine("Universal-Schlüssel:     " + LicenseActivationService.GenerateMasterKey());
+#endif
+            Console.WriteLine();
+            Console.WriteLine("Hinweis: Für einen fremden PC den Kunden-PC-Code angeben:");
+            Console.WriteLine("  PdfDiag --license-key ABCD-EF01-2345");
+            return 0;
+        }
+
         private static int RunWatermarkPlacementTest(string folder)
         {
             if (!Directory.Exists(folder))
@@ -128,6 +137,7 @@ namespace PdfDiag
             }
 
             PdfLayoutAnalysisService.ClearCache();
+            PdfVectorOccupancyService.ClearCache();
             PdfRasterLayoutService.ClearCache();
 
             var settings = WatermarkSettingsStore.Load();
@@ -161,6 +171,9 @@ namespace PdfDiag
             var okCount = 0;
             var warnCount = 0;
 
+            WatermarkProcessingContext.BatchMode = true;
+            try
+            {
             foreach (var file in files)
             {
                 var analysisPath = file;
@@ -176,6 +189,8 @@ namespace PdfDiag
                 }
 
                 var placements = SmartWatermarkLayoutService.Compute(analysisPath, 1, fieldData, drawing, pageWidth, pageHeight, settings);
+                MaterialWatermarkGuardService.EnforceFinalLockBeforeWrite(
+                    placements, analysisPath, 1, pageWidth, pageHeight, drawing);
                 var learned = WatermarkLearningStore.TryGet(drawing);
                 var source = learned != null ? "Zeichnung+KI" : "KI-Kategorie";
 
@@ -190,14 +205,56 @@ namespace PdfDiag
                 }
 
                 var fileOk = true;
+                var materialPlacements = placements
+                    .Where(p => p != null && string.Equals(p.Category, "Material", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                var materialTested = false;
+
                 foreach (var placement in placements)
                 {
                     if (string.IsNullOrWhiteSpace(placement?.Text))
                         continue;
 
+                    var isMaterial = string.Equals(placement.Category, "Material", StringComparison.OrdinalIgnoreCase);
+                    if (isMaterial)
+                    {
+                        if (materialTested)
+                            continue;
+
+                        materialTested = true;
+                        var topLine = materialPlacements
+                            .OrderByDescending(p => p.Y)
+                            .FirstOrDefault();
+                        if (topLine == null)
+                            continue;
+
+                        var matVerdict = MaterialWatermarkGuardService.ValidateMaterialStack(
+                            materialPlacements, analysisPath, 1, pageWidth, pageHeight, strictDarkness: false);
+
+                        var matDarkness = matVerdict.Darkness;
+                        var matOk = matVerdict.IsGeometrySafe;
+                        var matStatus = matVerdict.ToShortGerman();
+                        var matRect = matVerdict.Bounds?.ToRectString() ?? "-";
+                        if (!matOk)
+                        {
+                            fileOk = false;
+                            warnCount++;
+                        }
+
+                        Console.WriteLine(string.Format(
+                            "  {0,-10} rel=({1:0.00},{2:0.00}) dunkel={3:0.000} {4} rect={5} | {6}",
+                            "Material",
+                            topLine.X / pageWidth,
+                            topLine.Y / pageHeight,
+                            matDarkness,
+                            matStatus,
+                            matRect,
+                            TrimText(string.Join(" / ", materialPlacements.Select(p => p.Text)), 40)));
+                        continue;
+                    }
+
                     var blockWidth = Math.Max(20f, (placement.Text?.Length ?? 1) * placement.FontSize * 0.55f);
                     var blockHeight = placement.FontSize + 8f;
-                    var isMaterial = string.Equals(placement.Category, "Material", StringComparison.OrdinalIgnoreCase);
                     var darkness = PdfRasterLayoutService.IsAvailable
                         ? PdfRasterLayoutService.MeasurePlacementDarkness(
                             analysisPath, 1, placement.X, placement.Y, blockWidth, blockHeight, pageWidth, pageHeight, placement.Alignment)
@@ -205,7 +262,7 @@ namespace PdfDiag
 
                     var acceptable = !PdfRasterLayoutService.IsAvailable
                         || PdfRasterLayoutService.IsPlacementAcceptable(
-                            analysisPath, 1, placement.X, placement.Y, blockWidth, blockHeight, pageWidth, pageHeight, placement.Alignment, isMaterial);
+                            analysisPath, 1, placement.X, placement.Y, blockWidth, blockHeight, pageWidth, pageHeight, placement.Alignment, isMaterial: false);
 
                     var status = acceptable ? "OK" : "AUF BAUTEIL";
                     if (!acceptable)
@@ -226,6 +283,11 @@ namespace PdfDiag
 
                 if (fileOk)
                     okCount++;
+            }
+            }
+            finally
+            {
+                WatermarkProcessingContext.BatchMode = false;
             }
 
             Console.WriteLine();
@@ -261,12 +323,12 @@ namespace PdfDiag
 
             PdfMaterialExtractionService.ClearCache();
             PdfLayoutAnalysisService.ClearCache();
-            if (!rulesOnly)
-                OllamaMaterialThicknessService.ClearCache();
+            PdfVectorOccupancyService.ClearCache();
             PdfRasterLayoutService.ClearCache();
 
             Console.WriteLine("Batch | Ordner: " + folder);
-            Console.WriteLine("Modus: " + (rulesOnly ? "Regeln+Raster (schnell)" : "inkl. Ollama"));
+            Console.WriteLine("Modus: " + (rulesOnly ? "nur Regeln (ohne OCR)" : "Regeln + OCR (Tesseract)"));
+            Console.WriteLine("OCR (Tesseract): " + (TesseractCliService.IsAvailable() ? "OK" : "NICHT GEFUNDEN"));
             Console.WriteLine(new string('=', 120));
             Console.WriteLine(string.Format("{0,-32} {1,-18} {2,-12} {3}", "Datei", "Watermark", "Dicke", "Material"));
             Console.WriteLine(new string('-', 120));
@@ -346,7 +408,6 @@ namespace PdfDiag
                 .ToArray();
             var primaryTsl = tslNumbers.FirstOrDefault() ?? string.Empty;
 
-            var ollamaOnly = rulesOnly ? null : OllamaMaterialThicknessService.TryExtract(pdfPath, page);
             var combined = PdfMaterialExtractionService.Extract(pdfPath, page);
 
             if (dumpText)
@@ -357,28 +418,125 @@ namespace PdfDiag
                 HasFinalThickness = !string.IsNullOrWhiteSpace(combined.ThicknessText),
                 HasMaterial = !string.IsNullOrWhiteSpace(combined.MaterialType),
                 HasClass = !string.IsNullOrWhiteSpace(combined.MaterialAlloyPrefix),
-                IsAssembly = ollamaOnly != null && ollamaOnly.IsAssembly && string.IsNullOrWhiteSpace(combined.ThicknessText),
-                OllamaUsed = ollamaOnly != null && (!string.IsNullOrWhiteSpace(ollamaOnly.ThicknessText) || !string.IsNullOrWhiteSpace(ollamaOnly.MaterialType))
+                IsAssembly = combined.IsAssembly || PdfMaterialExtractionService.DiagnoseIsAssemblyDrawing(pdfPath, page)
             };
 
             Console.WriteLine($"Page {page,2} | {primaryTsl}");
-            Console.WriteLine($"         Assembly: {PdfMaterialExtractionService.DiagnoseIsAssemblyDrawing(pdfPath, page)}");
-            Console.WriteLine($"         Ollama -> assy:{(ollamaOnly?.IsAssembly == true ? "yes" : "no")} | thickness:'{ollamaOnly?.ThicknessText ?? ""}' | material:'{ollamaOnly?.MaterialType ?? ""}'");
-            if (string.Equals(Environment.GetEnvironmentVariable("PDF_OLLAMA_DEBUG"), "1", StringComparison.OrdinalIgnoreCase))
-            {
-                var raw = OllamaMaterialThicknessService.LastRawResponse ?? string.Empty;
-                var err = OllamaMaterialThicknessService.LastParseError ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(err))
-                    Console.WriteLine("         Debug  -> error: " + err);
-                if (!string.IsNullOrWhiteSpace(raw))
-                {
-                    var preview = raw.Length > 220 ? raw.Substring(0, 220) + "..." : raw;
-                    Console.WriteLine("         Debug  -> raw: " + preview.Replace("\r", " ").Replace("\n", " "));
-                }
-            }
+            Console.WriteLine($"         Assembly: {PdfMaterialExtractionService.DiagnoseIsAssemblyDrawing(pdfPath, page)} | Tube: {PdfMaterialExtractionService.DiagnoseIsTubePart(pdfPath, page)}");
+            Console.WriteLine($"         OCR: {TitleBlockOcrService.LastError ?? "-"}");
             Console.WriteLine($"         Final  -> watermark:'{combined.MaterialWatermarkText ?? ""}' | thickness:'{combined.ThicknessText ?? ""}' | material:'{combined.MaterialType ?? ""}' | class:'{combined.MaterialAlloyPrefix ?? ""}'");
             Console.WriteLine(new string('-', 110));
             return stats;
+        }
+
+        private static int RunFrameBoundsTest(string pdfPath)
+        {
+            if (!File.Exists(pdfPath))
+            {
+                Console.WriteLine("Datei nicht gefunden: " + pdfPath);
+                return 2;
+            }
+
+            PdfRasterLayoutService.ClearCache();
+            Console.WriteLine("Raster: " + PdfRasterLayoutService.IsAvailable);
+            Console.WriteLine("Status: " + PdfRasterLayoutService.GetStatus());
+            Console.WriteLine("PDF: " + pdfPath);
+
+            if (!PdfWatermarkService.TryGetPageSize(pdfPath, 1, out var pageWidth, out var pageHeight))
+            {
+                pageWidth = 595f;
+                pageHeight = 842f;
+            }
+
+            Console.WriteLine($"PageSize: {pageWidth:0.###} x {pageHeight:0.###}");
+
+            var freeAbove = PdfRasterLayoutService.MeasureFreeTopMarginPt(pdfPath, 1, pageWidth, pageHeight);
+            Console.WriteLine($"FreeTopMarginPt: {freeAbove:0.###}");
+
+            PdfRasterLayoutService.DumpTopMarginProfile(pdfPath, 1, pageWidth, pageHeight);
+
+            var ok = PdfRasterLayoutService.TryGetDrawingFrameBounds(
+                pdfPath, 1, pageWidth, pageHeight,
+                out var left, out var right, out var top);
+            Console.WriteLine($"FrameBounds ok={ok} left={left:0.###} right={right:0.###} top={top:0.###}");
+
+            var bandY = WatermarkPageScale.GetSharedTopBandBaselineY(pageWidth, pageHeight, 28f, pdfPath, 1, 1);
+            Console.WriteLine($"SharedTopBandBaselineY: {bandY:0.###}");
+            Console.WriteLine($"FallbackTopLeftMargin: {WatermarkPageScale.GetTopLeftMargin(pageWidth, pageHeight):0.###}");
+            Console.WriteLine($"FallbackMaxTopBaselineY: {WatermarkPageScale.GetMaxTopBaselineY(pageWidth, pageHeight, 28f):0.###}");
+
+            // Liefertermin-Position prüfen (links vs. rechts unter Auftrag).
+            // BatchMode: kein schweres Material-/Vision-Layout — nur Top-Band-Reflow.
+            WatermarkProcessingContext.BatchMode = true;
+            try
+            {
+                foreach (var side in new[] { DeliveryDatePosition.TopLeft, DeliveryDatePosition.TopRight })
+                {
+                    WatermarkProcessingContext.DeliveryDatePosition = side;
+                    var workPdf = pdfPath;
+                    string tempPdf = null;
+                    try
+                    {
+                        if (side == DeliveryDatePosition.TopRight)
+                        {
+                            tempPdf = Path.Combine(Path.GetTempPath(), "dok-frame-topright-" + Guid.NewGuid().ToString("N") + ".pdf");
+                            File.Copy(pdfPath, tempPdf, true);
+                            PdfPageMarginExpansionService.TryExpandSourceInPlace(
+                                tempPdf, 1, pageWidth, pageHeight);
+                            workPdf = tempPdf;
+                            PdfRasterLayoutService.ClearCache();
+                        }
+
+                        if (!PdfWatermarkService.TryGetPageSize(workPdf, 1, out var w, out var h))
+                        {
+                            w = pageWidth;
+                            h = pageHeight;
+                        }
+
+                        var fields = SmartWatermarkLayoutService.BuildFieldData(
+                            new List<(string, string, string, string, string)>
+                            {
+                                ("32X", "02.07.2026", "Neuwied", "", "TESTORDER")
+                            },
+                            new List<string> { "TESTORDER" });
+                        var settings = WatermarkSettingsStore.Load();
+                        settings.ExtractMaterialType = false;
+                        settings.ExtractMaterialThickness = false;
+                        settings.ExtractPowderCoating = false;
+                        settings.ExtractAnodizing = false;
+                        var placements = SmartWatermarkLayoutService.Compute(
+                            workPdf, 1, fields, "TEST", w, h, settings);
+                        var q = placements.FirstOrDefault(p => p != null && p.Category == "Quantity");
+                        var o = placements.FirstOrDefault(p => p != null && p.Category == "Order");
+                        var orderOnPage = o != null && o.Y <= h && o.Y > 0f;
+                        var qtyOnPage = q != null && q.Y <= h && q.Y > 0f;
+                        var qtyInside = false;
+                        if (q != null
+                            && PdfRasterLayoutService.TryGetDrawingFrameBounds(
+                                workPdf, 1, w, h, out _, out _, out var ft))
+                        {
+                            qtyInside = q.Y < ft;
+                        }
+
+                        Console.WriteLine(
+                            $"Delivery={side}: Qty x={q?.X:0.#} y={q?.Y:0.#} align={q?.Alignment} onPage={qtyOnPage} inside={qtyInside} | Order x={o?.X:0.#} y={o?.Y:0.#} align={o?.Alignment} onPage={orderOnPage} pageH={h:0.#}");
+                    }
+                    finally
+                    {
+                        if (!string.IsNullOrEmpty(tempPdf) && File.Exists(tempPdf))
+                        {
+                            try { File.Delete(tempPdf); } catch { /* ignore */ }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                WatermarkProcessingContext.BatchMode = false;
+                WatermarkProcessingContext.ClearDeliveryDatePositionOverride();
+            }
+
+            return ok ? 0 : 3;
         }
     }
 }

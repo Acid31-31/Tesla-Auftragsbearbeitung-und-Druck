@@ -47,10 +47,19 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" Background="{DynamicResource HeaderBackground}" BorderBrush="{DynamicResource GroupBorder}" BorderThickness="0,0,0,1" Padding="24,16">
-            <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="DOK-V01 deinstallieren" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource HeaderForeground}"/>
-                <TextBlock x:Name="StepTitleTextBlock" FontSize="13" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Image Grid.Column="0" Source="pack://application:,,,/Assets/AppLogo.png"
+                       Height="48" Margin="0,0,16,0" Stretch="Uniform"
+                       SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Deinstallation" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource HeaderForeground}"/>
+                    <TextBlock x:Name="StepTitleTextBlock" FontSize="13" Foreground="{DynamicResource TextSecondary}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <Border Grid.Row="1" Margin="24,16" Background="{DynamicResource CardBackground}" BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1" CornerRadius="8" Padding="20">
@@ -59,12 +68,12 @@
                     <TextBlock Text="Möchten Sie DOK-V01 deinstallieren?" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
                     <TextBlock TextWrapping="Wrap" FontSize="14" LineHeight="22" Margin="0,0,0,12"
                                Text="Folgende Komponenten werden entfernt:"/>
-                    <TextBlock Text="• Programmdateien in C:\Program Files\DOK-V01" Margin="12,0,0,4"/>
+                    <TextBlock Text="• Programmdateien im Installationsordner" Margin="12,0,0,4"/>
                     <TextBlock Text="• Desktop-Verknüpfung DOK-V01.lnk" Margin="12,0,0,12"/>
                     <CheckBox x:Name="RemoveUserDataCheckBox" Style="{StaticResource WizardCheckBox}"
-                              Content="Benutzerdaten ebenfalls löschen (Ablage, Einstellungen in AppData)"/>
+                              Content="Installationsordner vollständig löschen (inkl. Ablage und Einstellungen)"/>
                     <TextBlock x:Name="NotInstalledTextBlock" Margin="0,16,0,0" Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold" Visibility="Collapsed"
-                               Text="Es wurde keine Festinstallation gefunden."/>
+                               Text="Es wurde keine Installation gefunden."/>
                 </StackPanel>
 
                 <StackPanel x:Name="ProgressPanel" Visibility="Collapsed" VerticalAlignment="Center">

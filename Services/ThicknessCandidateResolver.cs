@@ -260,6 +260,16 @@ namespace PDF_umbenenen.Services
                 return thin;
             }
 
+            if (HasFractionalPart(thin)
+                && thin <= 3.5d
+                && IsStandardSheetGauge(thin, 0.12d)
+                && IsWholeNumber(thick)
+                && thick >= 4d
+                && thickScore > thinScore + 15f)
+            {
+                return thin;
+            }
+
             return thickScore <= thinScore + 25f ? thick : thin;
         }
 
@@ -283,6 +293,17 @@ namespace PDF_umbenenen.Services
                 .ToList();
             if (usable.Count == 0)
                 usable = thinCandidates.ToList();
+
+            var thinFractional = usable
+                .Where(c => HasFractionalPart(c.Value)
+                            && c.Value >= 0.8d
+                            && c.Value <= 3.5d
+                            && IsStandardSheetGauge(c.Value, 0.12d))
+                .OrderBy(c => c.Score)
+                .ThenBy(c => StandardGaugeDistance(c.Value))
+                .ToList();
+            if (thinFractional.Count > 0)
+                return thinFractional[0].Value;
 
             var standardGauge = usable
                 .Where(c => IsStandardSheetGauge(c.Value, 0.12d) && c.Value <= MaxAutoDetectedSheetMm)
@@ -366,13 +387,33 @@ namespace PDF_umbenenen.Services
                 return;
 
             var text = System.Text.RegularExpressions.Regex.Replace(raw.Trim(), @"mm", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
-            if (!double.TryParse(text, NumberStyles.Any, CultureInfo.GetCultureInfo("de-DE"), out var value)
-                && !double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out value))
-            {
+            if (!TryParseThicknessMm(text, out var value))
                 return;
-            }
 
             AddCandidate(list, value, priority, source, suspectWatermark);
+        }
+
+        /// <summary>
+        /// Parst Blechdicken. CAD nutzt oft "1.5" – unter de-DE darf der Punkt kein Tausender sein (sonst 15).
+        /// </summary>
+        public static bool TryParseThicknessMm(string text, out double value)
+        {
+            value = 0d;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var cleaned = text.Trim();
+            if (System.Text.RegularExpressions.Regex.IsMatch(cleaned, @"^\d+[.,]\d{1,3}$"))
+            {
+                var invariant = cleaned.Replace(',', '.');
+                return double.TryParse(invariant, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value);
+            }
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(cleaned, @"^\d{1,3}$"))
+                return double.TryParse(cleaned, NumberStyles.None, CultureInfo.InvariantCulture, out value);
+
+            var normalized = cleaned.Replace(',', '.');
+            return double.TryParse(normalized, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value);
         }
 
         public static double? ResolveBestMm(IList<ThicknessCandidate> candidates, string materialRaw = null)
@@ -454,6 +495,79 @@ namespace PDF_umbenenen.Services
             return PickBestQuality(usable).ValueMm;
         }
 
+        /// <summary>
+        /// Korrigiert z. B. 20 mm aus Seitenansicht-Höhe, wenn Schriftfeld/OCR 5 mm liefert.
+        /// Auch 15 statt 1,5 (Komma verloren) und 6 statt 1,5 (falsche Seitenansicht).
+        /// </summary>
+        public static double? CorrectOversizedPlateGuess(
+            double? resultMm,
+            IList<ThicknessCandidate> candidates,
+            string materialRaw)
+        {
+            if (!resultMm.HasValue || candidates == null || candidates.Count == 0)
+                return resultMm;
+
+            var value = resultMm.Value;
+            var trustedThin = candidates
+                .Where(c => !c.SuspectWatermark)
+                .Where(c => c.ValueMm >= 0.8d && c.ValueMm <= 6.5d)
+                .Where(c => !IsLikelyHoleDiameterMm(c.ValueMm))
+                .Where(c => !IsMaterialNumberThicknessFalsePositive(c.ValueMm, materialRaw, c.Source, c.Source))
+                .Where(c =>
+                    IsExplicitThicknessSource(c.Source)
+                    || string.Equals(c.Source, "schriftfeld-label", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Source, "schriftfeld-thk", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Source, "ocr-schriftfeld", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(ComputeQualityScore)
+                .ThenByDescending(c => c.Priority)
+                .ToList();
+
+            if (trustedThin.Count > 0)
+            {
+                var thin = trustedThin[0].ValueMm;
+
+                // 15 statt 1,5 / 25 statt 2,5: Komma in OCR/Text verloren.
+                if (IsWholeNumber(value)
+                    && value >= 10d
+                    && value <= 30d
+                    && HasFractionalPart(thin)
+                    && Math.Abs((thin * 10d) - value) < 0.15d)
+                {
+                    return thin;
+                }
+
+                // Explizite Blechdicke schlägt Seitenansicht/Raster (z. B. 6 mm statt 1,5 mm).
+                if (Math.Abs(value - thin) > 0.35d
+                    && (value >= 4d || !HasExplicitSourceForValue(candidates, value)))
+                {
+                    return thin;
+                }
+            }
+
+            if (value < 7.5d || !IsWholeNumber(value))
+                return resultMm;
+
+            if (HasExplicitSourceForValue(candidates, value))
+                return resultMm;
+
+            if (trustedThin.Count > 0)
+                return trustedThin[0].ValueMm;
+
+            var typicalThin = candidates
+                .Where(c => !c.SuspectWatermark)
+                .Where(c => IsTypicalSheetThickness(c.ValueMm))
+                .Where(c => !IsLikelyHoleDiameterMm(c.ValueMm))
+                .Where(c => !IsMaterialNumberThicknessFalsePositive(c.ValueMm, materialRaw, c.Source, c.Source))
+                .OrderByDescending(ComputeQualityScore)
+                .ThenByDescending(c => c.Priority)
+                .ToList();
+
+            if (typicalThin.Count > 0 && value > MaxAutoDetectedSheetMm + 2d)
+                return typicalThin[0].ValueMm;
+
+            return resultMm;
+        }
+
         public static bool HasExplicitSourceForValue(IList<ThicknessCandidate> candidates, double valueMm)
         {
             if (candidates == null || candidates.Count == 0)
@@ -502,16 +616,19 @@ namespace PDF_umbenenen.Services
                 case "inline-glued":
                 case "inline-t":
                 case "label":
+                case "blechdicke":
+                case "blechdicke-rect":
+                case "blechdicke-nachbar":
                 case "schriftfeld-thk":
                 case "schriftfeld-label":
-                case "seitenansicht-platte":
+                case "ocr-schriftfeld":
                     return true;
                 default:
                     return false;
             }
         }
 
-        private static bool IsSideViewSource(string source)
+        internal static bool IsSideViewSource(string source)
         {
             if (string.IsNullOrWhiteSpace(source))
                 return false;

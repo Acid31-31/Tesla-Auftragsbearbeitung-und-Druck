@@ -1,0 +1,36 @@
+---
+description: Sicherheit, Release, Git – absolute Verbote und Pflichten
+alwaysApply: true
+---
+
+# Sicherheit, Release & Git
+
+## Git (strikt)
+- **Nur committen** wenn der Nutzer es ausdrücklich verlangt
+- Niemals `git config` ändern
+- Kein `push --force` auf main/master
+- Kein `reset --hard` / destruktive Befehle ohne Auftrag
+- Keine Secrets committen: `*.pfx`, `github.token`, Zertifikat-Passwörter
+
+## App-Sicherheit (nicht abschwächen)
+- `AppSecurityService`: Signatur-Check in Release, Zip-Slip-Schutz, Pfad-Sanitisierung
+- `GitHubUpdateService`: nur vertrauenswürdige GitHub-URLs, SHA256 vor Installation
+- Release-EXE signieren via `sign-app.ps1` wenn Zertifikat vorhanden
+
+## Release-Prozess
+1. Version in `AppInfo.cs` + `Properties/AssemblyInfo.cs` erhöhen
+2. `.\publish-github-release.ps1` (nicht manuell ZIP basteln)
+3. `native\win-x64\pdfium.dll` muss im Release-Paket landen
+4. `CodeSigning.cer` mit ausliefern
+
+## Installation / Updates
+- Festinstallation: `C:\Program Files\DOK-V01\`
+- Öffentliches Repo: `AppInfo.GitHubUpdatesArePublic = true` – kein `github.token` nötig
+- Nutzer bei Antivirus: `SECURITY_HINWEIS.md`
+
+## Nach Release / USB-Build
+- **Immer beide Rev-Ordner im Explorer öffnen** (Pfad aus `Get-DokBuildRevision.ps1`, z. B. R42):
+  - `explorer.exe "…\USB-Version\DOK-V01-R42"`
+  - `explorer.exe "…\Release-Version\DOK-V01-R42"`
+- Ordner/ZIP heißen immer `DOK-V01-Rxx` bzw. `DOK-V01-Release-Rxx.zip`
+- Dem Nutzer die geöffneten Pfade kurz nennen

@@ -12,22 +12,22 @@ namespace PDF_umbenenen.Services
     {
         private const string IntegritySalt = "DOK-V01-Demo-Integrity-v2";
 
-        private static readonly string StorePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            AppInfo.ProductName,
-            "demo.xml");
+        private static string StorePath => Path.Combine(AppInfo.UserDataDirectory, "demo.xml");
 
         public static DemoLicenseStatus Evaluate()
         {
-            if (!AppInfo.IsDemoEdition)
+            if (!AppInfo.IsDemoEdition || LicenseActivationService.IsActivated())
             {
+                var fullLabel = LicenseActivationService.IsActivated() && AppInfo.IsDemoEdition
+                    ? "Vollversion (freigeschaltet)"
+                    : AppInfo.EditionLabel;
                 return new DemoLicenseStatus
                 {
                     IsDemoEdition = false,
                     IsExpired = false,
                     TitleSuffix = string.Empty,
-                    SummaryText = AppInfo.EditionLabel,
-                    VersionLine = AppInfo.EditionLabel
+                    SummaryText = fullLabel,
+                    VersionLine = fullLabel
                 };
             }
 
@@ -74,6 +74,11 @@ namespace PDF_umbenenen.Services
             return record != null && !record.Tampered && !record.WelcomeShown;
         }
 
+        internal static string GetMachineFingerprintPublic()
+        {
+            return GetMachineFingerprint();
+        }
+
         private static DemoRecord LoadOrCreate(DateTime nowUtc)
         {
             var existing = LoadExisting();
@@ -81,6 +86,12 @@ namespace PDF_umbenenen.Services
             {
                 if (existing.Tampered)
                     return existing;
+
+                if (IsClockRolledBack(existing, nowUtc))
+                {
+                    existing.Tampered = true;
+                    return existing;
+                }
 
                 existing.LastRunUtc = nowUtc;
                 existing.IsFirstRun = false;
@@ -161,6 +172,18 @@ namespace PDF_umbenenen.Services
             {
                 return new DemoRecord { Tampered = true };
             }
+        }
+
+        private static bool IsClockRolledBack(DemoRecord record, DateTime nowUtc)
+        {
+            var tolerance = TimeSpan.FromHours(2);
+            if (nowUtc.Add(tolerance) < record.LastRunUtc)
+                return true;
+
+            if (nowUtc.Add(tolerance) < record.FirstRunUtc)
+                return true;
+
+            return false;
         }
 
         private static bool IsClockTampered(DemoRecord record)

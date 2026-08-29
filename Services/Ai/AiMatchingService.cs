@@ -38,40 +38,7 @@ namespace PDF_umbenenen.Services.Ai
                 pdf.ExtractedText = _pdfTextService.ExtractText(pdf.FullPath);
 
             var ruleSuggestion = _orchestrator.Fallback.SuggestMatch(pdf, excelRows);
-            if (_orchestrator.Mode != AiBackendMode.Ollama)
-                return ruleSuggestion;
-
-            var prompt = BuildMatchingPrompt(pdf, excelRows);
-            var response = await _orchestrator.CompleteAsync(prompt, true, cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(response))
-                return ruleSuggestion;
-
-            var rowIndex = SimpleJsonHelper.GetJsonInt(response, "excelRowIndex", 0);
-            var confidence = SimpleJsonHelper.GetJsonDouble(response, "confidence", 0);
-            var reason = SimpleJsonHelper.GetJsonString(response, "reason");
-            var drawing = SimpleJsonHelper.GetJsonString(response, "drawingNumber");
-
-            if (rowIndex <= 0 || confidence <= 0)
-                return ruleSuggestion;
-
-            var row = excelRows.FirstOrDefault(r => r.RowIndex == rowIndex);
-            if (row == null)
-                return ruleSuggestion;
-
-            var aiSuggestion = new AiMatchSuggestion
-            {
-                PdfPath = pdf.FullPath,
-                PdfDisplayName = pdf.DisplayName,
-                ExcelRowIndex = rowIndex,
-                DrawingNumber = string.IsNullOrWhiteSpace(drawing) ? row.RawDrawingNumber : drawing,
-                Confidence = confidence,
-                Reason = string.IsNullOrWhiteSpace(reason) ? "KI-Zuordnung" : reason
-            };
-
-            if (ruleSuggestion != null && ruleSuggestion.Confidence > aiSuggestion.Confidence)
-                return ruleSuggestion;
-
-            return aiSuggestion;
+            return await Task.FromResult(ruleSuggestion).ConfigureAwait(false);
         }
 
         private static string BuildMatchingPrompt(AiPdfInfo pdf, IList<AiExcelRowInfo> excelRows)

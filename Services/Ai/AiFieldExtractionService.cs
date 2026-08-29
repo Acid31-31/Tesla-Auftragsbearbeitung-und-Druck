@@ -19,46 +19,11 @@ namespace PDF_umbenenen.Services.Ai
             _pdfTextService = pdfTextService;
         }
 
-        public async Task<AiExtractedFields> ExtractFieldsAsync(string pdfPath, CancellationToken cancellationToken)
+        public Task<AiExtractedFields> ExtractFieldsAsync(string pdfPath, CancellationToken cancellationToken)
         {
             var text = _pdfTextService.ExtractText(pdfPath);
             var ruleFields = _orchestrator.Fallback.ExtractFields(text);
-
-            if (_orchestrator.Mode != AiBackendMode.Ollama || string.IsNullOrWhiteSpace(text))
-                return ruleFields;
-
-            var prompt = new StringBuilder();
-            prompt.AppendLine("Extrahiere aus dem PDF-Text folgende Felder. Antworte NUR als JSON.");
-            prompt.AppendLine("Format: {\"drawingNumber\":\"\",\"requestedAmount\":\"\",\"requestedDeliveryDate\":\"\",\"requestedDeliveryLocation\":\"\",\"confidence\":0.0}");
-            prompt.AppendLine();
-            prompt.AppendLine(Truncate(text, 2000));
-
-            var response = await _orchestrator.CompleteAsync(prompt.ToString(), true, cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(response))
-                return ruleFields;
-
-            var aiFields = new AiExtractedFields
-            {
-                DrawingNumber = SimpleJsonHelper.GetJsonString(response, "drawingNumber"),
-                RequestedAmount = SimpleJsonHelper.GetJsonString(response, "requestedAmount"),
-                RequestedDeliveryDate = SimpleJsonHelper.GetJsonString(response, "requestedDeliveryDate"),
-                RequestedDeliveryLocation = SimpleJsonHelper.GetJsonString(response, "requestedDeliveryLocation"),
-                Confidence = SimpleJsonHelper.GetJsonDouble(response, "confidence", 0.6)
-            };
-
-            if (ruleFields != null)
-            {
-                if (string.IsNullOrWhiteSpace(aiFields.DrawingNumber))
-                    aiFields.DrawingNumber = ruleFields.DrawingNumber;
-                if (string.IsNullOrWhiteSpace(aiFields.RequestedAmount))
-                    aiFields.RequestedAmount = ruleFields.RequestedAmount;
-                if (string.IsNullOrWhiteSpace(aiFields.RequestedDeliveryDate))
-                    aiFields.RequestedDeliveryDate = ruleFields.RequestedDeliveryDate;
-                if (string.IsNullOrWhiteSpace(aiFields.RequestedDeliveryLocation))
-                    aiFields.RequestedDeliveryLocation = ruleFields.RequestedDeliveryLocation;
-            }
-
-            return aiFields;
+            return Task.FromResult(ruleFields);
         }
 
         public List<string> CompareWithExcel(AiExtractedFields fields, AiExcelRowInfo excelRow)

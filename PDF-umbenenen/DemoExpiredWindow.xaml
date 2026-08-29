@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Demoversion abgelaufen"
-        Height="320" Width="520"
-        MinHeight="280" MinWidth="460"
+        Height="460" Width="580"
+        MinHeight="400" MinWidth="500"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource AppBackground}"
         Foreground="{DynamicResource TextPrimary}"
@@ -29,6 +29,21 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="OutlineButton" TargetType="Button" BasedOn="{StaticResource SimpleButton}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border CornerRadius="6" Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1.5"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="24">
@@ -36,14 +51,17 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0"
-                   Text="Demoversion abgelaufen"
-                   FontSize="20"
-                   FontWeight="Bold"
-                   Foreground="{DynamicResource DangerBrush}"
-                   Margin="0,0,0,12"/>
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <Image Source="pack://application:,,,/Assets/AppLogo.png" Height="40" Stretch="Uniform"
+                   HorizontalAlignment="Left" Margin="0,0,0,12"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <TextBlock Text="Demoversion abgelaufen"
+                       FontSize="20" FontWeight="Bold"
+                       Foreground="{DynamicResource DangerBrush}"/>
+        </StackPanel>
 
         <StackPanel Grid.Row="1">
             <TextBlock x:Name="MessageTextBlock"
@@ -54,14 +72,44 @@
                        TextWrapping="Wrap"
                        FontSize="12"
                        Foreground="{DynamicResource TextSecondary}"
-                       Margin="0,12,0,0"/>
+                       Margin="0,10,0,0"/>
+
+            <TextBlock Text="Vollversion freischalten"
+                       FontSize="13" FontWeight="SemiBold"
+                       Margin="0,16,0,6"/>
+            <TextBlock x:Name="MachineCodeTextBlock"
+                       FontSize="12"
+                       Foreground="{DynamicResource TextSecondary}"
+                       Margin="0,0,0,8"
+                       TextWrapping="Wrap"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="LicenseKeyTextBox"
+                         Height="34"
+                         Padding="10,6"
+                         FontSize="13"
+                         VerticalContentAlignment="Center"
+                         ToolTip="Lizenzschlüssel vom Anbieter"/>
+                <Button Grid.Column="2"
+                        Content="Freischalten"
+                        Click="Activate_Click"
+                        Style="{StaticResource SimpleButton}"
+                        MinWidth="120"/>
+            </Grid>
         </StackPanel>
 
-        <Button Grid.Row="2"
-                Content="Schließen"
-                Click="Close_Click"
-                Style="{StaticResource SimpleButton}"
-                HorizontalAlignment="Right"
-                Margin="0,20,0,0"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="Auf Update prüfen"
+                    Click="CheckUpdate_Click"
+                    Style="{StaticResource OutlineButton}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Schließen"
+                    Click="Close_Click"
+                    Style="{StaticResource OutlineButton}"/>
+        </StackPanel>
     </Grid>
 </Window>

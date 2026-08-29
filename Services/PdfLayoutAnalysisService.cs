@@ -38,12 +38,17 @@ namespace PDF_umbenenen.Services
     {
         private static readonly Dictionary<string, PdfPageLayout> PageLayoutCache =
             new Dictionary<string, PdfPageLayout>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, string> PageTextCache =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private static readonly object CacheLock = new object();
 
         public static void ClearCache()
         {
             lock (CacheLock)
+            {
                 PageLayoutCache.Clear();
+                PageTextCache.Clear();
+            }
         }
 
         public static PdfPageLayout AnalyzePage(string pdfPath, int pageNumber)
@@ -122,6 +127,22 @@ namespace PDF_umbenenen.Services
             if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath) || !PdfWatermarkService.IsAvailable())
                 return string.Empty;
 
+            var cacheKey = pdfPath + "|text|" + pageNumber + "|" + File.GetLastWriteTimeUtc(pdfPath).Ticks;
+            lock (CacheLock)
+            {
+                if (PageTextCache.TryGetValue(cacheKey, out var cached))
+                    return cached;
+            }
+
+            var text = ExtractPageTextUncached(pdfPath, pageNumber);
+            lock (CacheLock)
+                PageTextCache[cacheKey] = text;
+
+            return text;
+        }
+
+        private static string ExtractPageTextUncached(string pdfPath, int pageNumber)
+        {
             object reader = null;
             try
             {

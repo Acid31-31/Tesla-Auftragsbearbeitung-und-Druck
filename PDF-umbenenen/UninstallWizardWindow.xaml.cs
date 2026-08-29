@@ -27,7 +27,7 @@ namespace PDF_umbenenen
 
             if (!UninstallService.IsInstalled())
             {
-                MessageBox.Show(this, "Es wurde keine Installation unter Program Files gefunden.", Title, MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, "Es wurde keine DOK-V01-Installation gefunden.", Title, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -40,18 +40,6 @@ namespace PDF_umbenenen
 
             if (confirm != MessageBoxResult.Yes)
                 return;
-
-            if (!AdminElevationService.IsRunningAsAdministrator())
-            {
-                if (!AdminElevationService.TryRelaunchAsAdministrator())
-                {
-                    MessageBox.Show(this, "Administratorfreigabe abgebrochen.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                Close();
-                return;
-            }
 
             _isRunning = true;
             ConfirmPanel.Visibility = Visibility.Collapsed;

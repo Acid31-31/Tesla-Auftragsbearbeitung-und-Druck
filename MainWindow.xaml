@@ -1,14 +1,14 @@
 ﻿<Window x:Class="PDF_umbenenen.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d"
-        Title="DOK-V01" Height="760" Width="980"
+        Title="DOK-V01" Height="820" Width="1180"
         Icon="Assets/AppIcon.ico"
-        WindowStartupLocation="CenterScreen"
-        WindowState="Maximized"
+        WindowStartupLocation="Manual"
+        WindowStyle="None"
+        ResizeMode="CanResize"
         Background="{DynamicResource AppBackground}"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="Segoe UI"
         AllowDrop="True"
         DragEnter="Window_DragEnter"
         DragOver="Window_DragOver"
@@ -20,33 +20,219 @@
         PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
+        <Style x:Key="AppLogoImage" TargetType="Image">
+            <Setter Property="Source" Value="pack://application:,,,/Assets/AppLogo.png"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="RenderOptions.BitmapScalingMode" Value="HighQuality"/>
+        </Style>
 
-        <!-- Button-Basis -->
-        <Style x:Key="FlatButton" TargetType="Button">
-            <Setter Property="Foreground"             Value="{DynamicResource TextOnAccent}"/>
-            <Setter Property="Background"             Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="BorderThickness"        Value="0"/>
-            <Setter Property="Padding"                Value="16,7"/>
-            <Setter Property="FontSize"               Value="13"/>
-            <Setter Property="FontWeight"             Value="SemiBold"/>
-            <Setter Property="Cursor"                 Value="Hand"/>
+        <Style x:Key="TitleBarBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="46"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" CornerRadius="6"
-                                Background="{TemplateBinding Background}"
-                                Padding="{TemplateBinding Padding}">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#1A2836"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="TitleBarCloseBtn" TargetType="Button" BasedOn="{StaticResource TitleBarBtn}">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#C62828"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="HeaderUtilityBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <StackPanel Orientation="Horizontal">
+                            <ContentPresenter/>
+                        </StackPanel>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SidebarBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="10,3"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#1A2836"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SidebarBtnActive" TargetType="Button" BasedOn="{StaticResource SidebarBtn}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style x:Key="PathBox" TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource InputBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="EditablePathBox" TargetType="TextBox" BasedOn="{StaticResource PathBox}">
+            <Setter Property="IsReadOnly" Value="False"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="Cursor" Value="IBeam"/>
+        </Style>
+
+        <Style x:Key="BrowseBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ActionRowBtnBase" TargetType="Button">
+            <Setter Property="MinHeight" Value="46"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,12"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ActionBtnSort" TargetType="Button" BasedOn="{StaticResource ActionRowBtnBase}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+        </Style>
+        <Style x:Key="ActionBtnMerge" TargetType="Button" BasedOn="{StaticResource ActionRowBtnBase}">
+            <Setter Property="Background" Value="#3D7FA8"/>
+        </Style>
+        <Style x:Key="ActionBtnOpen" TargetType="Button" BasedOn="{StaticResource ActionRowBtnBase}">
+            <Setter Property="Background" Value="#5A6B7A"/>
+        </Style>
+        <Style x:Key="ActionBtnClear" TargetType="Button" BasedOn="{StaticResource ActionRowBtnBase}">
+            <Setter Property="Background" Value="{DynamicResource DangerBrush}"/>
+        </Style>
+
+        <Style x:Key="PrimaryActionBtn" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="22,14"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentHover}"/>
                             </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentPressed}"/>
-                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="bd" Property="Opacity" Value="0.4"/>
+                                <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -54,69 +240,27 @@
             </Setter>
         </Style>
 
-        <!-- Danger-Button (Abbrechen) -->
-        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
-            <Setter Property="Background" Value="{DynamicResource DangerBrush}"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource DangerHover}"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Erfolg-Button (Zusammenfügen) -->
-        <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
-            <Setter Property="Background" Value="{DynamicResource SuccessBrush}"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource SuccessHover}"/>
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource SuccessPressed}"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Warn-Button (Aufträge löschen) -->
-        <Style x:Key="WarningButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
-            <Setter Property="Background" Value="{DynamicResource WarningBrush}"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource WarningHover}"/>
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource WarningPressed}"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Ghost-Button (Browse) -->
-        <Style x:Key="GhostButton" TargetType="Button">
-            <Setter Property="Foreground"      Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="Background"      Value="Transparent"/>
-            <Setter Property="BorderBrush"     Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="BorderThickness" Value="1.5"/>
-            <Setter Property="Padding"         Value="12,5"/>
-            <Setter Property="FontSize"        Value="12"/>
-            <Setter Property="FontWeight"      Value="SemiBold"/>
-            <Setter Property="Cursor"          Value="Hand"/>
+        <Style x:Key="SecondaryActionBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Padding" Value="22,14"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" CornerRadius="5"
-                                Background="{TemplateBinding Background}"
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                Padding="{TemplateBinding Padding}">
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
-                                <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentPressed}"/>
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -124,415 +268,424 @@
             </Setter>
         </Style>
 
-        <!-- ProgressBar -->
-        <Style TargetType="ProgressBar">
-            <Setter Property="Height"     Value="18"/>
-            <Setter Property="MinHeight"  Value="18"/>
-            <Setter Property="Background" Value="{DynamicResource ProgressTrack}"/>
-            <Setter Property="Foreground" Value="{DynamicResource ProgressFill}"/>
-            <Setter Property="BorderThickness" Value="0"/>
+        <Style x:Key="ToggleSwitch" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="ProgressBar">
-                        <Grid MinHeight="18">
-                            <Border x:Name="PART_Track"
-                                    CornerRadius="6"
-                                    Background="{TemplateBinding Background}"/>
-                            <Border x:Name="PART_Indicator"
-                                    CornerRadius="6"
-                                    HorizontalAlignment="Left"
-                                    Background="{TemplateBinding Foreground}">
-                                <Border.Effect>
-                                    <DropShadowEffect Color="#39FF14"
-                                                      BlurRadius="10"
-                                                      ShadowDepth="0"
-                                                      Opacity="0.75"/>
-                                </Border.Effect>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border x:Name="track" Width="46" Height="26" CornerRadius="13"
+                                    Background="#243038" BorderBrush="#2A3842" BorderThickness="1">
+                                <Border x:Name="thumb" Width="20" Height="20" CornerRadius="10"
+                                        Background="#8FA3AD" HorizontalAlignment="Left" Margin="3,0,0,0"
+                                        VerticalAlignment="Center"/>
                             </Border>
-                        </Grid>
+                            <ContentPresenter Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="track" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="track" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="thumb" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="thumb" Property="Margin" Value="0,0,3,0"/>
+                                <Setter TargetName="thumb" Property="Background" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
+        <Style TargetType="ProgressBar">
+            <Setter Property="Height" Value="6"/>
+            <Setter Property="Background" Value="{DynamicResource ProgressTrack}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ProgressFill}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
     </Window.Resources>
 
-    <Grid AllowDrop="True"
-          DragEnter="Window_DragEnter"
-          DragOver="Window_DragOver"
-          Drop="Window_Drop">
+    <Grid AllowDrop="True" DragEnter="Window_DragEnter" DragOver="Window_DragOver" Drop="Window_Drop">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
-            <RowDefinition Height="64"/>   <!-- Header -->
-            <RowDefinition Height="Auto"/> <!-- Menüleiste -->
-            <RowDefinition Height="*"/>    <!-- Content -->
+            <RowDefinition Height="96"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="36"/>
         </Grid.RowDefinitions>
 
-        <!-- ══ HEADER ══ -->
-        <Border Grid.Row="0" Background="{DynamicResource HeaderBackground}">
-            <Grid Margin="24,0">
+        <!-- ══ FENSTER 1: HEADER (volle Breite – Logo, Titel, Menü, Fenster-Buttons) ══ -->
+        <Border Grid.Row="0" Grid.ColumnSpan="2"
+                Background="{DynamicResource HeaderBackground}"
+                BorderBrush="{DynamicResource GroupBorder}" BorderThickness="0,0,0,1"
+                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Grid Margin="24,0,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Image Source="pack://application:,,,/Assets/AppLogo.png"
-                           Width="38" Height="38" Margin="0,0,12,0"
-                           SnapsToDevicePixels="True"
-                           RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="DOK-V01"
-                                   Foreground="{DynamicResource HeaderForeground}"
-                                   FontSize="17" FontWeight="Bold"/>
-                        <TextBlock Text="Sortieren, Wasserzeichen, Zusammenfügen, Vorschau und Drucken"
-                                   Foreground="{DynamicResource HeaderForeground}"
-                                   FontSize="11" Opacity="0.7"/>
-                        <TextBlock x:Name="AppVersionTextBlock"
-                                   Foreground="{DynamicResource HeaderForeground}"
-                                   FontSize="10" Opacity="0.65" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </StackPanel>
-
-                <!-- Hell/Dunkel-Schalter + Über-Button -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal"
-                            VerticalAlignment="Center">
-
-                    <!-- Über-Button -->
-                    <Button x:Name="AboutHeaderButton"
-                            Content="ℹ  Über"
-                            Background="{DynamicResource AccentBrush}"
-                            Foreground="{DynamicResource TextOnAccent}"
-                            BorderThickness="0"
-                            Padding="12,6"
-                            FontSize="12"
-                            FontWeight="SemiBold"
-                            Cursor="Hand"
-                            Click="About_Click"
-                            Margin="0,0,10,0"
-                            Style="{StaticResource FlatButton}"/>
-
-                    <Button x:Name="ManualHeaderButton"
-                            Content="📘  Anleitung"
-                            Background="{DynamicResource AccentBrush}"
-                            Foreground="{DynamicResource TextOnAccent}"
-                            BorderThickness="0"
-                            Padding="12,6"
-                            FontSize="12"
-                            FontWeight="SemiBold"
-                            Cursor="Hand"
-                            Click="OpenManual_Click"
-                            Margin="0,0,16,0"
-                            Style="{StaticResource FlatButton}"/>
-
-                    <!-- Theme Toggle -->
-                    <StackPanel Orientation="Horizontal" Cursor="Hand"
-                                MouseLeftButtonUp="ThemeToggle_Click">
-                        <TextBlock x:Name="ThemeIcon" Text="🌙" FontSize="18"
-                                   Foreground="{DynamicResource ThemeToggleFG}"
-                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock x:Name="ThemeLabel" Text="Dunkel"
-                                   Foreground="{DynamicResource HeaderForeground}"
-                                   FontSize="12" VerticalAlignment="Center" Opacity="0.8"/>
-                    </StackPanel>
+                <Image Grid.Column="0" Style="{StaticResource AppLogoImage}" Height="68"
+                       HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button Style="{StaticResource HeaderUtilityBtn}" Click="CheckForUpdatesMenu_Click" Margin="0,0,8,0"
+                            ToolTip="Manuell nach Updates auf GitHub suchen">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⬆" Margin="0,0,6,0"/>
+                            <TextBlock Text="Update prüfen"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource HeaderUtilityBtn}" Click="HeaderSettings_Click" Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚙" Margin="0,0,6,0"/>
+                            <TextBlock Text="Einstellungen"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource HeaderUtilityBtn}" Click="About_Click" Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="ⓘ" Margin="0,0,6,0"/>
+                            <TextBlock Text="Info"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource HeaderUtilityBtn}" Click="OpenManual_Click" Margin="0,0,16,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="?" Margin="0,0,6,0"/>
+                            <TextBlock Text="Hilfe"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource TitleBarBtn}" Content="—" Click="TitleBarMinimize_Click"/>
+                    <Button Style="{StaticResource TitleBarBtn}" Content="▢" Click="TitleBarMaximize_Click"/>
+                    <Button Style="{StaticResource TitleBarCloseBtn}" Content="✕" Click="TitleBarClose_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- ══ MENÜLEISTE ══ -->
-        <Menu Grid.Row="1" Padding="12,2">
-            <MenuItem Header="Datei">
-                <MenuItem Header="Komplette Datensicherung..." Click="CreateDataBackup_Click"/>
-                <Separator/>
-                <MenuItem Header="Nach Updates suchen…" Click="CheckForUpdatesMenu_Click"/>
-            </MenuItem>
-            <MenuItem Header="KI-Assistent">
-                <MenuItem x:Name="AiEnabledMenuItem"
-                          Header="KI aktiv"
-                          IsCheckable="True"
-                          Checked="AiEnabledMenu_Changed"
-                          Unchecked="AiEnabledMenu_Changed"/>
-                <Separator/>
-                <MenuItem Header="Chat öffnen" Click="AiOpenChat_Click" InputGestureText="Strg+K"/>
-                <MenuItem Header="Bestell-PDF vs Excel prüfen" Click="OrderVerificationCheck_Click"/>
-                <MenuItem Header="Zeichnungen vor Verarbeitung prüfen" Click="AiQualityCheck_Click"/>
-                <Separator/>
-                <MenuItem Header="Ollama-Einstellungen..." Click="AiSettingsMenu_Click"/>
-                <MenuItem Header="Status prüfen" Click="AiRefreshStatus_Click"/>
-            </MenuItem>
-            <MenuItem Header="Wasserzeichen">
-                <MenuItem Header="Einstellungen..." Click="WatermarkSettingsMenu_Click"/>
-                <MenuItem Header="Wasserzeichen korrigieren..." Click="CorrectWatermarkMenu_Click"/>
-            </MenuItem>
-            <MenuItem Header="Einstellungen">
-                <MenuItem Header="Neuen Kunden anlegen..." Click="NewCustomerMenu_Click"/>
-                <MenuItem Header="Kunden verwalten..." Click="ManageCustomersMenu_Click"/>
-            </MenuItem>
-        </Menu>
+        <!-- ══ FENSTER 2: SIDEBAR (nur Navigation) ══ -->
+        <Border Grid.Row="1" Grid.Column="0"
+                Background="{DynamicResource SidebarBackground}"
+                BorderBrush="{DynamicResource GroupBorder}" BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Margin="0,16,0,0">
+                    <Button x:Name="NavOverviewButton" Style="{StaticResource SidebarBtnActive}" Click="NavOverview_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⌂" FontSize="16" Margin="0,0,10,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="Übersicht" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="NavLogButton" Style="{StaticResource SidebarBtn}" Click="NavLog_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="☰" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Protokoll" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SidebarBtn}" Click="HeaderSettings_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚙" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Einstellungen" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SidebarBtn}" Click="About_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="ⓘ" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Info" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SidebarBtn}" Click="OpenManual_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="?" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Hilfe" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                <TextBlock x:Name="AppVersionTextBlock" Grid.Row="1"
+                           Margin="20,0,20,14" FontSize="11"
+                           Foreground="{DynamicResource TextSecondary}"/>
+            </Grid>
+        </Border>
 
-        <!-- ══ CONTENT ══ -->
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
-                      AllowDrop="True"
-                      DragEnter="Window_DragEnter"
-                      DragOver="Window_DragOver"
-                      Drop="Window_Drop">
-            <StackPanel Margin="28,22,28,22">
+        <!-- ══ FENSTER 3: HAUPTINHALT ══ -->
+        <Grid Grid.Row="1" Grid.Column="1" Margin="24,12,24,12"
+              Background="{DynamicResource MainContentBackground}">
+            <Grid MaxWidth="980">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-                <!-- KARTE: Drag & Drop Ablage -->
-                <Border Background="{DynamicResource CardBackground}"
-                        BorderBrush="{DynamicResource GroupBorder}"
-                        BorderThickness="1" CornerRadius="10"
-                        Padding="22,18" Margin="0,0,0,16">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="10"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="12"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="12"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="12"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <Border Grid.Row="0"
-                                BorderBrush="{DynamicResource AccentBrush}"
-                                BorderThickness="2"
-                                CornerRadius="8"
-                                Padding="24,18"
-                                Background="{DynamicResource InputBackground}">
-                            <StackPanel>
-                                <TextBlock Text="📥 Dateien hier per Maus reinziehen"
-                                           Foreground="{DynamicResource TextPrimary}"
-                                           FontSize="18"
-                                           FontWeight="Bold"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="PDF-Zeichnungen, ZIP und Excel (.xlsx/.xls) hierher ziehen. Eine Excel reicht — optional zweite mit *Angebot* im Namen (Liefertermine haben dann Vorrang). Bestell-PDF separat unten bei „Prüf-PDF“."
-                                           Foreground="{DynamicResource TextSecondary}"
-                                           FontSize="13"
-                                           Margin="0,8,0,0"
-                                           TextAlignment="Center"/>
-                                <TextBlock Text="Die Daten werden automatisch in die feste Ablage kopiert und verarbeitet."
-                                           Foreground="{DynamicResource TextSecondary}"
-                                           FontSize="13"
-                                           Margin="0,4,0,0"
-                                           TextAlignment="Center"/>
-                                <Border Margin="0,14,0,0"
-                                        Padding="12,10"
-                                        CornerRadius="6"
-                                        Background="{DynamicResource CardBackground}"
-                                        BorderBrush="{DynamicResource GroupBorder}"
-                                        BorderThickness="1">
-                                    <StackPanel>
-                                        <TextBlock Text="Dateien in der Ablage"
-                                                   FontWeight="SemiBold"
-                                                   FontSize="12"
-                                                   Foreground="{DynamicResource AccentBrush}"
-                                                   HorizontalAlignment="Center"/>
-                                        <TextBlock x:Name="DroppedExtensionsTextBlock"
-                                                   Text="— noch keine Dateien —"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TextPrimary}"
-                                                   HorizontalAlignment="Center"
-                                                   TextAlignment="Center"
-                                                   Margin="0,6,0,0"
-                                                   TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Border>
+                    <!-- Eine Drop-Zone: Excel, Zeichnungen, Prüf-PDF (automatisch erkannt) -->
+                    <Grid Grid.Row="0" Margin="0,0,0,10" Height="120">
+                        <Rectangle Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" StrokeDashArray="8 5"
+                                   RadiusX="10" RadiusY="10" Fill="{DynamicResource CardBackground}"/>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="14,8">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6">
+                                <Viewbox Width="26" Height="32" Margin="0,0,12,0">
+                                    <Canvas Width="36" Height="44">
+                                        <Rectangle Width="30" Height="38" Canvas.Left="3" Canvas.Top="3" RadiusX="2" RadiusY="2"
+                                                   Stroke="{DynamicResource AccentBrush}" StrokeThickness="2.5" Fill="Transparent"/>
+                                        <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"
+                                              Data="M 10,14 L 26,14 M 10,20 L 26,20 M 10,26 L 20,26"/>
+                                    </Canvas>
+                                </Viewbox>
+                                <Viewbox Width="26" Height="32">
+                                    <Canvas Width="36" Height="44">
+                                        <Rectangle Width="30" Height="38" Canvas.Left="3" Canvas.Top="3" RadiusX="2" RadiusY="2"
+                                                   Stroke="{DynamicResource AccentBrush}" StrokeThickness="2.5" Fill="Transparent"/>
+                                        <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"
+                                              Data="M 10,12 L 16,22 L 10,32 M 20,12 L 26,22 L 20,32 M 14,22 L 22,22"/>
+                                    </Canvas>
+                                </Viewbox>
                             </StackPanel>
-                        </Border>
-
-                        <CheckBox x:Name="IncludeSubfoldersCheckBox" Grid.Row="2"
-                                  Content="Unterordner einbeziehen"
-                                  Margin="4,0,0,0"/>
-
-                        <Grid Grid.Row="4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="130"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Auftragsnummer" VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextPrimary}"
-                                       FontSize="13" FontWeight="SemiBold"/>
-                            <TextBox x:Name="OrderNumberTextBox" Grid.Column="1" MinHeight="34" Margin="12,0,8,0"
-                                     Foreground="{DynamicResource TextPrimary}"
-                                     Background="{DynamicResource InputBackground}"/>
-                        </Grid>
-
-                        <Border x:Name="OrderVerificationDropZone" Grid.Row="6"
-                                AllowDrop="True"
-                                CornerRadius="8"
-                                BorderThickness="2"
-                                BorderBrush="{DynamicResource GroupBorder}"
-                                Background="Transparent"
-                                Padding="4,6"
-                                PreviewDragEnter="OrderVerificationDropZone_PreviewDragEnter"
-                                PreviewDragOver="OrderVerificationDropZone_PreviewDragOver"
-                                PreviewDragLeave="OrderVerificationDropZone_PreviewDragLeave"
-                                PreviewDrop="OrderVerificationDropZone_PreviewDrop">
-                            <StackPanel>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="130"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Prüf-PDF" VerticalAlignment="Center"
-                                               Foreground="{DynamicResource TextPrimary}"
-                                               FontSize="13" FontWeight="SemiBold"/>
-                                    <Border Grid.Column="1" MinHeight="40" Margin="12,0,0,0"
-                                            Background="{DynamicResource InputBackground}"
-                                            CornerRadius="6"
-                                            BorderBrush="{DynamicResource GroupBorder}"
-                                            BorderThickness="1"
-                                            Padding="12,8">
-                                        <TextBlock x:Name="OrderVerificationPdfStatusTextBlock"
-                                                   Text="Bestell-PDF hier ablegen …"
-                                                   Foreground="{DynamicResource TextSecondary}"
-                                                   VerticalAlignment="Center"
-                                                   TextWrapping="Wrap"/>
-                                    </Border>
-                                </Grid>
-                                <TextBlock x:Name="OrderVerificationHintTextBlock"
-                                           Text="↳ Optional: Bestell-PDF per Maus ablegen – ohne PDF wird ohne Prüfung sortiert"
-                                           Margin="142,6,0,0"
-                                           FontSize="11"
-                                           Foreground="{DynamicResource TextSecondary}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <StackPanel Grid.Row="8" Visibility="Collapsed">
-                            <TextBox x:Name="ExcelPathTextBox" MinHeight="34"/>
-                            <TextBox x:Name="PdfFolderTextBox" MinHeight="34" Margin="0,8,0,0"/>
+                            <TextBlock Text="Dateien hier per Maus reinziehen"
+                                       FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="PDF · Excel · Prüf-/Bestell-PDF wird automatisch erkannt"
+                                       FontSize="12" Foreground="{DynamicResource TextSecondary}"
+                                       HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                            <TextBlock x:Name="DroppedExtensionsTextBlock" Visibility="Collapsed"/>
+                            <TextBlock x:Name="WorkflowStatusTextBlock" Visibility="Collapsed"/>
+                            <TextBlock x:Name="OrderVerificationPdfStatusTextBlock" Visibility="Collapsed"/>
                         </StackPanel>
                     </Grid>
-                </Border>
+                    <TextBox x:Name="OrderVerificationPdfPathTextBox" Visibility="Collapsed" Height="0"/>
 
-                <!-- KARTE: Aktionen -->
-                <Border Background="{DynamicResource CardBackground}"
-                        BorderBrush="{DynamicResource GroupBorder}"
-                        BorderThickness="1" CornerRadius="10"
-                        Padding="22,18" Margin="0,0,0,16">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="14"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="14"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="10"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <TextBlock Grid.Row="0" Text="⚙  Verarbeitung"
-                                   Foreground="{DynamicResource TextSecondary}"
-                                   FontSize="11" FontWeight="SemiBold"/>
-                        <Rectangle Grid.Row="0" Height="1" VerticalAlignment="Bottom"
-                                   Margin="0,22,0,-2"
-                                   Fill="{DynamicResource SeparatorBrush}"/>
-
-                        <StackPanel Grid.Row="2" Orientation="Horizontal">
-                            <Button x:Name="ProcessButton"
-                                    Content="▶  Sortieren &amp; umbenennen"
-                                    Style="{StaticResource FlatButton}"
-                                    MinWidth="220" Height="38" Margin="0,0,12,0"
-                                    Click="Process_Click"/>
-                            <Button x:Name="CancelButton"
-                                    Content="✕  Abbrechen"
-                                    Style="{StaticResource DangerButton}"
-                                    MinWidth="130" Height="38"
-                                    IsEnabled="False"
-                                    Click="Cancel_Click"/>
-                            <Button x:Name="MergePrintButton"
-                                    Content="▶  Zusammenfügen &amp; Vorschau"
-                                    Style="{StaticResource SuccessButton}"
-                                    MinWidth="220" Height="38" Margin="12,0,0,0"
-                                    Click="MergeAndPrint_Click"/>
-                            <Button x:Name="DeleteProcessedButton"
-                                    Content="🗑  Bearbeitete Aufträge löschen"
-                                    Style="{StaticResource WarningButton}"
-                                    MinWidth="240" Height="38" Margin="12,0,0,0"
-                                    Click="DeleteProcessedOrders_Click"/>
-                        </StackPanel>
-
-                        <!-- Stopuhr (Mitte) -->
-                        <Border Grid.Row="4" x:Name="StopwatchPanel" Visibility="Collapsed"
-                                Margin="0,4,0,0" Padding="16,12"
-                                Background="{DynamicResource StatusBackground}"
-                                BorderBrush="{DynamicResource GroupBorder}"
-                                BorderThickness="1" CornerRadius="10">
-                            <StackPanel HorizontalAlignment="Center">
-                                <TextBlock x:Name="StopwatchTextBlock"
-                                           Text="00:00:00"
-                                           FontSize="34"
-                                           FontWeight="Bold"
-                                           FontFamily="Consolas"
-                                           Foreground="{DynamicResource AccentBrush}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock x:Name="StopwatchHintTextBlock"
-                                           Text="Stopuhr"
-                                           FontSize="12"
-                                           Foreground="{DynamicResource TextSecondary}"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,6,0,0"
-                                           TextAlignment="Center"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Fortschritt -->
-                        <StackPanel Grid.Row="6" x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,4,0,0">
-                            <ProgressBar x:Name="BusyProgressBar"
-                                         Minimum="0" Maximum="100" Value="0"
-                                         Height="18"/>
-                            <TextBlock x:Name="ProgressLabel"
-                                       Text="0 %"
-                                       FontSize="12"
-                                       FontWeight="Bold"
-                                       Foreground="{DynamicResource ProgressFill}"
-                                       HorizontalAlignment="Center"
-                                       Margin="0,6,0,0"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-
-                <!-- KARTE: Status -->
-                <Border Background="{DynamicResource CardBackground}"
-                        BorderBrush="{DynamicResource GroupBorder}"
-                        BorderThickness="1" CornerRadius="10"
-                        Padding="22,18" Height="310">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="10"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="📋  Statusmeldungen"
-                                   Foreground="{DynamicResource TextSecondary}"
-                                   FontSize="11" FontWeight="SemiBold"/>
-                        <Rectangle Grid.Row="0" Height="1" VerticalAlignment="Bottom"
-                                   Margin="0,22,0,-2"
-                                   Fill="{DynamicResource SeparatorBrush}"/>
-                        <Border Grid.Row="2" CornerRadius="6"
-                                Background="{DynamicResource StatusBackground}"
-                                BorderBrush="{DynamicResource StatusBorder}"
-                                BorderThickness="1">
-                            <TextBox x:Name="StatusTextBox"
-                                     Background="Transparent"
+                    <!-- Auftragsnummer – eigene Zeile, klar editierbar -->
+                    <Grid Grid.Row="1" Margin="0,0,0,10" Panel.ZIndex="20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Auftragsnummer" VerticalAlignment="Center" FontSize="13"
+                                   Foreground="{DynamicResource TextPrimary}" IsHitTestVisible="False"/>
+                        <Border Grid.Column="1" Margin="10,0,0,0" Background="{DynamicResource InputBackground}"
+                                BorderBrush="{DynamicResource InputBorder}" BorderThickness="1.5" CornerRadius="6"
+                                Padding="1" Height="34">
+                            <TextBox x:Name="OrderNumberTextBox"
+                                     Style="{x:Null}"
                                      BorderThickness="0"
+                                     Background="Transparent"
                                      Foreground="{DynamicResource TextPrimary}"
-                                     FontSize="12" FontFamily="Consolas"
-                                     AcceptsReturn="True"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Auto"
-                                     TextWrapping="Wrap"
-                                     IsReadOnly="True"
-                                     Padding="10,8"/>
+                                     CaretBrush="{DynamicResource TextPrimary}"
+                                     Padding="10,6"
+                                     FontSize="13"
+                                     FontFamily="Segoe UI"
+                                     VerticalContentAlignment="Center"
+                                     IsReadOnly="False"
+                                     IsUndoEnabled="True"
+                                     AcceptsReturn="False"
+                                     Focusable="True"
+                                     IsTabStop="True"
+                                     IsEnabled="True"
+                                     IsHitTestVisible="True"
+                                     ToolTip="Wird als Wasserzeichen auf jede PDF-Seite gedruckt"/>
                         </Border>
                     </Grid>
-                </Border>
 
-            </StackPanel>
-        </ScrollViewer>
+                    <!-- Auftragsübersicht (Variante B, eingebettet) -->
+                    <Border x:Name="LoadedDataOverviewPanel" Grid.Row="2" Margin="0,0,0,10"
+                            VerticalAlignment="Stretch" MinHeight="0"
+                            Background="{DynamicResource CardBackground}"
+                            BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1"
+                            CornerRadius="12" Padding="12">
+                        <Grid MinHeight="0" ClipToBounds="True">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="170"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <Grid Width="100" Height="100" HorizontalAlignment="Center" Margin="0,0,0,6">
+                                        <Ellipse Stroke="{DynamicResource GroupBorder}" StrokeThickness="9" Fill="Transparent"/>
+                                        <Ellipse x:Name="OverviewPdfCountRing" Stroke="{DynamicResource AccentBrush}" StrokeThickness="9"
+                                                 Fill="Transparent" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                 RenderTransformOrigin="0.5,0.5">
+                                            <Ellipse.RenderTransform>
+                                                <RotateTransform Angle="-90"/>
+                                            </Ellipse.RenderTransform>
+                                        </Ellipse>
+                                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                            <TextBlock x:Name="OverviewPdfCountTextBlock" Text="0" FontSize="26" FontWeight="Bold"
+                                                       Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="PDFs" FontSize="11" Foreground="{DynamicResource TextSecondary}"
+                                                       HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <Ellipse x:Name="OverviewExcelStatusDot" Width="8" Height="8" Margin="0,0,8,0"
+                                                 Fill="{DynamicResource TextSecondary}" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="OverviewExcelStatusTextBlock" Text="Excel nicht geladen"
+                                                   FontSize="11" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse x:Name="OverviewOrderPdfStatusDot" Width="8" Height="8" Margin="0,0,8,0"
+                                                 Fill="{DynamicResource TextSecondary}" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="OverviewOrderPdfStatusTextBlock" Text="Prüf-PDF nicht geladen"
+                                                   FontSize="11" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <Grid Grid.Column="2" MinHeight="0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <Grid Grid.Row="0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Steuerdatei" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                            <TextBlock x:Name="OverviewExcelFileNameTextBlock" Text="—" FontSize="13"
+                                                       FontWeight="SemiBold" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Prüf-PDF" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                            <TextBlock x:Name="OverviewOrderPdfFileNameTextBlock" Text="—" FontSize="13"
+                                                       FontWeight="SemiBold" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Grid.Row="1" x:Name="OverviewDrawingsHeaderTextBlock"
+                                               Text="Zeichnungen (0)" FontSize="12" FontWeight="SemiBold" Margin="0,8,0,0"/>
+
+                                    <ScrollViewer x:Name="OverviewPdfTilesScrollViewer" Grid.Row="2"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled" Margin="0,4,0,0">
+                                        <ItemsControl x:Name="OverviewPdfTilesItemsControl">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="92" Margin="0,0,6,6" Padding="6,8"
+                                                            Background="{DynamicResource InputBackground}"
+                                                            BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+                                                            CornerRadius="8" ToolTip="{Binding FullPath}">
+                                                        <StackPanel HorizontalAlignment="Center">
+                                                            <Viewbox Width="20" Height="26" Margin="0,0,0,4">
+                                                                <Canvas Width="36" Height="44">
+                                                                    <Rectangle Width="30" Height="38" Canvas.Left="3" Canvas.Top="3"
+                                                                               RadiusX="2" RadiusY="2"
+                                                                               Stroke="{DynamicResource AccentBrush}"
+                                                                               StrokeThickness="2.5" Fill="Transparent"/>
+                                                                    <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"
+                                                                          Data="M 10,14 L 26,14 M 10,20 L 26,20 M 10,26 L 20,26"/>
+                                                                </Canvas>
+                                                            </Viewbox>
+                                                            <TextBlock Text="{Binding ShortLabel}" FontSize="10" FontWeight="SemiBold"
+                                                                       HorizontalAlignment="Center" TextAlignment="Center"
+                                                                       TextWrapping="Wrap" MaxWidth="80"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
+                        </Grid>
+                    </Border>
+
+                    <TextBox x:Name="ExcelPathTextBox" Grid.Row="3" Visibility="Collapsed" Height="0"/>
+                    <CheckBox x:Name="WatermarkEnabledCheckBox" Grid.Row="3" Visibility="Collapsed"
+                              Checked="WatermarkEnabled_Changed" Unchecked="WatermarkEnabled_Changed"/>
+                    <TextBlock x:Name="OrderVerificationHintTextBlock" Grid.Row="3" Visibility="Collapsed"/>
+                    <CheckBox x:Name="IncludeSubfoldersCheckBox" Grid.Row="3" Content="Unterordner einbeziehen" Visibility="Collapsed" IsChecked="True"/>
+
+                    <Border x:Name="StopwatchPanel" Grid.Row="3" Visibility="Collapsed" Background="{DynamicResource CardBackground}"
+                            CornerRadius="10" BorderBrush="{DynamicResource GroupBorder}" BorderThickness="1"
+                            Padding="16" Margin="0,0,0,12">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock x:Name="StopwatchTextBlock" Text="00:00:00" FontSize="32" FontWeight="Bold"
+                                       FontFamily="Consolas" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="StopwatchHintTextBlock" Text="Verarbeitung läuft…" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <StackPanel x:Name="ProgressPanel" Grid.Row="4" Visibility="Collapsed" Margin="0,0,0,16">
+                        <ProgressBar x:Name="BusyProgressBar" Minimum="0" Maximum="100" Value="0"/>
+                        <TextBlock x:Name="ProgressLabel" Text="0 %" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                    </StackPanel>
+
+                    <!-- Aktionsbuttons – eine Reihe, gleiche Größe -->
+                    <Grid Grid.Row="5" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="ProcessButton" Grid.Column="0" Style="{StaticResource ActionBtnSort}" Click="Process_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⇅" FontSize="15" Margin="0,0,6,0"/>
+                                <TextBlock Text="Sortieren &amp; umbenennen" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="MergePrintButton" Grid.Column="2" Style="{StaticResource ActionBtnMerge}" Click="MergeAndPrint_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⊞" FontSize="15" Margin="0,0,6,0"/>
+                                <TextBlock Text="Zusammenfügen &amp; Vorschau" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="4" Style="{StaticResource ActionBtnOpen}" Click="OpenWorkspaceFolder_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="📁" FontSize="15" Margin="0,0,6,0"/>
+                                <TextBlock Text="Ablage öffnen" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="DeleteProcessedButton" Grid.Column="6" Style="{StaticResource ActionBtnClear}" Click="DeleteProcessedOrders_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="🗑" FontSize="15" Margin="0,0,6,0"/>
+                                <TextBlock Text="Ablage leeren" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Button x:Name="CancelButton" Grid.Row="5" Content="Abbrechen" Style="{StaticResource BrowseBtn}"
+                            HorizontalAlignment="Center" Margin="0,12,0,0" IsEnabled="False" Click="Cancel_Click" Visibility="Collapsed"/>
+                    <TextBox x:Name="PdfFolderTextBox" Grid.Row="5" Visibility="Collapsed" Height="0"/>
+                    <TextBox x:Name="StatusTextBox" Grid.Row="5" Visibility="Collapsed" Height="0"/>
+            </Grid>
+        </Grid>
+
+        <!-- ══ FOOTER (volle Breite) ══ -->
+        <Border Grid.Row="2" Grid.ColumnSpan="2" Background="{DynamicResource FooterBackground}"
+                BorderBrush="{DynamicResource GroupBorder}" BorderThickness="0,1,0,0">
+            <Grid Margin="20,0,24,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="✓" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold" FontSize="13" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="ReadyStatusTextBlock" Text="Bereit" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                </StackPanel>
+                <TextBlock x:Name="LoadedFilesCountTextBlock" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           FontSize="13" Foreground="{DynamicResource TextSecondary}" Text="0 Dateien geladen"/>
+            </Grid>
+        </Border>
+
+        <Menu Visibility="Collapsed" Height="0">
+            <MenuItem x:Name="AiEnabledMenuItem" Header="KI aktiv" IsCheckable="True"
+                      Checked="AiEnabledMenu_Changed" Unchecked="AiEnabledMenu_Changed"/>
+        </Menu>
+        <StackPanel Visibility="Collapsed">
+            <TextBlock x:Name="ThemeIcon" Text="🌙"/>
+            <TextBlock x:Name="ThemeLabel" Text="Dunkel"/>
+        </StackPanel>
     </Grid>
 </Window>

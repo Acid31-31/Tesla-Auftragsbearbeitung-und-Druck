@@ -776,8 +776,7 @@ namespace PDF_umbenenen.Services
                 return false;
 
             var cleaned = Regex.Replace(text, @"mm", string.Empty, RegexOptions.IgnoreCase).Trim();
-            return double.TryParse(cleaned, NumberStyles.Any, CultureInfo.GetCultureInfo("de-DE"), out value)
-                   || double.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+            return ThicknessCandidateResolver.TryParseThicknessMm(cleaned, out value);
         }
     }
 }

@@ -29,6 +29,12 @@ namespace PDF_umbenenen.Models
 
         public float Y { get; set; }
 
+        /// <summary>0..1 relativ zur Seitenbreite; wenn &gt; 0, beim Anwenden bevorzugt.</summary>
+        public float RelativeX { get; set; }
+
+        /// <summary>0..1 relativ zur Seitenhöhe; wenn &gt; 0, beim Anwenden bevorzugt.</summary>
+        public float RelativeY { get; set; }
+
         public int Alignment { get; set; }
 
         public float Angle { get; set; }

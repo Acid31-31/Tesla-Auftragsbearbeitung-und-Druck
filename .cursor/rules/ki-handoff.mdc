@@ -1,0 +1,27 @@
+---
+description: DOK-V01 Projekt-Kontext – zuerst AGENTS.md lesen
+alwaysApply: true
+---
+
+# KI-Handoff DOK-V01
+
+Vor jeder Arbeit: **`AGENTS.md`** im Projektroot lesen (vollständige App-Beschreibung, Pfade, Module, Fallstricke).
+
+## Kurzprofil
+- WPF-App **DOK-V01** (.NET 4.8): PDF-Zeichnungen + Excel → sortieren, umbenennen, Wasserzeichen, zusammenfügen
+- Version in `AppInfo.cs` / `Properties/AssemblyInfo.cs`
+- Ablage: `%LOCALAPPDATA%\DOK-V01\Ablage\`
+- GitHub-Releases: `publish-github-release.ps1`
+
+## Pflicht-Verhalten
+- **Kein Git-Commit** ohne explizite Nutzeranfrage
+- **Minimale, fokussierte Diffs** – bestehende Konventionen im umgebenden Code
+- Nach Codeänderungen: Debug-Build + `bin\Debug\DOK-V01.exe` starten (siehe `start-app-preview.mdc`)
+- MSBuild-Plattform: `AnyCPU` (ohne Leerzeichen)
+- Nutzer kommuniziert auf **Deutsch**
+
+## Kritische Bereiche (vorsichtig ändern)
+- Wasserzeichen: `SmartWatermarkLayoutService`, `AiWatermarkPlacementService`, `PdfRasterLayoutService`, `WatermarkLearningStore`
+- Material-Y-Koordinate: `placement.Y` = Baseline obere Zeile; Anker = `anchorBottomY`
+- Lernspeicher: `%LOCALAPPDATA%\DOK-V01\Learning\watermark-placements.xml` – Material nie aus XML übernehmen
+- pdfium: `NativeDependencyService`, `native\win-x64\` im Release-Paket

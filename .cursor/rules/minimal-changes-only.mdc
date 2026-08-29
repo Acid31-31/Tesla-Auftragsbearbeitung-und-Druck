@@ -1,0 +1,12 @@
+---
+description: Nur vom Nutzer Beauftragtes ändern – keine ungefragten Zusatzänderungen
+alwaysApply: true
+---
+
+# Nur beauftragte Änderungen
+
+- **Nur** das umsetzen, was der Nutzer **explizit** verlangt.
+- **Keine** ungefragten Refactorings, Layout-Umbauten, „Verbesserungen“ oder Zusatzfeatures.
+- **Keine** Änderungen an Bereichen, die der Nutzer nicht genannt hat (z. B. Top-Band-Layout nicht anfassen, wenn nur RAL-Erkennung gemeint ist).
+- Bei Unklarheit: **kurz nachfragen**, statt mehrere Varianten durchzuprobieren.
+- Bestehende Konventionen im umgebenden Code beibehalten; Diff so klein wie möglich halten.

@@ -132,7 +132,7 @@ namespace PDF_umbenenen
 
             var profile = _draft.ToProfile(name);
             var existing = CustomerProfileStore.GetById(profile.Id);
-            if (existing != null && !existing.IsBuiltIn)
+            if (existing != null)
             {
                 var overwrite = MessageBox.Show(this,
                     "Ein Kunde mit diesem Namen existiert bereits. Überschreiben?",
@@ -146,8 +146,11 @@ namespace PDF_umbenenen
             try
             {
                 CustomerProfileStore.Save(profile);
+                CustomerProfileSettingsStore.SaveSnapshotFromGlobal(profile.Id);
                 MessageBox.Show(this,
-                    "Kunde '" + profile.DisplayName + "' wurde gespeichert.\r\n\r\nBeim Sortieren erkennt die App diesen Kunden automatisch anhand der Zeichnungsnummern.",
+                    "Kunde '" + profile.DisplayName + "' wurde gespeichert.\r\n\r\n"
+                    + "Aktuelle Wasserzeichen- und KI-Einstellungen wurden mit dem Profil gespeichert.\r\n"
+                    + "Beim Sortieren erkennt die App diesen Kunden automatisch anhand der Zeichnungsnummern.",
                     "Gespeichert",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);

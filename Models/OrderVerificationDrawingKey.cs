@@ -96,6 +96,43 @@ namespace PDF_umbenenen.Models
             return ExtractDrawingTokens(text);
         }
 
+        /// <summary>
+        /// Nur echte Zeichnungsnummern mit Präfix (TSL-, ABC-, …).
+        /// Maße wie 1041-441 werden ignoriert – wichtig für Baugruppen-Erkennung.
+        /// </summary>
+        public static IReadOnlyList<string> ExtractPrefixedFromText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return Array.Empty<string>();
+
+            return ExtractDrawingTokens(text)
+                .Where(t => PrefixedDrawingRegex.IsMatch(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        public static int CountPrefixedDrawings(string text)
+        {
+            return ExtractPrefixedFromText(text).Count;
+        }
+
+        public static int CountOtherPrefixedDrawings(string text, string primaryKey)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(primaryKey))
+                return 0;
+
+            var normalizedPrimary = Normalize(primaryKey);
+            if (string.IsNullOrWhiteSpace(normalizedPrimary))
+                return 0;
+
+            return ExtractPrefixedFromText(text)
+                .Select(Normalize)
+                .Where(k => !string.IsNullOrWhiteSpace(k)
+                            && !string.Equals(k, normalizedPrimary, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+        }
+
         public static bool TryExtractFromBgMarker(string text, out string drawingNumber)
         {
             drawingNumber = string.Empty;

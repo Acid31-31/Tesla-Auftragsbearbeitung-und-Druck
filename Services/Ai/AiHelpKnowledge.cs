@@ -130,11 +130,11 @@ namespace PDF_umbenenen.Services.Ai
             new HelpEntry
             {
                 Priority = 50,
-                Keywords = new[] { "ollama", "ki", "offline", "assistent", "chat" },
+                Keywords = new[] { "tesseract", "ocr", "ki", "offline", "assistent", "chat" },
                 Answer =
                     "Hilfe-Chat in der App:\r\n\r\n" +
-                    "• Mit Ollama (localhost:11434): intelligentere Antworten – Modell z. B. llama3.2:3b\r\n" +
-                    "• Ohne Ollama: Offline-Hilfe mit festen Antworten zu typischen Fragen\r\n\r\n" +
+                    "• Offline-Hilfe mit festen Antworten und Regel-Engine\r\n" +
+                    "• Tesseract-OCR für Schriftfelder ohne Textlayer\r\n\r\n" +
                     "Stellen Sie konkrete Fragen, z. B. „Wasserzeichen manuell?“ oder „Drag & Drop geht nicht“."
             }
         };

@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using PDF_umbenenen.Services.Ai;
 
 namespace PDF_umbenenen.Services
 {
     /// <summary>
-    /// Schnelle Regel-Erkennung mit optionalem Raster; Ollama nur als letzter Ausweg.
+    /// Schnelle Regel-Erkennung mit optionalem Raster (nur außerhalb des Stapelmodus).
     /// </summary>
     internal static class MaterialThicknessHybridResolver
     {
@@ -67,8 +65,6 @@ namespace PDF_umbenenen.Services
 
         public static double? ResolveFinalMm(
             IList<ThicknessCandidate> candidates,
-            string pdfPath,
-            int pageNumber,
             string materialRaw)
         {
             if (candidates == null)
@@ -80,31 +76,12 @@ namespace PDF_umbenenen.Services
             if (ruleMm.HasValue
                 && ThicknessCandidateResolver.HasExplicitSourceForValue(candidates, ruleMm.Value))
             {
-                return ruleMm;
+                return ThicknessCandidateResolver.CorrectOversizedPlateGuess(ruleMm, candidates, materialRaw);
             }
 
             var merged = PreferRasterWhenRulesSuspicious(ruleMm, rasterMm, candidates, materialRaw);
-            if (merged.HasValue)
-                return merged;
-
-            var settings = AiSettingsStore.Load();
-            if (WatermarkProcessingContext.BatchMode || !settings.MaterialExtractionViaOllama)
-                return merged;
-
-            var ollama = OllamaMaterialThicknessService.TryExtract(pdfPath, pageNumber);
-            if (ollama == null || ollama.IsAssembly)
-                return null;
-
-            var ollamaMm = ParseThicknessMm(ollama.ThicknessText);
-            if (!ollamaMm.HasValue || !IsPlausibleThicknessMm(ollamaMm.Value))
-                return null;
-
-            if (ollama.Confidence > 0d && ollama.Confidence < 0.5d)
-                return null;
-
-            return ThicknessCandidateResolver.StandardGaugeDistance(ollamaMm.Value) <= 0.35d
-                ? ThicknessCandidateResolver.SnapToStandardGauge(ollamaMm.Value)
-                : ollamaMm;
+            var result = merged ?? ruleMm;
+            return ThicknessCandidateResolver.CorrectOversizedPlateGuess(result, candidates, materialRaw);
         }
 
         internal static void AddRasterSideProfileCandidate(
@@ -177,6 +154,20 @@ namespace PDF_umbenenen.Services
             if (ThicknessCandidateResolver.HasExplicitSourceForValue(candidates, ruleMm.Value))
                 return ruleMm;
 
+            // Explizite Blechdicke/t=… schlägt Raster/Seitenansicht immer.
+            if (ThicknessCandidateResolver.HasConfidentExplicitThickness(candidates, materialRaw))
+            {
+                var explicitBest = ThicknessCandidateResolver.ResolveBestMm(
+                    candidates
+                        .Where(c => ThicknessCandidateResolver.IsExplicitThicknessSource(c.Source)
+                                    || string.Equals(c.Source, "schriftfeld-label", StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(c.Source, "schriftfeld-thk", StringComparison.OrdinalIgnoreCase))
+                        .ToList(),
+                    materialRaw);
+                if (explicitBest.HasValue)
+                    return explicitBest;
+            }
+
             if (IsRuleResultSuspicious(ruleMm.Value, candidates, materialRaw)
                 && ThicknessCandidateResolver.StandardGaugeDistance(rasterMm.Value) <= 0.35d)
             {
@@ -199,6 +190,35 @@ namespace PDF_umbenenen.Services
             if (ThicknessCandidateResolver.IsLikelyHoleDiameterMm(ruleMm))
                 return true;
 
+            if (ThicknessCandidateResolver.IsWholeNumber(ruleMm)
+                && ruleMm >= 4d
+                && ruleMm <= 25d
+                && candidates != null
+                && candidates.Any(c =>
+                    c.ValueMm >= 0.8d
+                    && c.ValueMm <= 6.5d
+                    && (ThicknessCandidateResolver.IsExplicitThicknessSource(c.Source)
+                        || string.Equals(c.Source, "schriftfeld-label", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(c.Source, "schriftfeld-thk", StringComparison.OrdinalIgnoreCase)
+                        || (ThicknessCandidateResolver.IsSideViewSource(c.Source)
+                            && ThicknessCandidateResolver.IsTypicalSheetThickness(c.ValueMm)))))
+            {
+                return true;
+            }
+
+            if (ThicknessCandidateResolver.IsWholeNumber(ruleMm)
+                && ruleMm >= 4d
+                && ruleMm <= 10d
+                && candidates != null
+                && candidates.Any(c =>
+                    ThicknessCandidateResolver.HasFractionalPart(c.ValueMm)
+                    && c.ValueMm >= 0.8d
+                    && c.ValueMm <= 3.5d
+                    && ThicknessCandidateResolver.IsSideViewSource(c.Source)))
+            {
+                return true;
+            }
+
             if (ThicknessCandidateResolver.IsSuspiciousThinGauge(ruleMm)
                 && !string.IsNullOrWhiteSpace(materialRaw)
                 && (materialRaw.IndexOf("1.0038", StringComparison.OrdinalIgnoreCase) >= 0
@@ -219,31 +239,6 @@ namespace PDF_umbenenen.Services
             }
 
             return false;
-        }
-
-        private static double? ParseThicknessMm(string thicknessText)
-        {
-            if (string.IsNullOrWhiteSpace(thicknessText))
-                return null;
-
-            var text = System.Text.RegularExpressions.Regex.Replace(
-                thicknessText,
-                @"mm",
-                string.Empty,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
-
-            if (double.TryParse(text, NumberStyles.Any, CultureInfo.GetCultureInfo("de-DE"), out var mm))
-                return mm;
-
-            if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out mm))
-                return mm;
-
-            return null;
-        }
-
-        private static bool IsPlausibleThicknessMm(double mm)
-        {
-            return mm >= 0.3d && mm <= ThicknessCandidateResolver.MaxSideViewThicknessMm;
         }
     }
 }

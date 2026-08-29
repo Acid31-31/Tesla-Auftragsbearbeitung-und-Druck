@@ -106,13 +106,26 @@ namespace PDF_umbenenen.Services
                 draft.WorkflowKind = CustomerWorkflowKind.PdfOrderListPrimary;
                 draft.RequiresExcel = false;
                 draft.RequiresOrderPdf = true;
-                draft.AnalysisLog.Add("Workflow: nur Bestell-PDF (keine Excel)");
+                draft.AnalysisLog.Add("Workflow: Bestell-PDF (ohne Excel)");
+            }
+            else if (drawingSamples.Count > 0)
+            {
+                // Nur Zeichnungs-PDFs: Muster lernen, Excel nicht erzwingen.
+                draft.WorkflowKind = CustomerWorkflowKind.PdfOrderListPrimary;
+                draft.RequiresExcel = false;
+                draft.RequiresOrderPdf = false;
+                draft.AnalysisLog.Add(
+                    "Workflow: nur Zeichnungs-PDFs – Zeichnungsnummern-Muster gelernt (ohne Excel).");
+                draft.AnalysisLog.Add(
+                    "Hinweis: Zum späteren Sortieren brauchen Sie eine Bestell-PDF oder Excel mit denselben Zeichnungsnummern.");
             }
             else
             {
                 draft.WorkflowKind = CustomerWorkflowKind.ExcelPrimary;
-                draft.RequiresExcel = true;
-                draft.AnalysisLog.Add("Hinweis: Keine Excel gefunden – Tesla-ähnlicher Excel-Workflow als Standard gesetzt.");
+                draft.RequiresExcel = false;
+                draft.AnalysisLog.Add(
+                    "Keine Zeichnungsnummern erkannt. Bitte 1–3 Zeichnungs-PDFs mit Nummern im Dateinamen oder Schriftfeld "
+                    + "(z. B. TSL-1227-125), eine Bestell-PDF oder eine Excel hinzufügen.");
             }
 
             if (drawingSamples.Count > 0)

@@ -77,7 +77,9 @@ namespace PDF_umbenenen.Services
                 var dateBlockStart = Math.Max(0, i - 3);
                 var dateBlock = BuildContextBlock(lines, dateBlockStart, Math.Min(15, lines.Count - dateBlockStart));
                 var date = OrderVerificationDateHelper.ExtractDueDate(dateBlock);
-                var amount = ExtractTableQuantity(line)
+                var rowContext = BuildContextBlock(lines, i, Math.Min(8, lines.Count - i));
+                var amount = OrderVerificationAmountHelper.ExtractQuantity(rowContext)
+                    ?? ExtractTableQuantity(line)
                     ?? ExtractNearestTableQuantity(lines, i, articles.FirstOrDefault(), drawings.FirstOrDefault())
                     ?? ExtractAmount(line)
                     ?? ExtractAmount(i + 1 < lines.Count ? lines[i + 1] : null);
@@ -97,8 +99,68 @@ namespace PDF_umbenenen.Services
             }
 
             EnrichMissingDates(results, lines);
+            EnrichMissingAmounts(results, lines);
 
             return results;
+        }
+
+        private static void EnrichMissingAmounts(IList<OrderVerificationLine> results, IList<string> lines)
+        {
+            if (results == null || results.Count == 0 || lines == null || lines.Count == 0)
+                return;
+
+            var byArticle = new Dictionary<string, OrderVerificationLine>(StringComparer.OrdinalIgnoreCase);
+            var byDrawing = new Dictionary<string, OrderVerificationLine>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var result in results)
+            {
+                if (!string.IsNullOrWhiteSpace(result.ArticleNumber))
+                    byArticle[result.ArticleNumber.ToUpperInvariant()] = result;
+
+                if (!string.IsNullOrWhiteSpace(result.DrawingNumber))
+                {
+                    var drawKey = OrderVerificationDrawingKey.Normalize(result.DrawingNumber);
+                    if (!string.IsNullOrWhiteSpace(drawKey))
+                        byDrawing[drawKey] = result;
+                }
+            }
+
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                var amount = OrderVerificationAmountHelper.ExtractQuantity(line);
+                if (string.IsNullOrWhiteSpace(amount))
+                    continue;
+
+                var contextStart = Math.Max(0, i - 4);
+                var context = BuildContextBlock(lines, contextStart, Math.Min(10, lines.Count - contextStart));
+                if (!ArticleRegex.IsMatch(context) && !DrawingRegex.IsMatch(context))
+                    continue;
+
+                foreach (Match match in ArticleRegex.Matches(context))
+                {
+                    OrderVerificationLine target;
+                    if (byArticle.TryGetValue(match.Value.ToUpperInvariant(), out target)
+                        && string.IsNullOrWhiteSpace(target.Amount))
+                    {
+                        target.Amount = amount;
+                    }
+                }
+
+                foreach (Match match in DrawingRegex.Matches(context))
+                {
+                    var drawKey = OrderVerificationDrawingKey.Normalize(match.Value);
+                    if (string.IsNullOrWhiteSpace(drawKey))
+                        continue;
+
+                    OrderVerificationLine target;
+                    if (byDrawing.TryGetValue(drawKey, out target)
+                        && string.IsNullOrWhiteSpace(target.Amount))
+                    {
+                        target.Amount = amount;
+                    }
+                }
+            }
         }
 
         private static void EnrichMissingDates(IList<OrderVerificationLine> results, IList<string> lines)
@@ -239,7 +301,7 @@ namespace PDF_umbenenen.Services
 
         private static string ExtractNearestTableQuantity(IList<string> lines, int lineIndex, string article, string drawing)
         {
-            for (var delta = 0; delta <= 3; delta++)
+            for (var delta = 0; delta <= 8; delta++)
             {
                 foreach (var idx in new[] { lineIndex - delta, lineIndex + delta })
                 {
@@ -247,7 +309,8 @@ namespace PDF_umbenenen.Services
                         continue;
 
                     var text = lines[idx];
-                    var qty = ExtractTableQuantity(text);
+                    var qty = OrderVerificationAmountHelper.ExtractQuantity(text)
+                              ?? ExtractTableQuantity(text);
                     if (string.IsNullOrEmpty(qty))
                         continue;
 
@@ -297,7 +360,7 @@ namespace PDF_umbenenen.Services
                 ArticleNumber = article,
                 DrawingNumber = drawing,
                 DeliveryDate = OrderVerificationDateHelper.NormalizeToEu(date),
-                Amount = NormalizeAmount(amount),
+                Amount = OrderVerificationAmountHelper.NormalizeQuantity(amount),
                 SourceHint = Truncate(sourceLine, 80)
             });
         }
@@ -352,19 +415,12 @@ namespace PDF_umbenenen.Services
             if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var value))
                 return ((int)Math.Round(value)).ToString(CultureInfo.InvariantCulture);
 
-            return NormalizeAmount(raw);
+            return OrderVerificationAmountHelper.NormalizeQuantity(raw);
         }
 
         private static string NormalizeAmount(string raw)
         {
-            if (string.IsNullOrWhiteSpace(raw))
-                return string.Empty;
-
-            var digits = new string(raw.Where(char.IsDigit).ToArray());
-            if (string.IsNullOrEmpty(digits))
-                return string.Empty;
-
-            return digits.TrimStart('0');
+            return OrderVerificationAmountHelper.NormalizeQuantity(raw);
         }
 
         private static string Truncate(string value, int maxLength)

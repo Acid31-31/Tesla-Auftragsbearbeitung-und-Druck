@@ -8,11 +8,9 @@ namespace PDF_umbenenen.Services
 {
     internal static class CertificateTrustService
     {
-        private const string CerFileName = "CodeSigning.cer";
-
         public static bool TryInstallPublisherCertificateWithConsent()
         {
-            var cerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CerFileName);
+            var cerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, AppInfo.CodeSigningCerFileName);
             if (!File.Exists(cerPath))
                 return false;
 
@@ -46,7 +44,7 @@ namespace PDF_umbenenen.Services
 
         public static bool TryInstallPublisherCertificate()
         {
-            var cerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CerFileName);
+            var cerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, AppInfo.CodeSigningCerFileName);
             if (!File.Exists(cerPath))
                 return false;
 
@@ -67,6 +65,23 @@ namespace PDF_umbenenen.Services
             {
                 AddToStoreIfMissing(StoreName.TrustedPublisher, certificate);
                 return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool IsPublisherTrustedFromBundledCertificate()
+        {
+            var cerPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, AppInfo.CodeSigningCerFileName);
+            if (!File.Exists(cerPath))
+                return false;
+
+            try
+            {
+                var certificate = new X509Certificate2(cerPath);
+                return IsPublisherTrusted(certificate);
             }
             catch
             {

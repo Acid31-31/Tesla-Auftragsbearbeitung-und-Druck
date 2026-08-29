@@ -1,0 +1,145 @@
+<Window x:Class="PDF_umbenenen.AppSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Einstellungen"
+        Height="560" Width="520"
+        MinHeight="480" MinWidth="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackground}"
+        Foreground="{DynamicResource TextPrimary}"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False">
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Einstellungen"
+                       FontSize="20" FontWeight="SemiBold"/>
+            <TextBlock Text="KI, Wasserzeichen, Kundenprofile und Darstellung."
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="12"
+                       Margin="0,6,0,0"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Button Style="{StaticResource SettingsHubButton}" Click="OpenAiSettings_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="🤖" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="KI &amp; OCR" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Lokale Vision, Tesseract, KI-Chat, OCR-Sprachen"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <Button Style="{StaticResource SettingsHubButton}" Click="OpenWatermarkSettings_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="💧" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Wasserzeichen" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Material, RAL/ELOX, intelligente Platzierung"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <Button Style="{StaticResource SettingsHubButton}" Click="OpenCorrectWatermark_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="✎" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Wasserzeichen korrigieren" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Positionen in der Ablage nachträglich anpassen"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <Button Style="{StaticResource SettingsHubButton}" Click="OpenManageCustomers_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="👥" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Kundenprofile" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Kunden anlegen – App lernt aus Beispiel-Dateien"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <Button Style="{StaticResource SettingsHubButton}" Click="CheckUpdates_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="⬆" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Update prüfen" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Manuell nach neuer Version auf GitHub suchen"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <Button Style="{StaticResource SettingsHubButton}" Click="ToggleTheme_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="ThemeIconTextBlock" Text="🌙" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Erscheinungsbild" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock x:Name="ThemeHintTextBlock" Text="Dunkles Design ( aktiv )"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <Button Style="{StaticResource SettingsHubButton}" Click="OpenPlatformDashboard_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="⚙" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="KI-Plattform (Experte)" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Modul-Dashboard, Analyse und Diagnose"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Button Grid.Row="3" Content="Schließen" Width="100" Height="32"
+                HorizontalAlignment="Right" Margin="0,16,0,0"
+                Style="{StaticResource DialogSecondaryButton}"
+                IsCancel="True" Click="Close_Click"/>
+    </Grid>
+</Window>

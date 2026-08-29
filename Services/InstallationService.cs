@@ -34,6 +34,7 @@ namespace PDF_umbenenen.Services
 
         public static InstallationResult RunInstall(
             string sourceDir,
+            string targetDir,
             bool installPublisherCertificate,
             bool launchAfterInstall,
             IProgress<string> progress = null)
@@ -44,12 +45,14 @@ namespace PDF_umbenenen.Services
                 if (string.IsNullOrWhiteSpace(sourceDir) || !Directory.Exists(sourceDir))
                     throw new InvalidOperationException("Installationsquelle nicht gefunden.");
 
-                if (!AdminElevationService.IsRunningAsAdministrator())
-                    throw new InvalidOperationException("Administratorrechte erforderlich.");
+                if (string.IsNullOrWhiteSpace(targetDir))
+                    throw new InvalidOperationException("Kein Zielordner ausgewählt.");
 
-                var targetDir = AppInfo.DefaultInstallDirectory;
+                targetDir = Path.GetFullPath(targetDir);
+
                 progress?.Report("Installationsordner wird vorbereitet…");
                 Directory.CreateDirectory(targetDir);
+                Directory.CreateDirectory(Path.Combine(targetDir, "Ablage"));
 
                 if (!IsSameDirectory(sourceDir, targetDir))
                 {
@@ -58,8 +61,8 @@ namespace PDF_umbenenen.Services
                     SyncUpdateToken(sourceDir, targetDir);
                 }
 
-                progress?.Report("Alte portable Dateien werden entfernt…");
-                LegacyInstallCleanupService.RemovePortableBinariesFromUserData();
+                progress?.Report("Alte Benutzerdaten werden übernommen…");
+                InstallMigrationService.MigrateLegacyUserData(targetDir, progress);
 
                 if (installPublisherCertificate)
                 {
@@ -74,6 +77,9 @@ namespace PDF_umbenenen.Services
                 result.Success = true;
                 result.InstalledExePath = installedExe;
                 result.Message = "Installation abgeschlossen.";
+
+                InstallRegistrationService.RegisterSuccessfulInstall(targetDir);
+                AppInfo.SaveInstallLocation(targetDir);
 
                 if (launchAfterInstall && File.Exists(installedExe))
                 {
@@ -112,17 +118,17 @@ namespace PDF_umbenenen.Services
             }
 
             var assetsSource = Path.Combine(sourceDir, "Assets");
-            if (!Directory.Exists(assetsSource))
-                return;
-
-            var assetsTarget = Path.Combine(targetDir, "Assets");
-            Directory.CreateDirectory(assetsTarget);
-
-            foreach (var file in Directory.GetFiles(assetsSource))
+            if (Directory.Exists(assetsSource))
             {
-                var name = Path.GetFileName(file);
-                var targetPath = AppSecurityService.ResolveSafeTargetPath(assetsTarget, name);
-                File.Copy(file, targetPath, true);
+                var assetsTarget = Path.Combine(targetDir, "Assets");
+                Directory.CreateDirectory(assetsTarget);
+
+                foreach (var file in Directory.GetFiles(assetsSource))
+                {
+                    var name = Path.GetFileName(file);
+                    var targetPath = AppSecurityService.ResolveSafeTargetPath(assetsTarget, name);
+                    File.Copy(file, targetPath, true);
+                }
             }
 
             var licenseSource = Path.Combine(sourceDir, "LICENSE_DE.txt");
@@ -133,10 +139,58 @@ namespace PDF_umbenenen.Services
                     AppSecurityService.ResolveSafeTargetPath(targetDir, "LICENSE_DE.txt"),
                     true);
             }
+
+            CopyNativeDependencies(sourceDir, targetDir);
+            CopyBundledToolDirectory(sourceDir, targetDir, "tesseract");
+        }
+
+        private static void CopyBundledToolDirectory(string sourceDir, string targetDir, string folderName)
+        {
+            var toolSource = Path.Combine(sourceDir, folderName);
+            if (!Directory.Exists(toolSource))
+                return;
+
+            var toolTarget = Path.Combine(targetDir, folderName);
+            Directory.CreateDirectory(toolTarget);
+
+            foreach (var file in Directory.GetFiles(toolSource, "*", SearchOption.AllDirectories))
+            {
+                var relative = file.Substring(toolSource.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var destination = Path.Combine(toolTarget, relative);
+                var destinationDir = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrWhiteSpace(destinationDir))
+                    Directory.CreateDirectory(destinationDir);
+
+                File.Copy(file, destination, true);
+            }
+        }
+
+        private static void CopyNativeDependencies(string sourceDir, string targetDir)
+        {
+            var nativeSource = Path.Combine(sourceDir, "native");
+            if (!Directory.Exists(nativeSource))
+                return;
+
+            var nativeTarget = Path.Combine(targetDir, "native");
+            Directory.CreateDirectory(nativeTarget);
+
+            foreach (var file in Directory.GetFiles(nativeSource, "*", SearchOption.AllDirectories))
+            {
+                var relative = file.Substring(nativeSource.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var destination = Path.Combine(nativeTarget, relative);
+                var destinationDir = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrWhiteSpace(destinationDir))
+                    Directory.CreateDirectory(destinationDir);
+
+                File.Copy(file, destination, true);
+            }
         }
 
         private static void SyncUpdateToken(string sourceDir, string targetDir)
         {
+            if (AppInfo.GitHubUpdatesArePublic)
+                return;
+
             var tokenSource = Path.Combine(sourceDir, "github.token");
             if (!File.Exists(tokenSource))
                 return;

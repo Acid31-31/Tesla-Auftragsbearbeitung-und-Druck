@@ -7,18 +7,17 @@ namespace PDF_umbenenen.Services.Ai
     internal enum AiBackendMode
     {
         Disabled,
-        Ollama,
         RulesOnly
     }
 
+    /// <summary>
+    /// Offline-KI ohne Ollama: ausschließlich lokale Regeln und Plattform-Module.
+    /// </summary>
     internal sealed class OfflineAiOrchestrator : IDisposable
     {
         private readonly AiSettings _settings = new AiSettings();
-        private OllamaAiBackend _ollama;
         private readonly RuleBasedFallback _fallback = new RuleBasedFallback();
         private AiBackendMode _mode = AiBackendMode.RulesOnly;
-        private DateTime _lastAvailabilityCheck = DateTime.MinValue;
-        private bool _ollamaAvailable;
 
         public OfflineAiOrchestrator()
         {
@@ -35,15 +34,11 @@ namespace PDF_umbenenen.Services.Ai
         {
             var loaded = AiSettingsStore.Load();
             _settings.AiEnabled = loaded.AiEnabled;
-            _settings.OllamaBaseUrl = loaded.OllamaBaseUrl;
-            _settings.ModelName = loaded.ModelName;
-            _settings.VisionModelName = loaded.VisionModelName;
-            _settings.MaterialExtractionViaOllama = loaded.MaterialExtractionViaOllama;
-
-            _ollama?.Dispose();
-            _ollama = new OllamaAiBackend(_settings);
+            _settings.LocalOcrEnabled = loaded.LocalOcrEnabled;
+            _settings.TesseractPath = loaded.TesseractPath;
+            _settings.OcrLanguages = loaded.OcrLanguages;
+            _settings.LocalVisionEnabled = loaded.LocalVisionEnabled;
             _mode = _settings.AiEnabled ? AiBackendMode.RulesOnly : AiBackendMode.Disabled;
-            _lastAvailabilityCheck = DateTime.MinValue;
         }
 
         public void SaveSettings()
@@ -54,33 +49,21 @@ namespace PDF_umbenenen.Services.Ai
 
         public void ApplyCurrentSettings()
         {
-            _ollama?.Dispose();
-            _ollama = new OllamaAiBackend(_settings);
             _mode = _settings.AiEnabled ? AiBackendMode.RulesOnly : AiBackendMode.Disabled;
-            _lastAvailabilityCheck = DateTime.MinValue;
         }
 
-        public async Task RefreshAvailabilityAsync(CancellationToken cancellationToken)
+        public Task RefreshAvailabilityAsync(CancellationToken cancellationToken)
         {
-            if (!_settings.AiEnabled)
-            {
-                _mode = AiBackendMode.Disabled;
-                _ollamaAvailable = false;
-                return;
-            }
-
-            await Task.Run(() => OllamaRuntimeService.EnsureRunning(_settings.OllamaBaseUrl), cancellationToken)
-                .ConfigureAwait(false);
-
-            _ollamaAvailable = await _ollama.CheckAvailabilityAsync(cancellationToken).ConfigureAwait(false);
-            _mode = _ollamaAvailable ? AiBackendMode.Ollama : AiBackendMode.RulesOnly;
-            _lastAvailabilityCheck = DateTime.UtcNow;
+            _mode = _settings.AiEnabled ? AiBackendMode.RulesOnly : AiBackendMode.Disabled;
+            return Task.CompletedTask;
         }
 
-        public async Task EnsureAvailabilityAsync(CancellationToken cancellationToken)
+        public Task EnsureAvailabilityAsync(CancellationToken cancellationToken)
         {
-            if ((DateTime.UtcNow - _lastAvailabilityCheck).TotalSeconds > 30)
-                await RefreshAvailabilityAsync(cancellationToken).ConfigureAwait(false);
+            if (!_settings.LocalOcrEnabled)
+                return Task.CompletedTask;
+
+            return TesseractBootstrapService.EnsureAvailableAsync(cancellationToken);
         }
 
         public string GetStatusText()
@@ -88,50 +71,21 @@ namespace PDF_umbenenen.Services.Ai
             if (!_settings.AiEnabled)
                 return "KI deaktiviert";
 
-            return _mode == AiBackendMode.Ollama
-                ? "Ollama verbunden"
-                : "Offline-Modus (Regeln)";
+            var ocr = _settings.LocalOcrEnabled
+                ? (Cli.TesseractCliService.IsAvailable() ? "OCR: Tesseract" : "OCR: Tesseract fehlt")
+                : "OCR: aus";
+
+            return "KI-Vision aktiv (Wasserzeichen-Platzierung) · " + ocr;
         }
 
-        public async Task<string> CompleteAsync(string prompt, bool jsonFormat, CancellationToken cancellationToken)
-        {
-            await EnsureAvailabilityAsync(cancellationToken).ConfigureAwait(false);
-            if (_mode == AiBackendMode.Ollama)
-            {
-                try
-                {
-                    return await _ollama.CompleteAsync(prompt, jsonFormat, cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
-                    _mode = AiBackendMode.RulesOnly;
-                }
-            }
+        public Task<string> CompleteAsync(string prompt, bool jsonFormat, CancellationToken cancellationToken)
+            => Task.FromResult(string.Empty);
 
-            return string.Empty;
-        }
-
-        public async Task<string> ChatAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
-        {
-            await EnsureAvailabilityAsync(cancellationToken).ConfigureAwait(false);
-            if (_mode == AiBackendMode.Ollama)
-            {
-                try
-                {
-                    return await _ollama.ChatAsync(systemPrompt, userPrompt, cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
-                    _mode = AiBackendMode.RulesOnly;
-                }
-            }
-
-            return await _fallback.ChatAsync(systemPrompt, userPrompt, cancellationToken).ConfigureAwait(false);
-        }
+        public Task<string> ChatAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
+            => _fallback.ChatAsync(systemPrompt, userPrompt, cancellationToken);
 
         public void Dispose()
         {
-            _ollama?.Dispose();
         }
     }
 }

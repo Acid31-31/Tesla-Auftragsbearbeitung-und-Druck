@@ -13,5 +13,7 @@ namespace PDF_umbenenen.Models
         public bool LaunchAfterInstall { get; set; } = true;
 
         public string SourceDirectory { get; set; } = string.Empty;
+
+        public string TargetDirectory { get; set; } = string.Empty;
     }
 }

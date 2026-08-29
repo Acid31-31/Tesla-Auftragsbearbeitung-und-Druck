@@ -1,34 +1,30 @@
 using System;
 using System.IO;
-using System.Net.Http;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Xml.Linq;
 
 namespace PDF_umbenenen.Services.Ai
 {
     public sealed class AiSettings
     {
+        /// <summary>KI-Chat und Regel-Assistent aktiv.</summary>
         public bool AiEnabled { get; set; } = true;
 
-        public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
+        /// <summary>Lokales OCR (Tesseract CLI) für Schriftfelder ohne Textlayer.</summary>
+        public bool LocalOcrEnabled { get; set; } = true;
 
-        public string ModelName { get; set; } = "llama3.2:3b";
+        /// <summary>Optionale Pfadangabe zu tesseract.exe.</summary>
+        public string TesseractPath { get; set; } = string.Empty;
 
-        /// <summary>Vision-Modell für Zeichnungsanalyse (z. B. llava:7b, moondream).</summary>
-        public string VisionModelName { get; set; } = "llava:7b";
+        /// <summary>Tesseract-Sprachen, z. B. deu+eng.</summary>
+        public string OcrLanguages { get; set; } = "deu+eng";
 
-        /// <summary>Blechdicke per Ollama-Vision auf localhost bei Unsicherheit oder Abweichung prüfen.</summary>
-        public bool MaterialExtractionViaOllama { get; set; } = true;
+        /// <summary>Lokale Layout-/Zeichnungsanalyse (PDF-Text + OCR + Regeln).</summary>
+        public bool LocalVisionEnabled { get; set; } = true;
     }
 
     internal static class AiSettingsStore
     {
-        private static readonly string StorePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PDF-umbenenen",
-            "ai-settings.xml");
+        private static string StorePath => UserSettingsPath.GetFilePath("ai-settings.xml");
 
         public static AiSettings Load()
         {
@@ -44,25 +40,22 @@ namespace PDF_umbenenen.Services.Ai
                 var doc = XDocument.Load(StorePath);
                 var root = doc.Root;
                 if (root == null)
-                {
-                    var defaults = new AiSettings();
-                    Save(defaults);
-                    return defaults;
-                }
+                    return new AiSettings();
 
                 var settings = new AiSettings
                 {
                     AiEnabled = !string.Equals((string)root.Element("AiEnabled"), "false", StringComparison.OrdinalIgnoreCase),
-                    OllamaBaseUrl = (string)root.Element("OllamaBaseUrl") ?? "http://localhost:11434",
-                    ModelName = (string)root.Element("ModelName") ?? "llama3.2:3b",
-                    VisionModelName = (string)root.Element("VisionModelName") ?? "llava:7b",
-                    MaterialExtractionViaOllama = true
+                    LocalOcrEnabled = !string.Equals((string)root.Element("LocalOcrEnabled"), "false", StringComparison.OrdinalIgnoreCase),
+                    TesseractPath = (string)root.Element("TesseractPath") ?? string.Empty,
+                    OcrLanguages = (string)root.Element("OcrLanguages") ?? "deu+eng",
+                    LocalVisionEnabled = !string.Equals((string)root.Element("LocalVisionEnabled"), "false", StringComparison.OrdinalIgnoreCase)
                 };
 
-                if (root.Element("VisionModelName") == null
-                    || root.Element("MaterialExtractionViaOllama") == null
-                    || string.Equals((string)root.Element("MaterialExtractionViaOllama"), "false", StringComparison.OrdinalIgnoreCase))
+                // Migration alter Ollama-Einstellungen: OCR/Vision lokal aktiv lassen
+                if (root.Element("LocalOcrEnabled") == null)
                 {
+                    settings.LocalOcrEnabled = true;
+                    settings.LocalVisionEnabled = true;
                     Save(settings);
                 }
 
@@ -85,10 +78,10 @@ namespace PDF_umbenenen.Services.Ai
                 new XDocument(
                     new XElement("AiSettings",
                         new XElement("AiEnabled", settings.AiEnabled ? "true" : "false"),
-                        new XElement("OllamaBaseUrl", settings.OllamaBaseUrl ?? "http://localhost:11434"),
-                        new XElement("ModelName", settings.ModelName ?? "llama3.2:3b"),
-                        new XElement("VisionModelName", settings.VisionModelName ?? "llava:7b"),
-                        new XElement("MaterialExtractionViaOllama", settings.MaterialExtractionViaOllama ? "true" : "false")
+                        new XElement("LocalOcrEnabled", settings.LocalOcrEnabled ? "true" : "false"),
+                        new XElement("TesseractPath", settings.TesseractPath ?? string.Empty),
+                        new XElement("OcrLanguages", settings.OcrLanguages ?? "deu+eng"),
+                        new XElement("LocalVisionEnabled", settings.LocalVisionEnabled ? "true" : "false")
                     )
                 ).Save(StorePath);
             }

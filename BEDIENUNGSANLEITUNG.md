@@ -1,5 +1,7 @@
 # Bedienungsanleitung – DOK-V01
 
+> **Entwickler / KI:** Vollständige technische Beschreibung → **`AGENTS.md`**
+
 ## 1. Zweck der App
 Die App verarbeitet Zeichnungs-PDFs auf Basis einer Excel-Datei, sortiert und benennt sie um, fügt optional Wasserzeichen hinzu und kann alle bearbeiteten PDFs zu einer Gesamtdatei zusammenführen.
 

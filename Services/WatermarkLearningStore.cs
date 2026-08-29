@@ -10,18 +10,30 @@ namespace PDF_umbenenen.Services
 {
     internal static class WatermarkLearningStore
     {
-        private static readonly string StorePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "DOK-V01",
+        private static string StorePath => Path.Combine(
+            AppInfo.UserDataDirectory,
             "Learning",
             "watermark-placements.xml");
 
         public static string NormalizeDrawingKey(string drawingNumber)
         {
-            if (string.IsNullOrWhiteSpace(drawingNumber))
-                return string.Empty;
+            return OrderVerificationDrawingKey.Normalize(drawingNumber);
+        }
 
-            return drawingNumber.Trim().ToUpperInvariant();
+        public static bool ShouldSuppressAutoMaterial(string drawingNumber)
+        {
+            var learned = TryGet(drawingNumber);
+            if (learned == null)
+                return false;
+
+            var marker = (learned.MaterialOverride ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(marker))
+                return false;
+
+            return string.Equals(marker, "-", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(marker, "none", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(marker, "off", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(marker, "aus", StringComparison.OrdinalIgnoreCase);
         }
 
         public static void SaveEntry(WatermarkLearningEntry entry)
@@ -41,7 +53,8 @@ namespace PDF_umbenenen.Services
         public static void SaveCategoryDefaultsFromPlacements(
             IEnumerable<WatermarkTextPlacement> placements,
             float pageWidth,
-            float pageHeight)
+            float pageHeight,
+            bool includeLayoutCategories = false)
         {
             if (pageWidth <= 0 || pageHeight <= 0)
                 return;
@@ -53,6 +66,9 @@ namespace PDF_umbenenen.Services
             foreach (var placement in placements ?? Enumerable.Empty<WatermarkTextPlacement>())
             {
                 if (placement == null || string.IsNullOrWhiteSpace(placement.Category))
+                    continue;
+
+                if (IsExcludedFromCategoryDefaults(placement.Category, includeLayoutCategories))
                     continue;
 
                 defaults[placement.Category] = new LearnedCategoryDefault
@@ -68,6 +84,125 @@ namespace PDF_umbenenen.Services
             }
 
             SaveDocument(LoadEntries(document), defaults.Values.ToList());
+        }
+
+        public static bool HasCategoryDefault(string category)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+                return false;
+
+            return LoadCategoryDefaults(LoadDocument()).Any(d =>
+                d != null
+                && string.Equals(d.Category, category, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public static bool HasLearnedPlacementForCategory(string drawingNumber, string category)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+                return false;
+
+            var learned = TryGet(drawingNumber);
+            return learned?.Placements?.Any(p =>
+                p != null
+                && string.Equals(p.Category, category, StringComparison.OrdinalIgnoreCase)) == true;
+        }
+
+        public static void ApplyLearnedDrawingCorrections(
+            string drawingNumber,
+            List<WatermarkTextPlacement> placements,
+            string pdfPath,
+            int pageNumber,
+            float pageWidth,
+            float pageHeight)
+        {
+            if (ShouldSkipLearningAfterPlacementError || placements == null)
+                return;
+
+            var learned = TryGet(drawingNumber);
+            if (learned?.Placements == null || learned.Placements.Count == 0)
+                return;
+
+            foreach (var learnedPlacement in learned.Placements)
+            {
+                if (learnedPlacement == null || string.IsNullOrWhiteSpace(learnedPlacement.Category))
+                    continue;
+
+                if (IsFixedTopBandCategory(learnedPlacement.Category))
+                    continue;
+
+                if (string.Equals(learnedPlacement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "Material", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var target = placements.FirstOrDefault(p =>
+                    string.Equals(p.Category, learnedPlacement.Category, StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(learnedPlacement.Text)
+                    && string.Equals((p.Text ?? string.Empty).Trim(), learnedPlacement.Text.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                if (target == null)
+                {
+                    target = placements.FirstOrDefault(p =>
+                        string.Equals(p.Category, learnedPlacement.Category, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (target == null)
+                {
+                    target = new WatermarkTextPlacement { Category = learnedPlacement.Category };
+                    placements.Add(target);
+                }
+
+                if (!string.IsNullOrWhiteSpace(learnedPlacement.Text))
+                    target.Text = learnedPlacement.Text.Trim();
+
+                // Manuelle Korrekturen immer übernehmen (relativ bevorzugt, sonst absolut).
+                // Keine Raster-Validierung: die hat gelernte Positionen nach Neu-Sortierung verworfen.
+                ResolveLearnedCoordinates(
+                    learnedPlacement,
+                    pageWidth,
+                    pageHeight,
+                    out var applyX,
+                    out var applyY);
+
+                if (pageWidth > 0f)
+                    applyX = Math.Max(0f, Math.Min(applyX, pageWidth));
+                if (pageHeight > 0f)
+                    applyY = Math.Max(0f, Math.Min(applyY, pageHeight));
+
+                target.X = applyX;
+                target.Y = applyY;
+                target.Alignment = learnedPlacement.Alignment;
+                target.Angle = learnedPlacement.Angle;
+                if (learnedPlacement.FontSize > 0f)
+                    target.FontSize = learnedPlacement.FontSize;
+                target.UseRedText = learnedPlacement.UseRedText;
+            }
+        }
+
+        private static void ResolveLearnedCoordinates(
+            LearnedWatermarkPlacement learnedPlacement,
+            float pageWidth,
+            float pageHeight,
+            out float x,
+            out float y)
+        {
+            x = learnedPlacement.X;
+            y = learnedPlacement.Y;
+
+            if (pageWidth > 0f
+                && pageHeight > 0f
+                && (learnedPlacement.RelativeX > 0f || learnedPlacement.RelativeY > 0f)
+                && learnedPlacement.RelativeX <= 1.05f
+                && learnedPlacement.RelativeY <= 1.05f)
+            {
+                x = learnedPlacement.RelativeX * pageWidth;
+                y = learnedPlacement.RelativeY * pageHeight;
+            }
+        }
+
+        public static bool HasLearnedMaterialPlacement(string drawingNumber)
+        {
+            return HasLearnedPlacementForCategory(drawingNumber, "Material");
         }
 
         public static WatermarkLearningEntry TryGet(string drawingNumber)
@@ -86,6 +221,9 @@ namespace PDF_umbenenen.Services
             if (placements == null || placements.Count == 0)
                 return appliedCategories;
 
+            if (ShouldSkipLearningAfterPlacementError)
+                return appliedCategories;
+
             var learned = TryGet(drawingNumber);
             if (learned == null || learned.Placements == null || learned.Placements.Count == 0)
                 return appliedCategories;
@@ -96,20 +234,22 @@ namespace PDF_umbenenen.Services
                     continue;
 
                 if (string.Equals(learnedPlacement.Category, "Quantity", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(learnedPlacement.Category, "Date", StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(learnedPlacement.Category, "Date", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "Order", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "Location", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (string.Equals(learnedPlacement.Category, "Material", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (string.Equals(learnedPlacement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var target = placements.FirstOrDefault(p =>
                     string.Equals(p.Category, learnedPlacement.Category, StringComparison.OrdinalIgnoreCase)
                     && (string.IsNullOrWhiteSpace(learnedPlacement.Text)
-                        || string.Equals((p.Text ?? string.Empty).Trim(), learnedPlacement.Text.Trim(), StringComparison.OrdinalIgnoreCase)
-                        || learnedPlacement.Category.Equals("Material", StringComparison.OrdinalIgnoreCase)));
-
-                if (target == null && learnedPlacement.Category.Equals("Material", StringComparison.OrdinalIgnoreCase))
-                {
-                    target = placements.FirstOrDefault(p =>
-                        p.Category != null && p.Category.Equals("Material", StringComparison.OrdinalIgnoreCase));
-                }
+                        || string.Equals((p.Text ?? string.Empty).Trim(), learnedPlacement.Text.Trim(), StringComparison.OrdinalIgnoreCase)));
 
                 if (target == null)
                     continue;
@@ -133,9 +273,13 @@ namespace PDF_umbenenen.Services
             List<WatermarkTextPlacement> placements,
             float pageWidth,
             float pageHeight,
-            string drawingNumber = null)
+            string drawingNumber = null,
+            bool applyLayoutCategories = false)
         {
             if (placements == null || placements.Count == 0 || pageWidth <= 0 || pageHeight <= 0)
+                return;
+
+            if (ShouldSkipLearningAfterPlacementError)
                 return;
 
             var appliedCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -151,59 +295,179 @@ namespace PDF_umbenenen.Services
 
             var defaults = LoadCategoryDefaults(LoadDocument());
 
-            foreach (var placement in placements)
+            foreach (var categoryDefault in defaults)
             {
-                if (placement == null || string.IsNullOrWhiteSpace(placement.Category))
+                if (categoryDefault == null || string.IsNullOrWhiteSpace(categoryDefault.Category))
                     continue;
 
-                if (appliedCategories.Contains(placement.Category))
+                var isLayoutCategory = IsLayoutOnlyCategory(categoryDefault.Category)
+                    || string.Equals(categoryDefault.Category, "Bg", StringComparison.OrdinalIgnoreCase);
+
+                // Im Editor sollen Session-Defaults (Material/RAL/Elox/BG) immer greifen;
+                // zeichnungsspezifische Korrekturen kommen danach via ApplyLearnedDrawingCorrections.
+                if (!applyLayoutCategories || !isLayoutCategory)
+                {
+                    if (appliedCategories.Contains(categoryDefault.Category))
+                        continue;
+                }
+
+                if (IsFixedTopBandCategory(categoryDefault.Category))
                     continue;
 
-                if (placement.Category.Equals("Quantity", StringComparison.OrdinalIgnoreCase)
-                    || placement.Category.Equals("Date", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(categoryDefault.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(categoryDefault.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                var categoryDefault = defaults.FirstOrDefault(d =>
-                    string.Equals(d.Category, placement.Category, StringComparison.OrdinalIgnoreCase));
-
-                if (categoryDefault == null)
+                if (!applyLayoutCategories && IsLayoutOnlyCategory(categoryDefault.Category))
                     continue;
 
-                placement.X = categoryDefault.RelativeX * pageWidth;
-                placement.Y = categoryDefault.RelativeY * pageHeight;
-                placement.Alignment = categoryDefault.Alignment;
-                placement.Angle = categoryDefault.Angle;
-                if (categoryDefault.FontSize > 0)
-                    placement.FontSize = categoryDefault.FontSize;
-                placement.UseRedText = categoryDefault.UseRedText;
+                var target = placements.FirstOrDefault(p =>
+                    p != null
+                    && string.Equals(p.Category, categoryDefault.Category, StringComparison.OrdinalIgnoreCase));
+
+                if (target == null && IsLayoutOnlyCategory(categoryDefault.Category))
+                {
+                    target = new WatermarkTextPlacement
+                    {
+                        Category = categoryDefault.Category,
+                        FontSize = categoryDefault.FontSize > 0 ? categoryDefault.FontSize : 22f,
+                        Alignment = categoryDefault.Alignment
+                    };
+                    placements.Add(target);
+                }
+
+                if (target == null)
+                    continue;
+
+                ApplyLayoutFromCategoryDefault(target, categoryDefault, pageWidth, pageHeight);
             }
         }
 
-        public static WatermarkLearningEntry CreateFromPlacements(string drawingNumber, IEnumerable<WatermarkTextPlacement> placements)
+        private static void ApplyLayoutFromCategoryDefault(
+            WatermarkTextPlacement target,
+            LearnedCategoryDefault categoryDefault,
+            float pageWidth,
+            float pageHeight)
         {
+            if (target == null || categoryDefault == null)
+                return;
+
+            target.X = categoryDefault.RelativeX * pageWidth;
+            target.Y = categoryDefault.RelativeY * pageHeight;
+            target.Alignment = categoryDefault.Alignment;
+            target.Angle = categoryDefault.Angle;
+            if (categoryDefault.FontSize > 0)
+                target.FontSize = categoryDefault.FontSize;
+
+            if (!IsLayoutOnlyCategory(categoryDefault.Category))
+                target.UseRedText = categoryDefault.UseRedText;
+        }
+
+        public static void PruneInvalidCategoryDefaults()
+        {
+            var document = LoadDocument();
+            var defaults = LoadCategoryDefaults(document)
+                .Where(d => d != null && !string.IsNullOrWhiteSpace(d.Category))
+                .Where(d =>
+                {
+                    if (string.Equals(d.Category, "Order", StringComparison.OrdinalIgnoreCase))
+                        return true;
+
+                    var relX = d.RelativeX;
+                    var relY = d.RelativeY;
+                    if (relX > 0.17f && relX < 0.72f && relY > 0.18f && relY < 0.72f)
+                        return false;
+
+                    return true;
+                })
+                .ToList();
+
+            SaveDocument(LoadEntries(document), defaults);
+        }
+
+        /// <summary>
+        /// Nach Platzierungsfehler: Lernspeicher leeren und Learning für den laufenden Batch deaktivieren.
+        /// </summary>
+        public static bool ShouldSkipLearningAfterPlacementError { get; private set; }
+
+        public static bool WasClearedThisBatch { get; private set; }
+
+        public static void ResetBatchLearningState()
+        {
+            ShouldSkipLearningAfterPlacementError = false;
+            WasClearedThisBatch = false;
+        }
+
+        public static void ClearOnPlacementError(string context)
+        {
+            try
+            {
+                // Lernspeicher NICHT mehr komplett löschen – sonst sind alle manuellen
+                // Korrekturen nach einem einzelnen Material-Fehler weg.
+                ShouldSkipLearningAfterPlacementError = true;
+                WasClearedThisBatch = true;
+
+                var dir = Path.Combine(AppInfo.UserDataDirectory, "Diagnostics");
+                Directory.CreateDirectory(dir);
+
+                var line = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0:yyyy-MM-dd HH:mm:ss} | learning-skip-enabled | {1}{2}",
+                    DateTime.Now,
+                    string.IsNullOrWhiteSpace(context) ? "placement-error" : context.Trim(),
+                    Environment.NewLine);
+
+                File.AppendAllText(Path.Combine(dir, "material-placement.log"), line);
+            }
+            catch
+            {
+                // Lernspeicher darf Sortierung nicht blockieren.
+            }
+        }
+
+        public static WatermarkLearningEntry CreateFromPlacements(
+            string drawingNumber,
+            IEnumerable<WatermarkTextPlacement> placements,
+            float pageWidth = 0f,
+            float pageHeight = 0f)
+        {
+            var source = placements ?? Enumerable.Empty<WatermarkTextPlacement>();
             var entry = new WatermarkLearningEntry
             {
                 DrawingKey = NormalizeDrawingKey(drawingNumber),
-                Placements = (placements ?? Enumerable.Empty<WatermarkTextPlacement>())
+                Placements = source
                     .Where(p => !string.IsNullOrWhiteSpace(p?.Category))
-                    .Select(p => new LearnedWatermarkPlacement
+                    .Where(p => !IsFixedTopBandCategory(p.Category))
+                    .Select(p =>
                     {
-                        Category = p.Category,
-                        Text = p.Text ?? string.Empty,
-                        X = p.X,
-                        Y = p.Y,
-                        Alignment = p.Alignment,
-                        Angle = p.Angle,
-                        FontSize = p.FontSize,
-                        UseRedText = p.UseRedText
+                        var learned = new LearnedWatermarkPlacement
+                        {
+                            Category = p.Category,
+                            Text = p.Text ?? string.Empty,
+                            X = p.X,
+                            Y = p.Y,
+                            Alignment = p.Alignment,
+                            Angle = p.Angle,
+                            FontSize = p.FontSize,
+                            UseRedText = p.UseRedText
+                        };
+
+                        if (pageWidth > 0f && pageHeight > 0f)
+                        {
+                            learned.RelativeX = p.X / pageWidth;
+                            learned.RelativeY = p.Y / pageHeight;
+                        }
+
+                        return learned;
                     })
                     .ToList()
             };
 
-            var material = entry.Placements.FirstOrDefault(p =>
-                p.Category.Equals("Material", StringComparison.OrdinalIgnoreCase));
-            if (material != null)
-                entry.MaterialOverride = material.Text ?? string.Empty;
+            var materialText = source
+                .FirstOrDefault(p => string.Equals(p?.Category, "Material", StringComparison.OrdinalIgnoreCase))
+                ?.Text;
+            if (!string.IsNullOrWhiteSpace(materialText))
+                entry.MaterialOverride = materialText.Trim();
 
             return entry;
         }
@@ -253,7 +517,61 @@ namespace PDF_umbenenen.Services
                     UseRedText = string.Equals(element.Attribute("useRed")?.Value, "true", StringComparison.OrdinalIgnoreCase)
                 })
                 .Where(d => !string.IsNullOrWhiteSpace(d.Category))
+                // Layout-Kategorien (Material/RAL/Elox) müssen ladbar bleiben –
+                // Anwendung steuert ApplyCategoryDefaults(applyLayoutCategories).
+                .Where(d => !IsFixedTopBandCategory(d.Category))
                 .ToList();
+        }
+
+        private static bool IsFixedTopBandCategory(string category)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+                return true;
+
+            return string.Equals(category, "Quantity", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Date", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Order", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Location", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsExcludedFromCategoryDefaults(string category, bool includeLayoutCategories = false)
+        {
+            if (IsFixedTopBandCategory(category))
+                return true;
+
+            // Material: feste Unterkante wie Seitenzahl – keine gelernten Y-Koordinaten,
+            // wenn der Nutzer „Unten links“ gewählt hat (wird separat erzwungen).
+            if (string.Equals(category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (includeLayoutCategories)
+                return false;
+
+            return IsLayoutOnlyCategory(category);
+        }
+
+        private static bool IsLayoutOnlyCategory(string category)
+        {
+            return string.Equals(category, "Material", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static void PurgeNonLearnableCategoryDefaults()
+        {
+            var document = LoadDocument();
+            var defaults = LoadCategoryDefaults(document);
+            if (defaults.Count == 0)
+                return;
+
+            SaveDocument(LoadEntries(document), defaults);
+        }
+
+        public static void PurgeLearnedMaterialCoordinates()
+        {
+            // Früher wurden gelernte Material-Koordinaten beim Start entfernt.
+            // Manuelle Korrekturen bleiben seit R44 erhalten.
         }
 
         private static WatermarkLearningEntry ReadEntry(XElement element)
@@ -275,11 +593,14 @@ namespace PDF_umbenenen.Services
                     Text = p.Element("Text")?.Value ?? string.Empty,
                     X = ParseFloat(p.Attribute("x")?.Value),
                     Y = ParseFloat(p.Attribute("y")?.Value),
+                    RelativeX = ParseFloat(p.Attribute("relativeX")?.Value),
+                    RelativeY = ParseFloat(p.Attribute("relativeY")?.Value),
                     Alignment = ParseInt(p.Attribute("alignment")?.Value),
                     Angle = ParseFloat(p.Attribute("angle")?.Value),
                     FontSize = ParseFloat(p.Attribute("fontSize")?.Value, 22f),
                     UseRedText = string.Equals(p.Attribute("useRed")?.Value, "true", StringComparison.OrdinalIgnoreCase)
                 })
+                .Where(p => !IsFixedTopBandCategory(p.Category))
                 .ToList();
 
             return entry;
@@ -329,6 +650,8 @@ namespace PDF_umbenenen.Services
                         new XAttribute("category", placement.Category ?? string.Empty),
                         new XAttribute("x", placement.X.ToString(CultureInfo.InvariantCulture)),
                         new XAttribute("y", placement.Y.ToString(CultureInfo.InvariantCulture)),
+                        new XAttribute("relativeX", placement.RelativeX.ToString(CultureInfo.InvariantCulture)),
+                        new XAttribute("relativeY", placement.RelativeY.ToString(CultureInfo.InvariantCulture)),
                         new XAttribute("alignment", placement.Alignment.ToString(CultureInfo.InvariantCulture)),
                         new XAttribute("angle", placement.Angle.ToString(CultureInfo.InvariantCulture)),
                         new XAttribute("fontSize", placement.FontSize.ToString(CultureInfo.InvariantCulture)),

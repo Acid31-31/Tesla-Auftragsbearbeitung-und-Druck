@@ -9,6 +9,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,17 +19,12 @@ namespace PDF_umbenenen.Services
 {
     internal static class GitHubUpdateService
     {
-        private static readonly string UpdateRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "DOK-V01",
-            "Updates");
+        private static string UpdateRoot => Path.Combine(AppInfo.UserDataDirectory, "Updates");
 
         private const string PrivateRepoHint =
             "Das GitHub-Repository ist privat. Für Updates wird ein Zugriffstoken benötigt.\n\n" +
             "Legen Sie eine Datei github.token mit einem GitHub-Token (nur Lesezugriff auf Releases) ab unter:\n" +
-            "%LOCALAPPDATA%\\DOK-V01\\github.token\n\n" +
-            "Oder neben der DOK-V01.exe im Programmordner.\n\n" +
-            "Nach Neuinstallation aus dem Release-ZIP ist die Datei bereits enthalten.";
+            "%LOCALAPPDATA%\\DOK-V01\\github.token";
 
         public static async Task<AppUpdateInfo> CheckForUpdateAsync(CancellationToken cancellationToken = default)
         {
@@ -37,47 +33,44 @@ namespace PDF_umbenenen.Services
 
             try
             {
-                using (var client = CreateHttpClient())
+                var json = await FetchLatestReleaseJsonAsync(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                result.ReleaseTag = ExtractJsonString(json, "tag_name") ?? string.Empty;
+                result.ReleaseNotes = ExtractJsonString(json, "body") ?? string.Empty;
+                result.ExpectedSha256 = ExtractSha256FromReleaseNotes(result.ReleaseNotes);
+
+                if (!TryParseReleaseVersion(result.ReleaseTag, out var remoteVersion))
                 {
-                    var json = await FetchLatestReleaseJsonAsync(client, cancellationToken).ConfigureAwait(false);
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    result.ReleaseTag = ExtractJsonString(json, "tag_name") ?? string.Empty;
-                    result.ReleaseNotes = ExtractJsonString(json, "body") ?? string.Empty;
-                    result.ExpectedSha256 = ExtractSha256FromReleaseNotes(result.ReleaseNotes);
-
-                    if (!TryParseReleaseVersion(result.ReleaseTag, out var remoteVersion))
-                    {
-                        result.ErrorMessage = "Release-Version konnte nicht gelesen werden: " + result.ReleaseTag;
-                        return result;
-                    }
-
-                    result.RemoteVersion = remoteVersion;
-                    var localVersion = AppInfo.ApplicationVersion;
-                    result.UpdateAvailable = remoteVersion > localVersion;
-
-                    if (result.UpdateAvailable && string.IsNullOrWhiteSpace(result.ExpectedSha256))
-                    {
-                        result.ErrorMessage = "Release enthält keine SHA256-Prüfsumme. Update aus Sicherheitsgründen blockiert.";
-                        result.UpdateAvailable = false;
-                        return result;
-                    }
-
-                    var asset = ExtractPreferredAsset(json);
-                    if (asset == null || string.IsNullOrWhiteSpace(asset.DownloadUrl))
-                    {
-                        if (result.UpdateAvailable)
-                        {
-                            result.UpdateAvailable = false;
-                            result.ErrorMessage = "Kein Update-Paket (" + AppInfo.UpdateAssetFileName + ") in der Release gefunden.";
-                        }
-                        return result;
-                    }
-
-                    result.DownloadUrl = asset.DownloadUrl;
-                    result.AssetId = asset.AssetId;
-                    result.AssetName = asset.Name ?? AppInfo.UpdateAssetFileName;
+                    result.ErrorMessage = "Release-Version konnte nicht gelesen werden: " + result.ReleaseTag;
+                    return result;
                 }
+
+                result.RemoteVersion = remoteVersion;
+                var localVersion = AppInfo.ApplicationVersion;
+                result.UpdateAvailable = remoteVersion > localVersion;
+
+                if (!result.UpdateAvailable)
+                    return result;
+
+                if (string.IsNullOrWhiteSpace(result.ExpectedSha256))
+                {
+                    result.ErrorMessage = "Release enthält keine SHA256-Prüfsumme. Update aus Sicherheitsgründen blockiert.";
+                    result.UpdateAvailable = false;
+                    return result;
+                }
+
+                var asset = ExtractPreferredAsset(json);
+                if (asset == null || string.IsNullOrWhiteSpace(asset.DownloadUrl))
+                {
+                    result.UpdateAvailable = false;
+                    result.ErrorMessage = "Kein Update-Paket (" + AppInfo.UpdateAssetFileName + ") in der Release gefunden.";
+                    return result;
+                }
+
+                result.DownloadUrl = asset.DownloadUrl;
+                result.AssetId = asset.AssetId;
+                result.AssetName = asset.Name ?? AppInfo.UpdateAssetFileName;
             }
             catch (Exception ex)
             {
@@ -89,7 +82,7 @@ namespace PDF_umbenenen.Services
 
         public static async Task<string> DownloadAndStageUpdateAsync(
             AppUpdateInfo update,
-            IProgress<string> progress,
+            IProgress<UpdateProgressInfo> progress,
             CancellationToken cancellationToken = default)
         {
             if (update == null)
@@ -105,24 +98,25 @@ namespace PDF_umbenenen.Services
             if (Directory.Exists(extractPath))
                 Directory.Delete(extractPath, true);
 
-            progress?.Report("Update wird heruntergeladen…");
+            ReportProgress(progress, 2, "Update wird heruntergeladen…");
             AppSecurityService.EnsureSecureTransport();
 
-            try
+            var errors = new List<string>();
+            if (!string.IsNullOrWhiteSpace(update.DownloadUrl))
             {
-                using (var client = CreateHttpClient())
-                {
-                    if (update.AssetId > 0)
-                        await DownloadReleaseAssetAsync(client, update.AssetId, packagePath, cancellationToken).ConfigureAwait(false);
-                    else
-                        await DownloadBrowserAssetAsync(client, update.DownloadUrl, packagePath, cancellationToken).ConfigureAwait(false);
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new InvalidOperationException(DescribeUpdateError(ex), ex);
+                if (await TryDownloadBrowserAssetAsync(update.DownloadUrl, packagePath, errors, progress, cancellationToken).ConfigureAwait(false))
+                    goto downloaded;
             }
 
+            if (update.AssetId > 0)
+            {
+                if (await TryDownloadReleaseAssetAsync(update.AssetId, packagePath, errors, progress, cancellationToken).ConfigureAwait(false))
+                    goto downloaded;
+            }
+
+            throw new InvalidOperationException(BuildDownloadErrorMessage(errors));
+
+        downloaded:
             if (string.IsNullOrWhiteSpace(update.ExpectedSha256))
             {
                 File.Delete(packagePath);
@@ -130,7 +124,7 @@ namespace PDF_umbenenen.Services
                     "Release enthält keine SHA256-Prüfsumme. Update aus Sicherheitsgründen abgebrochen.");
             }
 
-            progress?.Report("Prüfsumme wird verifiziert…");
+            ReportProgress(progress, 78, "Prüfsumme wird verifiziert…");
             var actual = ComputeSha256Hex(packagePath);
             if (!string.Equals(actual, update.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
             {
@@ -140,33 +134,51 @@ namespace PDF_umbenenen.Services
                     + update.ExpectedSha256 + "\nErhalten: " + actual);
             }
 
-            progress?.Report("Update wird entpackt…");
-            AppSecurityService.ExtractZipSafely(packagePath, extractPath);
+            ReportProgress(progress, 82, "Update wird entpackt…");
+            ExtractZipWithProgress(packagePath, extractPath, progress, cancellationToken);
 
             var stagedAppRoot = FindApplicationRoot(extractPath);
             if (string.IsNullOrWhiteSpace(stagedAppRoot) || !File.Exists(Path.Combine(stagedAppRoot, AppInfo.ExeFileName)))
                 throw new InvalidOperationException("Update-Paket enthält keine gültige " + AppInfo.ExeFileName + ".");
 
-            var stagedExe = Path.Combine(stagedAppRoot, AppInfo.ExeFileName);
-            if (!AppSecurityService.TryVerifyFileSignature(stagedExe, out var signatureMessage))
+            ReportProgress(progress, 96, "Signatur wird geprüft…");
+            if (!AppSecurityService.TryVerifyApplicationPackage(stagedAppRoot, out var signatureMessage, stagedAppRoot))
             {
                 throw new InvalidOperationException(
-                    "Update-EXE ist nicht digital signiert. Installation abgebrochen.\n" + signatureMessage);
+                    "Update-Paket ist nicht vollständig oder nicht digital signiert. Installation abgebrochen.\n"
+                    + signatureMessage);
             }
 
+            ReportProgress(progress, 100, "Download abgeschlossen.");
             return stagedAppRoot;
         }
 
         public static void LaunchUpdaterAndShutdown(string stagedAppRoot)
         {
+            if (string.IsNullOrWhiteSpace(stagedAppRoot))
+                throw new ArgumentException("Kein Update-Staging-Verzeichnis.", nameof(stagedAppRoot));
+
+            stagedAppRoot = Path.GetFullPath(stagedAppRoot);
             var appRoot = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var exePath = Path.Combine(appRoot, AppInfo.ExeFileName);
-            var arguments = "--apply-update \"" + stagedAppRoot + "\" \"" + appRoot + "\"";
+            if (!AppInfo.IsRegisteredInstallDirectory(appRoot))
+            {
+                throw new InvalidOperationException(
+                    "Updates sind nur in einer festen Installation erlaubt.\n"
+                    + "Bitte \"" + AppInfo.UsbLauncherFileName + "\" ausführen und die Desktop-Verknüpfung "
+                    + "auf den Installationsordner zeigen lassen – nicht auf den Debug-/USB-Ordner.");
+            }
+
+            var updaterExePath = Path.Combine(stagedAppRoot, AppInfo.ExeFileName);
+            if (!File.Exists(updaterExePath))
+                throw new InvalidOperationException("Update-EXE im Paket nicht gefunden: " + updaterExePath);
+
+            var parentProcessId = Process.GetCurrentProcess().Id;
+            var arguments = "--apply-update \"" + stagedAppRoot + "\" \"" + appRoot + "\" " + parentProcessId;
             var startInfo = new ProcessStartInfo
             {
-                FileName = exePath,
+                FileName = updaterExePath,
                 Arguments = arguments,
-                WorkingDirectory = appRoot,
+                WorkingDirectory = stagedAppRoot,
                 UseShellExecute = true
             };
 
@@ -178,35 +190,14 @@ namespace PDF_umbenenen.Services
             System.Windows.Application.Current.Shutdown();
         }
 
-        private static async Task<string> FetchLatestReleaseJsonAsync(HttpClient client, CancellationToken cancellationToken)
-        {
-            using (var response = await client.GetAsync(AppInfo.GitHubLatestReleaseApiUrl, cancellationToken).ConfigureAwait(false))
-            {
-                if (response.StatusCode == HttpStatusCode.NotFound && string.IsNullOrWhiteSpace(GetGitHubToken()))
-                    throw new InvalidOperationException(PrivateRepoHint);
-
-                if (response.StatusCode == HttpStatusCode.NotFound)
-                    throw new InvalidOperationException(
-                        "GitHub-Release nicht gefunden (404). Prüfen Sie, ob ein Release veröffentlicht ist.");
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                    throw new InvalidOperationException(
-                        "GitHub-Token ungültig (401). Bitte github.token mit einem gültigen Token ersetzen.");
-
-                if (response.StatusCode == HttpStatusCode.Forbidden)
-                    throw new InvalidOperationException(
-                        "GitHub-Zugriff verweigert (403). Token prüfen oder später erneut versuchen.");
-
-                if (!response.IsSuccessStatusCode)
-                    throw new InvalidOperationException(
-                        "GitHub-API Fehler: " + (int)response.StatusCode + " " + response.ReasonPhrase);
-
-                return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            }
-        }
-
         public static void EnsureUpdateTokenFromInstallFolder()
         {
+            if (AppInfo.GitHubUpdatesArePublic)
+            {
+                RemoveBundledGithubTokenFiles();
+                return;
+            }
+
             try
             {
                 var installToken = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "github.token");
@@ -225,10 +216,211 @@ namespace PDF_umbenenen.Services
 
         public static bool HasGitHubToken()
         {
-            return !string.IsNullOrWhiteSpace(GetGitHubToken());
+            return !AppInfo.GitHubUpdatesArePublic && !string.IsNullOrWhiteSpace(GetGitHubToken());
         }
 
-        private static HttpClient CreateHttpClient()
+        private static void RemoveBundledGithubTokenFiles()
+        {
+            foreach (var path in GetGitHubTokenFileCandidates())
+            {
+                try
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static async Task<string> FetchLatestReleaseJsonAsync(CancellationToken cancellationToken)
+        {
+            var errors = new List<string>();
+
+            foreach (var useAuth in GetAuthAttempts())
+            {
+                try
+                {
+                    using (var client = CreateHttpClient(useAuth))
+                    using (var response = await client.GetAsync(AppInfo.GitHubLatestReleaseApiUrl, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (response.IsSuccessStatusCode)
+                            return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                        errors.Add(DescribeHttpStatus(response.StatusCode, useAuth));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(ex.Message);
+                }
+            }
+
+            if (!AppInfo.GitHubUpdatesArePublic && string.IsNullOrWhiteSpace(GetGitHubToken()))
+                throw new InvalidOperationException(PrivateRepoHint);
+
+            throw new InvalidOperationException(
+                "GitHub-Release konnte nicht gelesen werden.\n" + string.Join("\n", errors.Distinct()));
+        }
+
+        private static async Task<bool> TryDownloadBrowserAssetAsync(
+            string downloadUrl,
+            string packagePath,
+            ICollection<string> errors,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken)
+        {
+            if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri)
+                || !AppSecurityService.IsTrustedDownloadUrl(uri))
+            {
+                errors.Add("Unsicherer Download-Link blockiert.");
+                return false;
+            }
+
+            foreach (var useAuth in GetAuthAttempts())
+            {
+                try
+                {
+                    using (var client = CreateHttpClient(useAuth))
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+                    using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            errors.Add("Browser-Download: " + DescribeHttpStatus(response.StatusCode, useAuth));
+                            continue;
+                        }
+
+                        using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                        using (var file = File.Create(packagePath))
+                        {
+                            await CopyStreamWithProgressAsync(
+                                stream,
+                                file,
+                                response.Content.Headers.ContentLength,
+                                5,
+                                75,
+                                "Update wird heruntergeladen…",
+                                progress,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add("Browser-Download: " + ex.Message);
+                }
+            }
+
+            return false;
+        }
+
+        private static async Task<bool> TryDownloadReleaseAssetAsync(
+            long assetId,
+            string packagePath,
+            ICollection<string> errors,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken)
+        {
+            var apiUrl = string.Format(
+                "https://api.github.com/repos/{0}/{1}/releases/assets/{2}",
+                AppInfo.GitHubOwner,
+                AppInfo.GitHubRepo,
+                assetId);
+
+            if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var uri)
+                || !AppSecurityService.IsTrustedDownloadUrl(uri))
+            {
+                errors.Add("Unsicherer API-Download-Link blockiert.");
+                return false;
+            }
+
+            foreach (var useAuth in GetAuthAttempts())
+            {
+                try
+                {
+                    using (var client = CreateHttpClient(useAuth))
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+                    {
+                        request.Headers.Accept.Clear();
+                        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+
+                        using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+                        {
+                            if (!response.IsSuccessStatusCode)
+                            {
+                                errors.Add("API-Download: " + DescribeHttpStatus(response.StatusCode, useAuth));
+                                continue;
+                            }
+
+                            using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                            using (var file = File.Create(packagePath))
+                            {
+                                await CopyStreamWithProgressAsync(
+                                    stream,
+                                    file,
+                                    response.Content.Headers.ContentLength,
+                                    5,
+                                    75,
+                                    "Update wird heruntergeladen…",
+                                    progress,
+                                    cancellationToken).ConfigureAwait(false);
+                            }
+
+                            return true;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add("API-Download: " + ex.Message);
+                }
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<bool> GetAuthAttempts()
+        {
+            if (AppInfo.GitHubUpdatesArePublic)
+            {
+                yield return false;
+                yield break;
+            }
+
+            yield return false;
+            if (!string.IsNullOrWhiteSpace(GetGitHubToken()))
+                yield return true;
+        }
+
+        private static string BuildDownloadErrorMessage(IEnumerable<string> errors)
+        {
+            var details = string.Join("\n", (errors ?? Enumerable.Empty<string>()).Distinct().Where(e => !string.IsNullOrWhiteSpace(e)));
+            if (string.IsNullOrWhiteSpace(details))
+                return "Update-Paket konnte nicht heruntergeladen werden.";
+
+            return "Update-Paket konnte nicht heruntergeladen werden.\n\n" + details;
+        }
+
+        private static string DescribeHttpStatus(HttpStatusCode statusCode, bool usedAuth)
+        {
+            var suffix = usedAuth ? " (mit Token)" : " (ohne Token)";
+            if (statusCode == HttpStatusCode.NotFound)
+                return "404 Nicht gefunden" + suffix;
+
+            if (statusCode == HttpStatusCode.Unauthorized)
+                return "401 Nicht autorisiert" + suffix;
+
+            if (statusCode == HttpStatusCode.Forbidden)
+                return "403 Zugriff verweigert" + suffix;
+
+            return ((int)statusCode) + " " + statusCode + suffix;
+        }
+
+        private static HttpClient CreateHttpClient(bool useAuth)
         {
             var client = new HttpClient
             {
@@ -237,15 +429,21 @@ namespace PDF_umbenenen.Services
             client.DefaultRequestHeaders.UserAgent.ParseAdd(AppInfo.ProductName + "/" + AppInfo.DisplayVersion);
             client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
-            var token = GetGitHubToken();
-            if (!string.IsNullOrWhiteSpace(token))
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (useAuth)
+            {
+                var token = GetGitHubToken();
+                if (!string.IsNullOrWhiteSpace(token))
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
 
             return client;
         }
 
         private static string GetGitHubToken()
         {
+            if (AppInfo.GitHubUpdatesArePublic)
+                return string.Empty;
+
             foreach (var path in GetGitHubTokenFileCandidates())
             {
                 try
@@ -283,92 +481,6 @@ namespace PDF_umbenenen.Services
                 .FirstOrDefault();
 
             return nested == null ? null : Path.GetDirectoryName(nested);
-        }
-
-        private static async Task DownloadReleaseAssetAsync(
-            HttpClient client,
-            long assetId,
-            string packagePath,
-            CancellationToken cancellationToken)
-        {
-            if (string.IsNullOrWhiteSpace(GetGitHubToken()))
-                throw new InvalidOperationException(PrivateRepoHint);
-
-            var apiUrl = string.Format(
-                "https://api.github.com/repos/{0}/{1}/releases/assets/{2}",
-                AppInfo.GitHubOwner,
-                AppInfo.GitHubRepo,
-                assetId);
-
-            if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var uri)
-                || !AppSecurityService.IsTrustedDownloadUrl(uri))
-            {
-                throw new InvalidOperationException("Unsicherer API-Download-Link blockiert.");
-            }
-
-            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
-            {
-                request.Headers.Accept.Clear();
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
-
-                using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
-                {
-                    await EnsureDownloadSuccessAsync(response).ConfigureAwait(false);
-                    using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                    using (var file = File.Create(packagePath))
-                    {
-                        await stream.CopyToAsync(file).ConfigureAwait(false);
-                    }
-                }
-            }
-        }
-
-        private static async Task DownloadBrowserAssetAsync(
-            HttpClient client,
-            string downloadUrl,
-            string packagePath,
-            CancellationToken cancellationToken)
-        {
-            if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri)
-                || !AppSecurityService.IsTrustedDownloadUrl(uri))
-            {
-                throw new InvalidOperationException("Unsicherer Download-Link blockiert.");
-            }
-
-            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
-            using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
-            {
-                await EnsureDownloadSuccessAsync(response).ConfigureAwait(false);
-                using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                using (var file = File.Create(packagePath))
-                {
-                    await stream.CopyToAsync(file).ConfigureAwait(false);
-                }
-            }
-        }
-
-        private static async Task EnsureDownloadSuccessAsync(HttpResponseMessage response)
-        {
-            if (response.IsSuccessStatusCode)
-                return;
-
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                if (string.IsNullOrWhiteSpace(GetGitHubToken()))
-                    throw new InvalidOperationException(PrivateRepoHint);
-
-                throw new InvalidOperationException(
-                    "Update-Paket nicht gefunden (404). Das Release-ZIP ist auf GitHub nicht erreichbar – github.token prüfen.");
-            }
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-                throw new InvalidOperationException("GitHub-Token ungültig (401). Bitte github.token ersetzen.");
-
-            if (response.StatusCode == HttpStatusCode.Forbidden)
-                throw new InvalidOperationException("GitHub-Download verweigert (403). Token-Berechtigung für Releases prüfen.");
-
-            throw new InvalidOperationException(
-                "Download fehlgeschlagen: " + (int)response.StatusCode + " " + response.ReasonPhrase);
         }
 
         private sealed class ReleaseAssetInfo
@@ -475,6 +587,7 @@ namespace PDF_umbenenen.Services
             {
                 var message = httpEx.Message ?? string.Empty;
                 if (message.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0
+                    && !AppInfo.GitHubUpdatesArePublic
                     && string.IsNullOrWhiteSpace(GetGitHubToken()))
                     return PrivateRepoHint;
 
@@ -482,10 +595,10 @@ namespace PDF_umbenenen.Services
                     return "GitHub-Release nicht gefunden (404). Prüfen Sie Internetverbindung und Repository-Zugriff.";
 
                 if (message.IndexOf("403", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return "GitHub-Zugriff verweigert (403). Eventuell Rate-Limit – später erneut versuchen oder github.token hinterlegen.";
+                    return "GitHub-Zugriff verweigert (403). Eventuell Rate-Limit – später erneut versuchen.";
 
                 if (message.IndexOf("401", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return "GitHub-Zugriff nicht autorisiert (401). Bitte github.token mit einem gültigen Token ersetzen.";
+                    return "GitHub-Zugriff nicht autorisiert (401).";
             }
 
             if (ex is TaskCanceledException)
@@ -511,10 +624,66 @@ namespace PDF_umbenenen.Services
 
         private static string UnescapeJson(string value)
         {
-            return (value ?? string.Empty)
-                .Replace("\\/", "/")
-                .Replace("\\\"", "\"")
-                .Replace("\\\\", "\\");
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            var sb = new StringBuilder(value.Length);
+            for (var i = 0; i < value.Length; i++)
+            {
+                if (value[i] != '\\' || i + 1 >= value.Length)
+                {
+                    sb.Append(value[i]);
+                    continue;
+                }
+
+                switch (value[i + 1])
+                {
+                    case 'n':
+                        sb.Append('\n');
+                        i++;
+                        break;
+                    case 'r':
+                        sb.Append('\r');
+                        i++;
+                        break;
+                    case 't':
+                        sb.Append('\t');
+                        i++;
+                        break;
+                    case '"':
+                        sb.Append('"');
+                        i++;
+                        break;
+                    case '/':
+                        sb.Append('/');
+                        i++;
+                        break;
+                    case '\\':
+                        sb.Append('\\');
+                        i++;
+                        break;
+                    case 'u':
+                        if (i + 5 < value.Length)
+                        {
+                            var hex = value.Substring(i + 2, 4);
+                            int code;
+                            if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out code))
+                            {
+                                sb.Append((char)code);
+                                i += 5;
+                                break;
+                            }
+                        }
+
+                        sb.Append(value[i]);
+                        break;
+                    default:
+                        sb.Append(value[i]);
+                        break;
+                }
+            }
+
+            return sb.ToString();
         }
 
         public static bool TryParseReleaseVersion(string tag, out Version version)
@@ -540,6 +709,85 @@ namespace PDF_umbenenen.Services
 
             version = new Version(major, minor, build);
             return true;
+        }
+
+        private static void ReportProgress(IProgress<UpdateProgressInfo> progress, int percent, string message)
+        {
+            progress?.Report(new UpdateProgressInfo(percent, message));
+        }
+
+        private static async Task CopyStreamWithProgressAsync(
+            Stream source,
+            Stream destination,
+            long? totalBytes,
+            int percentStart,
+            int percentEnd,
+            string message,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken)
+        {
+            const int bufferSize = 81920;
+            var buffer = new byte[bufferSize];
+            long totalRead = 0;
+            int read;
+
+            while ((read = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                await destination.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+                totalRead += read;
+
+                var percent = percentStart;
+                if (totalBytes.HasValue && totalBytes.Value > 0)
+                {
+                    percent = percentStart + (int)(totalRead * (percentEnd - percentStart) / totalBytes.Value);
+                }
+                else if (totalRead > 0)
+                {
+                    percent = Math.Min(percentEnd - 1, percentStart + (int)(totalRead / 250000));
+                }
+
+                ReportProgress(progress, percent, message);
+            }
+        }
+
+        private static void ExtractZipWithProgress(
+            string zipFilePath,
+            string destinationDirectory,
+            IProgress<UpdateProgressInfo> progress,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(zipFilePath) || !File.Exists(zipFilePath))
+                throw new FileNotFoundException("ZIP-Datei nicht gefunden.", zipFilePath);
+
+            Directory.CreateDirectory(destinationDirectory);
+            var root = Path.GetFullPath(destinationDirectory);
+            if (!root.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                root += Path.DirectorySeparatorChar;
+
+            using (var archive = ZipFile.OpenRead(zipFilePath))
+            {
+                var entries = archive.Entries
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))
+                    .ToArray();
+                var total = Math.Max(1, entries.Length);
+
+                for (var index = 0; index < entries.Length; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var entry = entries[index];
+                    var entryPath = Path.GetFullPath(Path.Combine(destinationDirectory, entry.FullName));
+                    if (!entryPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("Unsicherer ZIP-Eintrag blockiert: " + entry.FullName);
+
+                    var entryDir = Path.GetDirectoryName(entryPath);
+                    if (!string.IsNullOrWhiteSpace(entryDir))
+                        Directory.CreateDirectory(entryDir);
+
+                    entry.ExtractToFile(entryPath, true);
+                    var percent = 82 + (int)((index + 1) * 12.0 / total);
+                    ReportProgress(progress, percent, "Entpacke: " + entry.Name);
+                }
+            }
         }
 
         private static string ComputeSha256Hex(string filePath)

@@ -7,8 +7,9 @@ namespace PDF_umbenenen.Services
 {
     internal static class InstallSessionStore
     {
-        private static readonly string StorePath = Path.Combine(
-            AppInfo.UserDataDirectory,
+        private static string StorePath => Path.Combine(
+            Path.GetTempPath(),
+            AppInfo.ProductName,
             "install-session.xml");
 
         public static void SavePending(InstallSessionOptions options)
@@ -16,13 +17,17 @@ namespace PDF_umbenenen.Services
             if (options == null)
                 throw new ArgumentNullException(nameof(options));
 
-            Directory.CreateDirectory(AppInfo.UserDataDirectory);
+            var storeDir = Path.GetDirectoryName(StorePath);
+            if (!string.IsNullOrWhiteSpace(storeDir))
+                Directory.CreateDirectory(storeDir);
+
             new XDocument(
                 new XElement("InstallSession",
                     new XElement("LicenseAccepted", options.LicenseAccepted),
                     new XElement("InstallPublisherCertificate", options.InstallPublisherCertificate),
                     new XElement("LaunchAfterInstall", options.LaunchAfterInstall),
                     new XElement("SourceDirectory", options.SourceDirectory ?? string.Empty),
+                    new XElement("TargetDirectory", options.TargetDirectory ?? string.Empty),
                     new XElement("CreatedUtc", DateTime.UtcNow.ToString("o"))))
                 .Save(StorePath);
         }
@@ -57,11 +62,13 @@ namespace PDF_umbenenen.Services
                     LicenseAccepted = true,
                     InstallPublisherCertificate = ParseBool(root.Element("InstallPublisherCertificate"), true),
                     LaunchAfterInstall = ParseBool(root.Element("LaunchAfterInstall"), true),
-                    SourceDirectory = (string)root.Element("SourceDirectory") ?? string.Empty
+                    SourceDirectory = (string)root.Element("SourceDirectory") ?? string.Empty,
+                    TargetDirectory = (string)root.Element("TargetDirectory") ?? string.Empty
                 };
 
                 Clear();
-                return !string.IsNullOrWhiteSpace(options.SourceDirectory);
+                return !string.IsNullOrWhiteSpace(options.SourceDirectory)
+                    && !string.IsNullOrWhiteSpace(options.TargetDirectory);
             }
             catch
             {

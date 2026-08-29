@@ -17,7 +17,8 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
@@ -27,7 +28,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
@@ -36,7 +37,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Enterprise|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Enterprise\</OutputPath>
@@ -58,6 +59,7 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Security" />
     <Reference Include="System" />
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
@@ -96,6 +98,10 @@
     <Page Include="PDF-umbenenen\AiChatWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="PDF-umbenenen\AppSettingsWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="PDF-umbenenen\AiSettingsWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -118,6 +124,9 @@
     <Page Include="PDF-umbenenen\ManageCustomersWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="PDF-umbenenen\CustomerSelectWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="PDF-umbenenen\WatermarkPickWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -131,6 +140,9 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PDF-umbenenen\UpdateAvailableWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PDF-umbenenen\UpdateApplyProgressWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PDF-umbenenen\InstallWizardWindow.xaml">
@@ -154,12 +166,66 @@
     <Compile Include="PathStore.cs" />
     <Compile Include="ThemeWindowService.cs" />
     <Compile Include="WatermarkSettingsStore.cs" />
+    <Compile Include="Platform\Models\PlatformModels.cs" />
+    <Compile Include="Platform\Models\PlatformExtendedModels.cs" />
+    <Compile Include="Platform\Contracts\PlatformContracts.cs" />
+    <Compile Include="Platform\Contracts\PlatformExtendedContracts.cs" />
+    <Compile Include="Platform\Bridge\PlatformAiFacade.cs" />
+    <Compile Include="Platform\Core\PluginManager.cs" />
+    <Compile Include="Platform\Core\ContextManager.cs" />
+    <Compile Include="Platform\Core\MemoryManager.cs" />
+    <Compile Include="Platform\Core\PromptManager.cs" />
+    <Compile Include="Platform\Core\ConfigurationManager.cs" />
+    <Compile Include="Platform\Core\TaskManager.cs" />
+    <Compile Include="Platform\Core\ModelManager.cs" />
+    <Compile Include="Platform\Core\CacheManager.cs" />
+    <Compile Include="Platform\Core\IndexManager.cs" />
+    <Compile Include="Platform\Core\ResourceMonitor.cs" />
+    <Compile Include="Platform\Core\JobScheduler.cs" />
+    <Compile Include="Platform\Core\BatchJobProcessor.cs" />
+    <Compile Include="Platform\Core\ModelLoaderSwitcher.cs" />
+    <Compile Include="Platform\Core\DocumentAnalysisPipeline.cs" />
+    <Compile Include="Platform\Core\PlatformServices.cs" />
+    <Compile Include="Platform\Core\PlatformOrchestrator.cs" />
+    <Compile Include="Platform\Core\PlatformHost.cs" />
+    <Compile Include="Platform\Core\BatchInfrastructure.cs" />
+    <Compile Include="Platform\Logging\PlatformLogger.cs" />
+    <Compile Include="Platform\Modules\Documents\DocumentModules.cs" />
+    <Compile Include="Platform\Modules\Documents\OfficeTextExtractor.cs" />
+    <Compile Include="Platform\Modules\Documents\ExtendedDocumentModules.cs" />
+    <Compile Include="Platform\Modules\Vision\VisionModules.cs" />
+    <Compile Include="Platform\Modules\Vision\StructuredVisionModule.cs" />
+    <Compile Include="Platform\Modules\Ai\AiModelModules.cs" />
+    <Compile Include="Platform\Modules\Extraction\ExtractionModules.cs" />
+    <Compile Include="Platform\Modules\Rules\BusinessRuleEngineModule.cs" />
+    <Compile Include="Platform\Modules\Decisions\PlatformDecisionEngineModule.cs" />
+    <Compile Include="Platform\Modules\Decisions\ExtendedDecisionModules.cs" />
+    <Compile Include="Platform\Modules\Knowledge\InMemoryKnowledgeStore.cs" />
+    <Compile Include="Platform\Modules\Knowledge\PersistentKnowledgeStore.cs" />
+    <Compile Include="Platform\Modules\Learning\LearningModules.cs" />
+    <Compile Include="Platform\Modules\Storage\DatabaseProviders.cs" />
+    <Compile Include="Platform\Modules\Files\FileOperationModule.cs" />
+    <Compile Include="Platform\Modules\Security\SecurityModules.cs" />
+    <Compile Include="Platform\Modules\Api\PlatformApiHost.cs" />
+    <Compile Include="Platform\UI\PlatformDashboardWindow.xaml.cs">
+      <DependentUpon>PlatformDashboardWindow.xaml</DependentUpon>
+    </Compile>
+    <Page Include="Platform\UI\PlatformDashboardWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Compile Include="Services\UserSettingsPath.cs" />
+    <Compile Include="Services\Cli\TesseractCliService.cs" />
+    <Compile Include="Platform\Modules\Cli\LocalCliModules.cs" />
+    <Compile Include="Services\PlatformDocumentService.cs" />
+    <Compile Include="Services\TitleBlockOcrService.cs" />
     <Compile Include="Services\MaterialThicknessHybridResolver.cs" />
     <Compile Include="Services\ThicknessCandidateResolver.cs" />
     <Compile Include="Services\PdfThreeViewThicknessService.cs" />
     <Compile Include="Services\MaterialAlloyClassifier.cs" />
+    <Compile Include="Services\PdfSurfaceTreatmentExtractionService.cs" />
     <Compile Include="Services\PdfMaterialExtractionService.cs" />
     <Compile Include="Services\PdfLayoutAnalysisService.cs" />
+    <Compile Include="Services\PdfPageMarginExpansionService.cs" />
     <Compile Include="Services\PdfRasterLayoutService.cs" />
     <Compile Include="Services\SmartWatermarkLayoutService.cs" />
     <Compile Include="Services\WatermarkProcessingContext.cs" />
@@ -172,6 +238,22 @@
     <Compile Include="Services\WatermarkPageScale.cs" />
     <Compile Include="Services\LegacyBrandingCleanupService.cs" />
     <Compile Include="Services\CertificateTrustService.cs" />
+    <Compile Include="Services\AiWatermarkPlacementService.cs" />
+    <Compile Include="Services\MaterialWatermarkPlacementService.cs" />
+    <Compile Include="Services\MaterialPlacementGeometry.cs" />
+    <Compile Include="Services\MaterialHardBlockEnforcer.cs" />
+    <Compile Include="Services\PdfContentStrokeExtractor.cs" />
+    <Compile Include="Services\PdfVectorOccupancyService.cs" />
+    <Compile Include="Services\MaterialPlacementPerfStats.cs" />
+    <Compile Include="Services\MaterialConstraintSolver.cs" />
+    <Compile Include="Services\MaterialFreeAreaPlacementService.cs" />
+    <Compile Include="Services\ReliableMaterialPlacementService.cs" />
+    <Compile Include="Services\MaterialWatermarkGuardService.cs" />
+    <Compile Include="Services\NativeDependencyService.cs" />
+    <Compile Include="Services\MaterialExtractionDiagnostics.cs" />
+    <Compile Include="Services\TesseractInstallService.cs" />
+    <Compile Include="Services\TesseractBootstrapService.cs" />
+    <Compile Include="Services\InstallRegistrationService.cs" />
     <Compile Include="Services\AppSecurityService.cs" />
     <Compile Include="Services\GitHubUpdateService.cs" />
     <Compile Include="Services\UpdateApplyRunner.cs" />
@@ -179,6 +261,7 @@
     <Compile Include="Services\InstallationService.cs" />
     <Compile Include="Services\UninstallService.cs" />
     <Compile Include="Services\InstallSessionStore.cs" />
+    <Compile Include="Services\InstallMigrationService.cs" />
     <Compile Include="Services\LicenseContentService.cs" />
     <Compile Include="Services\AdminElevationService.cs" />
     <Compile Include="Services\LegacyInstallCleanupService.cs" />
@@ -188,6 +271,7 @@
     <Compile Include="Models\WatermarkLearningModels.cs" />
     <Compile Include="Models\CustomerProfile.cs" />
     <Compile Include="Services\CustomerProfileStore.cs" />
+    <Compile Include="Services\CustomerProfileSettingsStore.cs" />
     <Compile Include="Services\CustomerProfilePatternBuilder.cs" />
     <Compile Include="Services\CustomerProfileDetectionService.cs" />
     <Compile Include="Services\CustomerProfileLearningService.cs" />
@@ -200,21 +284,26 @@
     <Compile Include="Models\AiQualityReport.cs" />
     <Compile Include="Models\OrderVerificationLine.cs" />
     <Compile Include="Models\OrderExcelRow.cs" />
+    <Compile Include="Models\OrderVerificationRowDisplay.cs" />
     <Compile Include="Models\OrderVerificationReport.cs" />
     <Compile Include="Models\OrderVerificationDrawingKey.cs" />
     <Compile Include="Models\OrderVerificationDateMismatch.cs" />
     <Compile Include="Models\OrderVerificationDialogResult.cs" />
     <Compile Include="Models\DemoLicenseStatus.cs" />
     <Compile Include="Models\AppUpdateInfo.cs" />
+    <Compile Include="Models\UpdateProgressInfo.cs" />
     <Compile Include="Models\InstallSessionOptions.cs" />
     <Compile Include="Models\DataBackupResult.cs" />
     <Compile Include="Services\DataBackupService.cs" />
     <Compile Include="Services\DemoLicenseService.cs" />
+    <Compile Include="Services\LicenseActivationService.cs" />
     <Compile Include="Services\OrderVerificationPdfParser.cs" />
     <Compile Include="Services\OrderExcelVerificationService.cs" />
     <Compile Include="Services\OrderVerificationFileHelper.cs" />
     <Compile Include="Services\OrderVerificationDateHelper.cs" />
+    <Compile Include="Services\OrderVerificationAmountHelper.cs" />
     <Compile Include="Services\OrderVerificationLookup.cs" />
+    <Compile Include="Services\OrderVerificationDisplayBuilder.cs" />
     <Compile Include="Services\Ai\AiHelpKnowledge.cs" />
     <Compile Include="Services\Ai\AiAppCommandService.cs" />
     <Compile Include="Services\Ai\AiChatService.cs" />
@@ -225,14 +314,14 @@
     <Compile Include="Services\Ai\AiTextHelper.cs" />
     <Compile Include="Services\Ai\IAiBackend.cs" />
     <Compile Include="Services\Ai\OfflineAiOrchestrator.cs" />
-    <Compile Include="Services\Ai\OllamaMaterialThicknessService.cs" />
-    <Compile Include="Services\Ai\OllamaRuntimeService.cs" />
-    <Compile Include="Services\Ai\OllamaAiBackend.cs" />
     <Compile Include="Services\Ai\PdfTextExtractionService.cs" />
     <Compile Include="Services\Ai\RuleBasedFallback.cs" />
     <Compile Include="Services\Ai\SimpleJsonHelper.cs" />
     <Compile Include="PDF-umbenenen\AiChatWindow.xaml.cs">
       <DependentUpon>AiChatWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\AppSettingsWindow.xaml.cs">
+      <DependentUpon>AppSettingsWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="PDF-umbenenen\AiSettingsWindow.xaml.cs">
       <DependentUpon>AiSettingsWindow.xaml</DependentUpon>
@@ -255,6 +344,9 @@
     <Compile Include="PDF-umbenenen\ManageCustomersWindow.xaml.cs">
       <DependentUpon>ManageCustomersWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="PDF-umbenenen\CustomerSelectWindow.xaml.cs">
+      <DependentUpon>CustomerSelectWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="PDF-umbenenen\WatermarkPickWindow.xaml.cs">
       <DependentUpon>WatermarkPickWindow.xaml</DependentUpon>
     </Compile>
@@ -269,6 +361,9 @@
     </Compile>
     <Compile Include="PDF-umbenenen\UpdateAvailableWindow.xaml.cs">
       <DependentUpon>UpdateAvailableWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\UpdateApplyProgressWindow.xaml.cs">
+      <DependentUpon>UpdateApplyProgressWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="PDF-umbenenen\InstallWizardWindow.xaml.cs">
       <DependentUpon>InstallWizardWindow.xaml</DependentUpon>
@@ -304,6 +399,14 @@
     <None Include="install-itextsharp.ps1" />
     <None Include="install-trusted-cert.ps1" />
     <Content Include="CodeSigning.cer" Condition="Exists('CodeSigning.cer')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="packages\Docnet.Core.2.6.0\runtimes\win-x64\native\pdfium.dll">
+      <Link>native\win-x64\pdfium.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="native\win-x64\tesseract\**\*" Condition="Exists('native\win-x64\tesseract\tesseract.exe')">
+      <Link>tesseract\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="packages.config" />

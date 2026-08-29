@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
@@ -59,8 +60,10 @@ namespace PDF_umbenenen.Services
 
             var host = uri.Host ?? string.Empty;
             return host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
                 || host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase)
-                || host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+                || host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("digi.bib.uni-mannheim.de", StringComparison.OrdinalIgnoreCase);
         }
 
         public static string SanitizeFileName(string fileName)
@@ -138,10 +141,10 @@ namespace PDF_umbenenen.Services
         public static bool TryVerifyCurrentExecutable(out string message)
         {
             var path = Assembly.GetExecutingAssembly().Location;
-            return TryVerifyFileSignature(path, out message);
+            return TryVerifyFileSignature(path, out message, null);
         }
 
-        public static bool TryVerifyFileSignature(string filePath, out string message)
+        public static bool TryVerifyFileSignature(string filePath, out string message, string trustCerDirectory = null)
         {
             message = string.Empty;
             try
@@ -159,7 +162,240 @@ namespace PDF_umbenenen.Services
                     return false;
                 }
 
-                message = cert.Subject;
+                var signedCert = new X509Certificate2(cert);
+                if (!TryValidateSignedCertificate(signedCert, trustCerDirectory, out message))
+                    return false;
+
+                message = signedCert.Subject;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+        }
+
+        public static bool TryVerifyFileSignature(string filePath, out string message)
+        {
+            return TryVerifyFileSignature(filePath, out message, null);
+        }
+
+        public static bool TryVerifyApplicationPackage(string packageRoot, out string message, string trustCerDirectory = null)
+        {
+            message = string.Empty;
+            if (string.IsNullOrWhiteSpace(packageRoot) || !Directory.Exists(packageRoot))
+            {
+                message = "Update-Paket nicht gefunden.";
+                return false;
+            }
+
+            var cerDirectory = string.IsNullOrWhiteSpace(trustCerDirectory) ? packageRoot : trustCerDirectory;
+            var mainExe = Path.Combine(packageRoot, AppInfo.ExeFileName);
+            if (!File.Exists(mainExe))
+            {
+                message = AppInfo.ExeFileName + " fehlt im Update-Paket.";
+                return false;
+            }
+
+            if (!TryVerifyFileSignature(mainExe, out message, cerDirectory))
+                return false;
+
+            foreach (var executablePath in Directory.GetFiles(packageRoot, "*.exe", SearchOption.AllDirectories))
+            {
+                if (string.Equals(executablePath, mainExe, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var relativePath = GetRelativePathSafe(packageRoot, executablePath);
+                if (IsThirdPartyBundledExecutable(relativePath))
+                {
+                    TryVerifyFileSignature(executablePath, out _, cerDirectory);
+                    continue;
+                }
+
+                if (!TryVerifyFileSignature(executablePath, out message, cerDirectory))
+                {
+                    message = (string.IsNullOrWhiteSpace(relativePath)
+                        ? Path.GetFileName(executablePath)
+                        : relativePath) + ": " + message;
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public static bool IsTrustedUpdateStagingDirectory(string stagedRoot)
+        {
+            if (string.IsNullOrWhiteSpace(stagedRoot))
+                return false;
+
+            try
+            {
+                var fullPath = Path.GetFullPath(stagedRoot);
+                var updatesRoot = Path.GetFullPath(Path.Combine(AppInfo.UserDataDirectory, "Updates"));
+                if (!IsPathInsideDirectory(fullPath, updatesRoot))
+                    return false;
+
+                var folderName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                return folderName.StartsWith("staging-", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool TryVerifyFileSha256(string filePath, string expectedHex, out string message)
+        {
+            message = string.Empty;
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                message = "Datei nicht gefunden.";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(expectedHex))
+            {
+                message = "Erwartete Prüfsumme fehlt.";
+                return false;
+            }
+
+            var actual = ComputeSha256Hex(filePath);
+            if (!string.Equals(actual, expectedHex.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                message = "SHA256-Prüfsumme stimmt nicht überein.";
+                return false;
+            }
+
+            return true;
+        }
+
+        public static string ComputeSha256Hex(string filePath)
+        {
+            using (var stream = File.OpenRead(filePath))
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                return string.Concat(sha.ComputeHash(stream).Select(b => b.ToString("x2")));
+            }
+        }
+
+        private static bool IsThirdPartyBundledExecutable(string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath))
+                return false;
+
+            var normalized = relativePath.Replace('/', Path.DirectorySeparatorChar);
+            return normalized.StartsWith("tesseract" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || normalized.IndexOf(
+                    Path.DirectorySeparatorChar + "tesseract" + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string GetRelativePathSafe(string root, string fullPath)
+        {
+            try
+            {
+                var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                               + Path.DirectorySeparatorChar;
+                var fileFull = Path.GetFullPath(fullPath);
+                if (!fileFull.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                return fileFull.Substring(rootFull.Length);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static bool TryVerifyApplicationPackage(string packageRoot, out string message)
+        {
+            return TryVerifyApplicationPackage(packageRoot, out message, null);
+        }
+
+        private static bool TryValidateSignedCertificate(
+            X509Certificate2 signedCert,
+            string trustCerDirectory,
+            out string message)
+        {
+            message = string.Empty;
+            if (signedCert == null)
+            {
+                message = "Keine Signatur.";
+                return false;
+            }
+
+            if (TryGetTrustedPublisherThumbprint(trustCerDirectory, out var trustedThumbprint)
+                && string.Equals(signedCert.Thumbprint, trustedThumbprint, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (HasValidCertificateChain(signedCert, out message))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(trustedThumbprint))
+                message = "Signatur stammt nicht vom autorisierten Herausgeber (Zertifikat).";
+
+            return false;
+        }
+
+        private static bool TryGetTrustedPublisherThumbprint(string trustCerDirectory, out string thumbprint)
+        {
+            thumbprint = string.Empty;
+            var directories = new[]
+            {
+                trustCerDirectory,
+                AppDomain.CurrentDomain.BaseDirectory
+            };
+
+            foreach (var directory in directories)
+            {
+                if (string.IsNullOrWhiteSpace(directory))
+                    continue;
+
+                var cerPath = Path.Combine(directory, AppInfo.CodeSigningCerFileName);
+                if (!File.Exists(cerPath))
+                    continue;
+
+                try
+                {
+                    var trusted = new X509Certificate2(cerPath);
+                    thumbprint = trusted.Thumbprint;
+                    if (!string.IsNullOrWhiteSpace(thumbprint))
+                        return true;
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetTrustedPublisherThumbprint(out string thumbprint)
+        {
+            return TryGetTrustedPublisherThumbprint(null, out thumbprint);
+        }
+
+        private static bool HasValidCertificateChain(X509Certificate2 certificate, out string message)
+        {
+            message = string.Empty;
+            try
+            {
+                using (var chain = new X509Chain())
+                {
+                    chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                    chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
+                    if (!chain.Build(certificate))
+                    {
+                        message = "Zertifikatskette ungültig.";
+                        return false;
+                    }
+                }
+
                 return true;
             }
             catch (Exception ex)

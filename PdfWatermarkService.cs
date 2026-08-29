@@ -134,142 +134,133 @@ namespace PDF_umbenenen
 
         private static void AddWatermarkWithITextSharp(string pdfPath, string encodedWatermarks, string deliveryDate, string deliveryLocation, string drawingNumberHint, WatermarkSettings settingsOverride, Action<double> fileProgress)
         {
-            string tempPath = pdfPath + ".tmp";
+            var entries = ParseEncodedEntries(encodedWatermarks);
+            var orderNumbers = entries
+                .Where(e => !string.IsNullOrWhiteSpace(e.orderNumber))
+                .Select(e => e.orderNumber.Trim())
+                .Distinct()
+                .ToList();
+
+            var settings = settingsOverride ?? WatermarkSettingsStore.Load();
+            var fieldData = SmartWatermarkLayoutService.BuildFieldData(entries, orderNumbers, drawingNumberHint);
+
+            fileProgress?.Invoke(0d);
+
+            var preWatermarkPath = WatermarkEditorService.GetPreWatermarkPath(pdfPath);
+            if (!File.Exists(preWatermarkPath))
+            {
+                WatermarkEditorService.EnsurePreWatermarkBackup(pdfPath);
+            }
+
+            // Pristine .prewm.pdf nie in-place skalieren (sonst wird jede Sortierung kleiner).
+            var sourcePdfPath = File.Exists(preWatermarkPath) ? preWatermarkPath : pdfPath;
+            string expandedTempPath = null;
+
+            var pageWidth = 595f;
+            var pageHeight = 842f;
+            TryGetPageSize(sourcePdfPath, 1, out pageWidth, out pageHeight);
 
             try
             {
-                var entries = ParseEncodedEntries(encodedWatermarks);
-
-                var orderNumbers = entries
-                    .Where(e => !string.IsNullOrWhiteSpace(e.orderNumber))
-                    .Select(e => e.orderNumber.Trim())
-                    .Distinct()
-                    .ToList();
-
-                var settings = settingsOverride ?? WatermarkSettingsStore.Load();
-                var fieldData = SmartWatermarkLayoutService.BuildFieldData(entries, orderNumbers);
-
-                fileProgress?.Invoke(0d);
-
-                // PdfReader erstellen
-                var pdfReaderCtor = _pdfReaderType.GetConstructor(new[] { typeof(string) });
-                var reader = pdfReaderCtor.Invoke(new object[] { pdfPath });
-
-                // FileStream erstellen
-                var fileStream = new FileStream(tempPath, FileMode.Create);
-
-                // PdfStamper erstellen
-                var pdfStamperCtor = _pdfStamperType.GetConstructor(new[] { _pdfReaderType, typeof(FileStream) });
-                var stamper = pdfStamperCtor.Invoke(new object[] { reader, fileStream });
-
-                try
+                if (settings.UseSmartPlacement
+                    && !string.IsNullOrWhiteSpace(sourcePdfPath)
+                    && File.Exists(sourcePdfPath))
                 {
-                    // Seiten verarbeiten
-                    var numberOfPages = (int)_pdfReaderType.GetProperty("NumberOfPages").GetValue(reader);
-                    var getOverContentMethod = _pdfStamperType.GetMethod("GetOverContent", new[] { typeof(int) });
-                    var getPageSizeMethod = _pdfReaderType.GetMethod("GetPageSizeWithRotation", new[] { typeof(int) })
-                        ?? _pdfReaderType.GetMethod("GetPageSize", new[] { typeof(int) });
-
-                    fileProgress?.Invoke(0.03d);
-
-                    for (int page = 1; page <= numberOfPages; page++)
+                    if (PdfPageMarginExpansionService.TryBuildPlan(
+                            sourcePdfPath, 1, pageWidth, pageHeight, out _))
                     {
-                        var pageStart = (page - 1) / (double)Math.Max(1, numberOfPages);
-                        fileProgress?.Invoke(pageStart);
-
-                        var contentByte = getOverContentMethod.Invoke(stamper, new object[] { page });
-
-                        float pageWidth = 595f;  // A4 Fallback
-                        float pageHeight = 842f; // A4 Fallback
-                        if (getPageSizeMethod != null)
+                        expandedTempPath = sourcePdfPath + ".expand.tmp.pdf";
+                        File.Copy(sourcePdfPath, expandedTempPath, true);
+                        if (PdfPageMarginExpansionService.TryExpandSourceInPlace(
+                                expandedTempPath, 1, pageWidth, pageHeight))
                         {
-                            var rect = getPageSizeMethod.Invoke(reader, new object[] { page });
-                            if (rect != null)
-                            {
-                                var widthProp = rect.GetType().GetProperty("Width");
-                                var heightProp = rect.GetType().GetProperty("Height");
-
-                                if (widthProp != null)
-                                {
-                                    var w = widthProp.GetValue(rect, null);
-                                    if (w != null)
-                                        pageWidth = Convert.ToSingle(w, System.Globalization.CultureInfo.InvariantCulture);
-                                }
-
-                                if (heightProp != null)
-                                {
-                                    var h = heightProp.GetValue(rect, null);
-                                    if (h != null)
-                                        pageHeight = Convert.ToSingle(h, System.Globalization.CultureInfo.InvariantCulture);
-                                }
-                            }
+                            sourcePdfPath = expandedTempPath;
+                            TryGetPageSize(sourcePdfPath, 1, out pageWidth, out pageHeight);
                         }
-
-                        // Für Seite 1: alle entries, für Seiten 2+: nur orderNumbers
-                        List<WatermarkTextPlacement> smartPlacements = null;
-                        if (page == 1 && settings.UseSmartPlacement)
+                        else if (File.Exists(expandedTempPath))
                         {
-                            var pages = Math.Max(1, numberOfPages);
-                            var layoutStart = pageStart + (0.08d / pages);
-                            var layoutEnd = pageStart + (0.82d / pages);
-                            fileProgress?.Invoke(layoutStart);
-                            PdfRasterLayoutService.ScanProgress = scanFraction =>
-                            {
-                                var t = layoutStart + ((layoutEnd - layoutStart) * Math.Max(0d, Math.Min(1d, scanFraction)));
-                                fileProgress?.Invoke(t);
-                            };
-
-                            try
-                            {
-                                smartPlacements = SmartWatermarkLayoutService.Compute(
-                                    pdfPath,
-                                    page,
-                                    fieldData,
-                                    drawingNumberHint,
-                                    pageWidth,
-                                    pageHeight,
-                                    settings);
-                            }
-                            finally
-                            {
-                                PdfRasterLayoutService.ScanProgress = null;
-                            }
-
-                            fileProgress?.Invoke(layoutEnd);
+                            try { File.Delete(expandedTempPath); } catch { /* ignore */ }
+                            expandedTempPath = null;
                         }
+                    }
+                }
 
-                        if (page == 1)
+                fileProgress?.Invoke(0.05d);
+
+                List<WatermarkTextPlacement> page1Placements = null;
+                if (settings.UseSmartPlacement)
+                {
+                    if (!WatermarkProcessingContext.BatchMode)
+                    {
+                        PdfRasterLayoutService.ScanProgress = scanFraction =>
                         {
-                            AddWatermarkToPage(contentByte, entries, orderNumbers, pageWidth, pageHeight, smartPlacements, settings);
-                        }
-                        else
-                        {
-                            AddWatermarkToPage(contentByte, new System.Collections.Generic.List<(string, string, string, string, string)>(), orderNumbers, pageWidth, pageHeight, null, settings);
-                        }
-
-                        fileProgress?.Invoke(page / (double)Math.Max(1, numberOfPages));
+                            var t = 0.05d + (Math.Max(0d, Math.Min(1d, scanFraction)) * 0.75d);
+                            fileProgress?.Invoke(t);
+                        };
                     }
 
-                    fileProgress?.Invoke(1d);
-                }
-                finally
-                {
-                    // Stamper schließen
-                    _pdfStamperType.GetMethod("Close").Invoke(stamper, null);
-                    fileStream.Dispose();
-                    (reader as IDisposable)?.Dispose();
+                    try
+                    {
+                        page1Placements = SmartWatermarkLayoutService.ResolvePage1Placements(
+                            pdfPath,
+                            1,
+                            fieldData,
+                            drawingNumberHint,
+                            pageWidth,
+                            pageHeight,
+                            settings,
+                            sourcePdfPath);
+                    }
+                    finally
+                    {
+                        if (!WatermarkProcessingContext.BatchMode)
+                            PdfRasterLayoutService.ScanProgress = null;
+                    }
                 }
 
-                // Datei ersetzen
-                if (File.Exists(pdfPath))
-                    File.Delete(pdfPath);
-                File.Move(tempPath, pdfPath);
+                fileProgress?.Invoke(0.82d);
+
+                if (page1Placements != null
+                    && page1Placements.Count > 0
+                    && settings.UseSmartPlacement
+                    && !string.IsNullOrWhiteSpace(sourcePdfPath))
+                {
+                    MaterialWatermarkGuardService.EnforceFinalLockBeforeWrite(
+                        page1Placements,
+                        sourcePdfPath,
+                        1,
+                        pageWidth,
+                        pageHeight,
+                        drawingNumberHint);
+                }
+
+                ApplyCustomPlacements(
+                    sourcePdfPath,
+                    pdfPath,
+                    page1Placements,
+                    encodedWatermarks,
+                    drawingNumberHint,
+                    settings);
+
+                fileProgress?.Invoke(0.98d);
+
+                if (page1Placements != null && page1Placements.Count > 0)
+                {
+                    WatermarkMetadataStore.Save(
+                        pdfPath,
+                        drawingNumberHint,
+                        encodedWatermarks,
+                        page1Placements);
+                }
+
+                fileProgress?.Invoke(1d);
             }
-            catch
+            finally
             {
-                if (File.Exists(tempPath))
-                    File.Delete(tempPath);
-                throw;
+                if (!string.IsNullOrWhiteSpace(expandedTempPath) && File.Exists(expandedTempPath))
+                {
+                    try { File.Delete(expandedTempPath); } catch { /* ignore */ }
+                }
             }
         }
 
@@ -310,6 +301,7 @@ namespace PDF_umbenenen
 
                 if (smartPlacements != null && smartPlacements.Count > 0)
                 {
+                    var drawnCount = 0;
                     foreach (var placement in smartPlacements)
                     {
                         if (string.IsNullOrWhiteSpace(placement.Text))
@@ -319,7 +311,7 @@ namespace PDF_umbenenen
                         if (textColor != null)
                             setColorFillMethod.Invoke(contentByte, new[] { textColor });
 
-                        setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, placement.FontSize });
+                        setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, placement.FontSize > 0f ? placement.FontSize : 22f });
                         showTextAlignedMethod.Invoke(contentByte, new object[]
                         {
                             placement.Alignment,
@@ -328,9 +320,11 @@ namespace PDF_umbenenen
                             placement.Y,
                             placement.Angle
                         });
+                        drawnCount++;
                     }
 
-                    return;
+                    if (drawnCount > 0)
+                        return;
                 }
 
                 // Fallback: manuelle Positionen aus Einstellungen
@@ -350,7 +344,10 @@ namespace PDF_umbenenen
                             textParts.Add("Menge: " + e.quantity.Trim());
                         if (!string.IsNullOrWhiteSpace(e.deliveryDate))
                             textParts.Add("Lieferdatum: " + e.deliveryDate.Trim());
-                        if (!string.IsNullOrWhiteSpace(e.deliveryLocation))
+                        if (!string.IsNullOrWhiteSpace(e.deliveryLocation)
+                            && !SmartWatermarkLayoutService.IsSubgroupPartDrawing(
+                                WatermarkProcessingContext.CurrentDrawingKey,
+                                e.bgDrawingNumber))
                             textParts.Add("Lieferort: " + e.deliveryLocation.Trim());
                         if (!string.IsNullOrWhiteSpace(e.bgDrawingNumber))
                         {
@@ -738,6 +735,10 @@ namespace PDF_umbenenen
                         {
                             AddWatermarkToPage(contentByte, entries, orderNumbers, pageWidth, pageHeight, page1Placements, settings);
                         }
+                        else if (page == 1)
+                        {
+                            AddWatermarkToPage(contentByte, entries, orderNumbers, pageWidth, pageHeight, null, settings);
+                        }
                         else if (page > 1)
                         {
                             AddWatermarkToPage(contentByte, new System.Collections.Generic.List<(string, string, string, string, string)>(), orderNumbers, pageWidth, pageHeight, null, settings);
@@ -752,15 +753,41 @@ namespace PDF_umbenenen
                 }
 
                 if (File.Exists(targetPdfPath))
-                    File.Delete(targetPdfPath);
-
-                File.Move(tempPath, targetPdfPath);
+                    ReplacePdfFileWithRetry(tempPath, targetPdfPath);
+                else
+                    File.Move(tempPath, targetPdfPath);
             }
             catch
             {
                 if (File.Exists(tempPath))
                     File.Delete(tempPath);
                 throw;
+            }
+        }
+
+        private static void ReplacePdfFileWithRetry(string tempPath, string targetPdfPath)
+        {
+            const int attempts = 12;
+            for (var attempt = 0; attempt < attempts; attempt++)
+            {
+                try
+                {
+                    PdfRasterLayoutService.ClearCache();
+                    PdfLayoutAnalysisService.ClearCache();
+
+                    if (File.Exists(targetPdfPath))
+                        File.Delete(targetPdfPath);
+
+                    File.Move(tempPath, targetPdfPath);
+                    return;
+                }
+                catch (IOException)
+                {
+                    if (attempt >= attempts - 1)
+                        throw;
+
+                    System.Threading.Thread.Sleep(250);
+                }
             }
         }
 
@@ -842,8 +869,10 @@ namespace PDF_umbenenen
             if (LooksLikeDate(q) || LooksLikeLocation(q))
                 return string.Empty;
 
-            if (!q.EndsWith("X", StringComparison.OrdinalIgnoreCase))
-                q += "X";
+            if (q.EndsWith("X", StringComparison.OrdinalIgnoreCase))
+                q = q.Substring(0, q.Length - 1) + "x";
+            else
+                q += "x";
 
             return q;
         }
@@ -1050,7 +1079,7 @@ namespace PDF_umbenenen
                     for (var page = 1; page <= numberOfPages; page++)
                     {
                         var contentByte = getOverContentMethod.Invoke(stamper, new object[] { page });
-                        DrawPageNumberOnPage(contentByte, reader, page, currentPageNumber);
+                        DrawPageNumberOnPage(contentByte, reader, page, currentPageNumber, pdfPath);
                         currentPageNumber++;
                     }
 
@@ -1077,7 +1106,12 @@ namespace PDF_umbenenen
             }
         }
 
-        private static void DrawPageNumberOnPage(object contentByte, object reader, int pageIndex, int displayPageNumber)
+        private static void DrawPageNumberOnPage(
+            object contentByte,
+            object reader,
+            int pageIndex,
+            int displayPageNumber,
+            string pdfPath = null)
         {
             if (_columnTextType == null || _phraseType == null || _fontType == null)
                 throw new InvalidOperationException("iTextSharp ColumnText/Phrase/Font nicht verfügbar.");
@@ -1096,9 +1130,13 @@ namespace PDF_umbenenen
             var top = GetRectangleFloat(rect, "Top");
             var pageWidth = right - left;
             var pageHeight = top - bottom;
-            var scale = WatermarkPageScale.Get(pageWidth, pageHeight);
-            var fontSize = Math.Max(14f, 16f * scale);
-            var margin = Math.Max(20f, 24f * scale);
+            var fontSize = WatermarkPageScale.GetPageNumberFontSize(pageWidth, pageHeight);
+            var y = bottom + WatermarkPageScale.GetSharedBottomBandBaselineY(
+                pageWidth,
+                pageHeight,
+                fontSize,
+                pdfPath,
+                pageIndex);
 
             var getPageRotationMethod = _pdfReaderType.GetMethod("GetPageRotation", new[] { typeof(int) });
             var rotation = getPageRotationMethod != null
@@ -1122,7 +1160,6 @@ namespace PDF_umbenenen
                 throw new InvalidOperationException("ColumnText.ShowTextAligned nicht verfügbar.");
 
             var x = (left + right) / 2f;
-            var y = bottom + margin;
             showTextAlignedMethod.Invoke(null, new object[] { contentByte, 1, phrase, x, y, (float)rotation });
         }
 
@@ -1184,6 +1221,216 @@ namespace PDF_umbenenen
                 throw new InvalidOperationException("Phrase-Konstruktor nicht verfügbar.");
 
             return phraseCtor.Invoke(new object[] { text, font });
+        }
+
+        internal static void RewritePdfWithExpandedMargins(
+            string sourcePdfPath,
+            string targetPdfPath,
+            PdfMarginExpansionPlan plan,
+            int pageNumber = 1)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePdfPath) || !File.Exists(sourcePdfPath))
+                throw new FileNotFoundException("Quell-PDF nicht gefunden: " + sourcePdfPath);
+
+            if (plan == null || !plan.ShouldExpand || plan.Scale <= 0f)
+                throw new ArgumentException("Ungültiger Rand-Erweiterungsplan.", nameof(plan));
+
+            if (!_iTextSharpLoaded)
+                throw new InvalidOperationException(
+                    "iTextSharp ist nicht ladbar. Bitte prüfen: itextsharp.dll und BouncyCastle.Cryptography.dll im App-Ordner. " +
+                    (string.IsNullOrWhiteSpace(_loadError) ? string.Empty : "Details: " + _loadError));
+
+            var assembly = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(a => string.Equals(a.GetName().Name, "iTextSharp", StringComparison.OrdinalIgnoreCase));
+            if (assembly == null)
+                throw new InvalidOperationException("iTextSharp-Assembly konnte nicht geladen werden.");
+
+            var rectangleType = assembly.GetType("iTextSharp.text.Rectangle");
+            var documentType = assembly.GetType("iTextSharp.text.Document");
+            var pdfWriterType = assembly.GetType("iTextSharp.text.pdf.PdfWriter");
+            var pdfReaderType = assembly.GetType("iTextSharp.text.pdf.PdfReader");
+            var pdfCopyType = assembly.GetType("iTextSharp.text.pdf.PdfCopy");
+            var pdfImportedPageType = assembly.GetType("iTextSharp.text.pdf.PdfImportedPage");
+            var baseColorType = assembly.GetType("iTextSharp.text.BaseColor");
+
+            if (rectangleType == null || documentType == null || pdfWriterType == null || pdfReaderType == null
+                || pdfCopyType == null || pdfImportedPageType == null)
+            {
+                throw new InvalidOperationException("iTextSharp-Typen für Rand-Erweiterung konnten nicht geladen werden.");
+            }
+
+            var expandedPageTemp = targetPdfPath + ".page1.tmp";
+            object sourceReader = null;
+
+            try
+            {
+                var readerCtor = pdfReaderType.GetConstructor(new[] { typeof(string) });
+                sourceReader = readerCtor.Invoke(new object[] { sourcePdfPath });
+                var numberOfPages = (int)pdfReaderType.GetProperty("NumberOfPages").GetValue(sourceReader);
+                if (pageNumber < 1 || pageNumber > numberOfPages)
+                    throw new ArgumentOutOfRangeException(nameof(pageNumber));
+
+                var getPageSizeMethod = pdfReaderType.GetMethod("GetPageSizeWithRotation", new[] { typeof(int) })
+                    ?? pdfReaderType.GetMethod("GetPageSize", new[] { typeof(int) });
+                var rect = getPageSizeMethod.Invoke(sourceReader, new object[] { pageNumber });
+                var widthProp = rect.GetType().GetProperty("Width");
+                var heightProp = rect.GetType().GetProperty("Height");
+                var pageWidth = Convert.ToSingle(widthProp.GetValue(rect, null), System.Globalization.CultureInfo.InvariantCulture);
+                var pageHeight = Convert.ToSingle(heightProp.GetValue(rect, null), System.Globalization.CultureInfo.InvariantCulture);
+
+                WriteExpandedSinglePage(
+                    assembly,
+                    rectangleType,
+                    documentType,
+                    pdfWriterType,
+                    pdfReaderType,
+                    baseColorType,
+                    sourceReader,
+                    expandedPageTemp,
+                    pageNumber,
+                    pageWidth,
+                    pageHeight,
+                    plan);
+
+                if (numberOfPages == 1)
+                {
+                    if (File.Exists(targetPdfPath))
+                        File.Delete(targetPdfPath);
+                    File.Move(expandedPageTemp, targetPdfPath);
+                    return;
+                }
+
+                var document = Activator.CreateInstance(documentType);
+                FileStream outputStream = null;
+                object copy = null;
+                object expandedReader = null;
+
+                try
+                {
+                    outputStream = new FileStream(targetPdfPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                    var copyCtor = pdfCopyType.GetConstructor(new[] { documentType, typeof(Stream) });
+                    copy = copyCtor.Invoke(new object[] { document, outputStream });
+                    documentType.GetMethod("Open", Type.EmptyTypes)?.Invoke(document, null);
+
+                    var getImportedPage = pdfCopyType.GetMethod("GetImportedPage", new[] { pdfReaderType, typeof(int) });
+                    var addPage = pdfCopyType.GetMethod("AddPage", new[] { pdfImportedPageType });
+                    expandedReader = readerCtor.Invoke(new object[] { expandedPageTemp });
+
+                    var expandedPage = getImportedPage.Invoke(copy, new object[] { expandedReader, 1 });
+                    addPage.Invoke(copy, new[] { expandedPage });
+
+                    for (var p = 1; p <= numberOfPages; p++)
+                    {
+                        if (p == pageNumber)
+                            continue;
+
+                        var imported = getImportedPage.Invoke(copy, new object[] { sourceReader, p });
+                        addPage.Invoke(copy, new[] { imported });
+                    }
+                }
+                finally
+                {
+                    pdfCopyType?.GetMethod("Close", Type.EmptyTypes)?.Invoke(copy, null);
+                    documentType?.GetMethod("Close", Type.EmptyTypes)?.Invoke(document, null);
+                    outputStream?.Dispose();
+                    pdfReaderType.GetMethod("Close", Type.EmptyTypes)?.Invoke(expandedReader, null);
+                    (expandedReader as IDisposable)?.Dispose();
+                }
+            }
+            finally
+            {
+                pdfReaderType?.GetMethod("Close", Type.EmptyTypes)?.Invoke(sourceReader, null);
+                (sourceReader as IDisposable)?.Dispose();
+
+                if (File.Exists(expandedPageTemp))
+                {
+                    try
+                    {
+                        File.Delete(expandedPageTemp);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
+        private static void WriteExpandedSinglePage(
+            Assembly assembly,
+            Type rectangleType,
+            Type documentType,
+            Type pdfWriterType,
+            Type pdfReaderType,
+            Type baseColorType,
+            object sourceReader,
+            string outputPath,
+            int pageNumber,
+            float pageWidth,
+            float pageHeight,
+            PdfMarginExpansionPlan plan)
+        {
+            var pageRect = Activator.CreateInstance(rectangleType, pageWidth, pageHeight);
+            var document = Activator.CreateInstance(documentType, pageRect);
+            FileStream stream = null;
+            object writer = null;
+
+            try
+            {
+                stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                var getInstance = pdfWriterType.GetMethod("GetInstance", new[] { documentType, typeof(Stream) });
+                writer = getInstance.Invoke(null, new object[] { document, stream });
+                documentType.GetMethod("Open", Type.EmptyTypes)?.Invoke(document, null);
+
+                var directContent = writer.GetType().GetProperty("DirectContent")?.GetValue(writer);
+                if (directContent == null)
+                    throw new InvalidOperationException("PdfWriter.DirectContent nicht verfügbar.");
+
+                var white = baseColorType?.GetField("WHITE", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+                if (white != null)
+                {
+                    directContent.GetType().GetMethod("SetColorFill", new[] { baseColorType })
+                        ?.Invoke(directContent, new[] { white });
+                    directContent.GetType()
+                        .GetMethod("Rectangle", new[] { typeof(float), typeof(float), typeof(float), typeof(float) })
+                        ?.Invoke(directContent, new object[] { 0f, 0f, pageWidth, pageHeight });
+                    directContent.GetType().GetMethod("Fill", Type.EmptyTypes)?.Invoke(directContent, null);
+                }
+
+                var getImportedPage = writer.GetType().GetMethod("GetImportedPage", new[] { pdfReaderType, typeof(int) });
+                var importedPage = getImportedPage.Invoke(writer, new object[] { sourceReader, pageNumber });
+                var importedPageType = assembly.GetType("iTextSharp.text.pdf.PdfImportedPage")
+                    ?? importedPage.GetType();
+
+                directContent.GetType()
+                    .GetMethod("AddTemplate", new[]
+                    {
+                        importedPageType,
+                        typeof(float),
+                        typeof(float),
+                        typeof(float),
+                        typeof(float),
+                        typeof(float),
+                        typeof(float)
+                    })
+                    ?.Invoke(
+                        directContent,
+                        new object[]
+                        {
+                            importedPage,
+                            plan.Scale,
+                            0f,
+                            0f,
+                            plan.Scale,
+                            plan.MarginLeft,
+                            plan.MarginBottom
+                        });
+            }
+            finally
+            {
+                documentType.GetMethod("Close", Type.EmptyTypes)?.Invoke(document, null);
+                pdfWriterType.GetMethod("Close", Type.EmptyTypes)?.Invoke(writer, null);
+                stream?.Dispose();
+            }
         }
 
         public static void MergePdfFiles(IReadOnlyList<string> inputFiles, string outputFile)

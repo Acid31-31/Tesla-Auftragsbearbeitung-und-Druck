@@ -56,3 +56,14 @@ else {
 }
 
 Write-Host "Erfolgreich signiert ($Configuration)."
+
+$exportedCer = Join-Path (Split-Path $exePath -Parent) "CodeSigning.cer"
+try {
+    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CertPath, $CertPassword)
+    [System.IO.File]::WriteAllBytes($exportedCer, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+    Copy-Item $exportedCer (Join-Path $root "CodeSigning.cer") -Force
+    Write-Host "CodeSigning.cer exportiert: $exportedCer"
+}
+catch {
+    Write-Warning "CodeSigning.cer konnte nicht exportiert werden: $_"
+}
