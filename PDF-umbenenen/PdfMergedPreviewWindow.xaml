@@ -4,6 +4,9 @@
         Title="Gesamt-PDF Vorschau"
         WindowState="Maximized"
         WindowStartupLocation="CenterScreen"
+        AllowDrop="True"
+        PreviewDragOver="Window_PreviewDragOver"
+        Drop="Window_Drop"
         Background="{DynamicResource AppBackground}"
         Foreground="{DynamicResource TextPrimary}">
 
@@ -42,7 +45,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
-                   Text="Gesamt-PDF — durchscrollen, dann „Wasserzeichen bearbeiten“ für die sichtbare Zeichnung. Alles direkt hier, kein zweites Fenster."
+                   Text="Gesamt-PDF — defekte Zeichnung ersetzen: korrekte PDF auf die Seite ziehen. Oder „Materialstärke ändern“."
                    TextWrapping="Wrap"
                    FontSize="12"
                    Foreground="{DynamicResource TextSecondary}"
@@ -106,7 +109,7 @@
                     Grid.Row="3"
                     Margin="0,10,0,6"
                     Visibility="Collapsed">
-            <TextBlock Text="Korrekturmodus — Material / Stärke"
+            <TextBlock Text="Materialstärke ändern"
                        FontSize="12"
                        Foreground="{DynamicResource TextSecondary}"
                        Margin="0,0,0,4"/>
@@ -114,7 +117,7 @@
                      FontSize="14"
                      Padding="8,6"
                      TextChanged="MaterialTextBox_TextChanged"/>
-            <TextBlock Text="Gelbe Boxen per Maus verschieben, dann Speichern."
+            <TextBlock Text="Nur die Materialstärke im Feld ändern, dann Speichern. BG und alle anderen Wasserzeichen bleiben fest."
                        FontSize="11"
                        Foreground="{DynamicResource TextSecondary}"
                        Margin="0,6,0,0"/>
@@ -122,8 +125,12 @@
 
         <DockPanel Grid.Row="4">
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                <Button x:Name="ChangeDateButton"
+                        Content="Termin ändern"
+                        Style="{StaticResource PreviewButton}"
+                        Click="ChangeDateButton_Click"/>
                 <Button x:Name="CorrectButton"
-                        Content="Wasserzeichen bearbeiten"
+                        Content="Materialstärke ändern"
                         Style="{StaticResource PreviewButton}"
                         Click="CorrectButton_Click"/>
                 <Button x:Name="SaveButton"

@@ -315,21 +315,46 @@
             <RowDefinition Height="36"/>
         </Grid.RowDefinitions>
 
-        <!-- ══ FENSTER 1: HEADER (volle Breite – Logo, Titel, Menü, Fenster-Buttons) ══ -->
+        <!-- ══ FENSTER 1: HEADER (volle Breite – Logo, Kundenname, Menü, Fenster-Buttons) ══ -->
         <Border Grid.Row="0" Grid.ColumnSpan="2"
                 Background="{DynamicResource HeaderBackground}"
                 BorderBrush="{DynamicResource GroupBorder}" BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
             <Grid Margin="24,0,0,0">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Image Grid.Column="0" Style="{StaticResource AppLogoImage}" Height="68"
-                       HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                       HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                            HorizontalAlignment="Left" Margin="8,0,16,0">
+                    <TextBlock x:Name="ActiveCustomerBadgeLabel"
+                               Text="Kunde"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Margin="0,0,10,0"
+                               Foreground="{DynamicResource TextSecondary}"
+                               Visibility="Collapsed"/>
+                    <Border x:Name="ActiveCustomerBadgeBorder"
+                            CornerRadius="8"
+                            Padding="14,8"
+                            Background="{DynamicResource CardBackground}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="ActiveCustomerBadgeText"
+                                   Text="—"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource AccentBrush}"/>
+                    </Border>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Button Style="{StaticResource HeaderUtilityBtn}" Click="CheckForUpdatesMenu_Click" Margin="0,0,8,0"
-                            ToolTip="Manuell nach Updates auf GitHub suchen">
+                            ToolTip="Manuell nach allen Updates suchen (DOK, Tesseract, große KI)">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⬆" Margin="0,0,6,0"/>
                             <TextBlock Text="Update prüfen"/>
@@ -376,12 +401,38 @@
                             <TextBlock Text="Übersicht" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button x:Name="NavLogButton" Style="{StaticResource SidebarBtn}" Click="NavLog_Click">
+                    <Button x:Name="ProcessButton" Style="{StaticResource SidebarBtn}" Click="Process_Click" Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="☰" FontSize="16" Margin="0,0,10,0"/>
-                            <TextBlock Text="Protokoll" VerticalAlignment="Center"/>
+                            <TextBlock Text="⇅" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Sortieren &amp; umbenennen" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
+                    <Button x:Name="MergePrintButton" Style="{StaticResource SidebarBtn}" Click="MergeAndPrint_Click" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⊞" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Zusammenfügen &amp; Vorschau" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ChangeDeliveryDateButton" Style="{StaticResource SidebarBtn}" Click="ChangeDeliveryDate_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📅" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Liefertermin ändern" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="GeoSearchSidebarButton" Style="{StaticResource SidebarBtn}" Click="GeoSearchSidebar_Click"
+                            ToolTip="GEO-Dateien zum aktuellen Auftrag suchen">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="◆" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="GEO suchen" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="OpenWorkspaceButton" Style="{StaticResource SidebarBtn}" Click="OpenWorkspaceFolder_Click" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📁" FontSize="16" Margin="0,0,10,0"/>
+                            <TextBlock Text="Ablage öffnen" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Border Height="1" Margin="20,10,20,10" Background="{DynamicResource GroupBorder}"/>
                     <Button Style="{StaticResource SidebarBtn}" Click="HeaderSettings_Click">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⚙" FontSize="16" Margin="0,0,10,0"/>
@@ -447,7 +498,7 @@
                                        FontSize="17" FontWeight="SemiBold"
                                        Foreground="{DynamicResource AccentBrush}"
                                        HorizontalAlignment="Center"/>
-                            <TextBlock Text="PDF · Excel · Prüf-/Bestell-PDF wird automatisch erkannt"
+                            <TextBlock Text="PDF · Excel · Text-Bestellung (.txt/.csv) · Prüf-/Bestell-PDF wird automatisch erkannt"
                                        FontSize="12" Foreground="{DynamicResource TextSecondary}"
                                        HorizontalAlignment="Center" Margin="0,3,0,0"/>
                             <TextBlock x:Name="DroppedExtensionsTextBlock" Visibility="Collapsed"/>
@@ -622,36 +673,20 @@
                                    Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
                     </StackPanel>
 
-                    <!-- Aktionsbuttons – eine Reihe, gleiche Größe -->
+                    <!-- Aktionsbuttons – Protokoll an bisheriger Sortieren-Stelle -->
                     <Grid Grid.Row="5" Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="10"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="10"/>
-                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="3*"/>
                             <ColumnDefinition Width="10"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button x:Name="ProcessButton" Grid.Column="0" Style="{StaticResource ActionBtnSort}" Click="Process_Click">
+                        <Button x:Name="NavLogButton" Grid.Column="0" Style="{StaticResource ActionBtnSort}" Click="NavLog_Click">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="⇅" FontSize="15" Margin="0,0,6,0"/>
-                                <TextBlock Text="Sortieren &amp; umbenennen" VerticalAlignment="Center"/>
+                                <TextBlock Text="☰" FontSize="15" Margin="0,0,6,0"/>
+                                <TextBlock Text="Protokoll" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="MergePrintButton" Grid.Column="2" Style="{StaticResource ActionBtnMerge}" Click="MergeAndPrint_Click">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="⊞" FontSize="15" Margin="0,0,6,0"/>
-                                <TextBlock Text="Zusammenfügen &amp; Vorschau" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Grid.Column="4" Style="{StaticResource ActionBtnOpen}" Click="OpenWorkspaceFolder_Click">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="📁" FontSize="15" Margin="0,0,6,0"/>
-                                <TextBlock Text="Ablage öffnen" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="DeleteProcessedButton" Grid.Column="6" Style="{StaticResource ActionBtnClear}" Click="DeleteProcessedOrders_Click">
+                        <Button x:Name="DeleteProcessedButton" Grid.Column="2" Style="{StaticResource ActionBtnClear}" Click="DeleteProcessedOrders_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="🗑" FontSize="15" Margin="0,0,6,0"/>
                                 <TextBlock Text="Ablage leeren" VerticalAlignment="Center"/>

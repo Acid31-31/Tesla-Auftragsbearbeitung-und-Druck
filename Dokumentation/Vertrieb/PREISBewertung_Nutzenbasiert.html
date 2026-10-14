@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Nutzenbasierte Preisbewertung DOK-V01</title>
+<style>
+  @page { margin: 2cm 2.2cm; }
+  body {
+    font-family: "Segoe UI", Calibri, Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.45;
+    color: #1a1a1a;
+    max-width: 18cm;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 18pt;
+    font-weight: 600;
+    color: #1e3a5f;
+    border-bottom: 2px solid #1e3a5f;
+    padding-bottom: 8px;
+    margin: 0 0 12px 0;
+  }
+  h2 {
+    font-size: 13pt;
+    font-weight: 600;
+    color: #1e3a5f;
+    margin: 22px 0 10px 0;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: #333;
+    margin: 16px 0 8px 0;
+    page-break-after: avoid;
+  }
+  .meta {
+    font-size: 10pt;
+    color: #444;
+    margin-bottom: 20px;
+  }
+  .meta p { margin: 4px 0; }
+  p { margin: 8px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 16px 0;
+    font-size: 10.5pt;
+    page-break-inside: avoid;
+  }
+  th {
+    background: #1e3a5f;
+    color: #fff;
+    font-weight: 600;
+    text-align: left;
+    padding: 7px 10px;
+  }
+  th.num, td.num { text-align: right; }
+  td {
+    border: 1px solid #c5cdd6;
+    padding: 6px 10px;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f5f7fa; }
+  .formula {
+    background: #f0f4f8;
+    border-left: 4px solid #1e3a5f;
+    padding: 12px 14px;
+    margin: 12px 0;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 10pt;
+    line-height: 1.6;
+    white-space: pre-line;
+  }
+  .highlight {
+    background: #e8f4ea;
+    border: 1px solid #a8d5b0;
+    padding: 14px 16px;
+    margin: 16px 0;
+    border-radius: 4px;
+  }
+  .highlight p { margin: 6px 0; font-weight: 600; }
+  .note {
+    font-size: 10pt;
+    color: #555;
+    font-style: italic;
+    margin: 8px 0;
+  }
+  .footer {
+    margin-top: 28px;
+    padding-top: 12px;
+    border-top: 1px solid #ccc;
+    font-size: 9.5pt;
+    color: #666;
+    text-align: center;
+  }
+  .fill-box {
+    background: #fafafa;
+    border: 1px dashed #aaa;
+    padding: 14px 16px;
+    font-size: 10.5pt;
+    line-height: 1.8;
+  }
+</style>
+</head>
+<body>
+
+<h1>Nutzenbasierte Preisbewertung DOK-V01</h1>
+
+<div class="meta">
+  <p><strong>Stand:</strong> Version 1.1 R44 · Basisversion (Standard-Workflow Zeichnung + Excel)</p>
+  <p><strong>Zielgruppe:</strong> Lohnfertiger und Lohnanfertiger</p>
+  <p><strong>Methode:</strong> Betriebsnutzen aus realer Bearbeitungszeit · kein Entwickler-Stundenlohn</p>
+</div>
+
+<h2>Messwerte aus dem Betrieb</h2>
+<p>Pro Bauteil müssen Sortierung, Umbenennung und Wasserzeichen-Einträge (Menge, Termin, Auftragsnr. usw.) von Hand erledigt werden.</p>
+
+<table>
+  <tr>
+    <th>Situation</th>
+    <th class="num">Manuell</th>
+    <th class="num">Mit DOK-V01</th>
+    <th class="num">Ersparnis</th>
+  </tr>
+  <tr>
+    <td>1 Bauteil</td>
+    <td class="num">2 Min</td>
+    <td class="num">~1 Sek</td>
+    <td class="num"><strong>~2 Min</strong></td>
+  </tr>
+  <tr>
+    <td>40 Bauteile</td>
+    <td class="num">30 Min</td>
+    <td class="num">~1 Min</td>
+    <td class="num"><strong>~29 Min</strong></td>
+  </tr>
+</table>
+<p class="note">Hochrechnung für beliebige Stückzahl: Manuell (Min) = 30 ÷ 40 × Anzahl Teile</p>
+
+<h2>Grundformel</h2>
+<div class="formula">Manuell pro Auftrag (Min)  = 30 ÷ 40 × Anzahl Bauteile
+Mit App pro Auftrag (Min)  ≈ Anzahl Bauteile × 1 Sek ÷ 60
+Ersparnis pro Auftrag      = Manuell − Mit App
+
+Stunden/Jahr               = Aufträge/Jahr × Ersparnis Ø pro Auftrag ÷ 60
+Jahresnutzen (€)           = Stunden × 45 €/h (interner Vollkostensatz Fertigung)</div>
+
+<h3>Beispiele pro Auftrag</h3>
+<table>
+  <tr>
+    <th>Bauteile</th>
+    <th class="num">Manuell</th>
+    <th class="num">Mit App</th>
+    <th class="num">Ersparnis</th>
+  </tr>
+  <tr><td>4</td><td class="num">~3 Min</td><td class="num">~4 Sek</td><td class="num"><strong>~3 Min</strong></td></tr>
+  <tr><td>15</td><td class="num">~11 Min</td><td class="num">~15 Sek</td><td class="num"><strong>~11 Min</strong></td></tr>
+  <tr><td>19 (Ø)</td><td class="num">~14 Min</td><td class="num">~19 Sek</td><td class="num"><strong>~14 Min</strong></td></tr>
+  <tr><td>30</td><td class="num">~23 Min</td><td class="num">~30 Sek</td><td class="num"><strong>~22 Min</strong></td></tr>
+  <tr><td>40</td><td class="num">30 Min</td><td class="num">~1 Min</td><td class="num"><strong>~29 Min</strong></td></tr>
+  <tr><td>50</td><td class="num">~38 Min</td><td class="num">~50 Sek</td><td class="num"><strong>~37 Min</strong></td></tr>
+</table>
+
+<h2>1. Ihr Betrieb (Richtwerte)</h2>
+<table>
+  <tr><th>Größe</th><th>Annahme</th></tr>
+  <tr><td>Aktive Phase</td><td>ca. 5–8 Aufträge/Woche</td></tr>
+  <tr><td>Flauten</td><td>teils mehrere Monate ohne Aufträge</td></tr>
+  <tr><td>Aktive Monate/Jahr</td><td>10 (2 Monate ohne Aufträge)</td></tr>
+  <tr><td>Ø Aufträge/Woche (aktiv)</td><td>6,5</td></tr>
+  <tr><td>Aufträge/Jahr</td><td>10 × 4,3 × 6,5 ≈ <strong>280</strong></td></tr>
+  <tr><td>Ø Bauteile/Auftrag (Mix 4–50)</td><td><strong>~19</strong> (30 % klein / 50 % mittel / 20 % groß)</td></tr>
+</table>
+
+<h3>Normales Jahr (gut ausgelastet)</h3>
+<table>
+  <tr><th>Schritt</th><th>Rechnung</th></tr>
+  <tr><td>Manuell/Auftrag</td><td>30 ÷ 40 × 19 ≈ <strong>14 Min</strong></td></tr>
+  <tr><td>Mit App/Auftrag</td><td>≈ <strong>19 Sek</strong></td></tr>
+  <tr><td>Ersparnis/Auftrag</td><td>≈ <strong>14 Min</strong></td></tr>
+  <tr><td>Ersparnis/Jahr</td><td>280 × 14 Min ≈ <strong>3.920 Min</strong></td></tr>
+  <tr><td>Stunden/Jahr</td><td>≈ <strong>64 h</strong></td></tr>
+  <tr><td>Zeitnutzen (45 €/h)</td><td><strong>≈ 2.900 €/Jahr</strong></td></tr>
+</table>
+
+<h3>Flautenjahr (z. B. nur 40 Aufträge)</h3>
+<table>
+  <tr><th>Schritt</th><th>Rechnung</th></tr>
+  <tr><td>Ersparnis</td><td>40 × 14 Min ≈ <strong>560 Min</strong></td></tr>
+  <tr><td>Stunden</td><td>≈ <strong>9 h</strong></td></tr>
+  <tr><td>Zeitnutzen</td><td><strong>≈ 420 €/Jahr</strong></td></tr>
+</table>
+
+<h3>Drei-Jahres-Durchschnitt (2 normale + 1 Flaute)</h3>
+<table>
+  <tr><th></th><th class="num">Stunden/Jahr Ø</th><th class="num">Nutzen/Jahr Ø</th></tr>
+  <tr><td><strong>Durchschnitt</strong></td><td class="num"><strong>≈ 46 h</strong></td><td class="num"><strong>≈ 2.070 €</strong></td></tr>
+</table>
+
+<h3>Vergleich: häufig große Aufträge (40 Teile)</h3>
+<table>
+  <tr><th></th><th class="num">Wert</th></tr>
+  <tr><td>Ersparnis je 40-Teile-Auftrag</td><td class="num"><strong>29 Min</strong></td></tr>
+  <tr><td>Bei 280 Aufträgen/Jahr (alle 40 Teile)</td><td class="num"><strong>≈ 135 h/Jahr</strong></td></tr>
+  <tr><td>Nutzen (45 €/h)</td><td class="num"><strong>≈ 6.100 €/Jahr</strong></td></tr>
+</table>
+<p class="note">In der Praxis liegt das Volumen zwischen Durchschnittsmix (~2.900 €) und reinen Großaufträgen (~6.100 €).</p>
+
+<h2>2. Lizenzpreis aus Nutzen</h2>
+<p>Faustregel: Einmallizenz ≈ 9–12 Monate Jahresnutzen (für Lohnfertiger realistisch verkaufbar)</p>
+<table>
+  <tr>
+    <th>Bezugsgröße</th>
+    <th class="num">Jahresnutzen</th>
+    <th>Amortisation</th>
+    <th class="num">Einmallizenz</th>
+  </tr>
+  <tr><td>Durchschnittsmix</td><td class="num">~2.900 €</td><td>9 Monate</td><td class="num">~2.175 €</td></tr>
+  <tr><td>Durchschnittsmix</td><td class="num">~2.900 €</td><td>12 Monate</td><td class="num"><strong>~2.900 €</strong></td></tr>
+  <tr><td><strong>3-Jahres-Ø</strong></td><td class="num"><strong>~2.070 €</strong></td><td><strong>12 Monate</strong></td><td class="num"><strong>~2.070 €</strong></td></tr>
+  <tr><td>Große Aufträge (40 Teile)</td><td class="num">~6.100 €</td><td>6 Monate</td><td class="num">~3.050 €</td></tr>
+</table>
+
+<h3>Praxis-Empfehlung (Angebot)</h3>
+<table>
+  <tr><th>Variante</th><th class="num">Preis</th><th>Begründung</th></tr>
+  <tr>
+    <td><strong>Regulär (Listenpreis)</strong></td>
+    <td class="num"><strong>2.990 €</strong></td>
+    <td>~12 Monate Nutzen im Durchschnittsmix — fair und vertretbar</td>
+  </tr>
+  <tr>
+    <td><strong>Pilotkunde</strong> (Mitentwicklung mit Unterlagen)</td>
+    <td class="num"><strong>2.240 €</strong></td>
+    <td>25 % Rabatt · inkl. Einschulung + 12 Monate Updates</td>
+  </tr>
+  <tr>
+    <td>Zusatz: weiteres Kundenprofil</td>
+    <td class="num"><strong>990 – 1.490 €</strong></td>
+    <td>Separates Angebot (z. B. Makat)</td>
+  </tr>
+</table>
+<p><strong>Zusatzleistung „Weitere Kunden“</strong> (Makat u. a.): nicht in der Basislizenz enthalten.</p>
+
+<h3>Amortisation (Übersicht)</h3>
+<table>
+  <tr><th class="num">Preis</th><th>Szenario</th><th>Ergebnis</th></tr>
+  <tr><td class="num"><strong>2.240 €</strong></td><td>Durchschnittsmix (~2.900 €/Jahr)</td><td><strong>ca. 9 Monate</strong></td></tr>
+  <tr><td class="num"><strong>2.240 €</strong></td><td>Auftrag 40 Teile (29 Min Ersparnis)</td><td><strong>~103</strong> solche Aufträge</td></tr>
+  <tr><td class="num"><strong>2.990 €</strong></td><td>Durchschnittsmix</td><td><strong>ca. 12 Monate</strong></td></tr>
+</table>
+
+<h2>3. Eigene Kalkulation (ausfüllen)</h2>
+<div class="fill-box">
+Aktive Monate/Jahr:        _____________<br>
+Aufträge/Woche (aktiv):    _____________<br>
+→ Aufträge/Jahr = Monate × 4,3 × Aufträge/Woche<br><br>
+Ø Bauteile/Auftrag:        _____________<br>
+→ Manuell/Auftrag (Min) = 30 ÷ 40 × Bauteile<br>
+→ Ersparnis/Auftrag ≈ Manuell − (Bauteile × 1 Sek ÷ 60)<br><br>
+Min/Jahr = Aufträge × Ersparnis/Auftrag<br>
+Stunden/Jahr = Min/Jahr ÷ 60<br>
+Nutzen €/Jahr = Stunden × 45 €<br><br>
+Lizenz = Jahresnutzen × (12 bis 24 Monate ÷ 12)
+</div>
+
+<h2>4. Kurzantwort</h2>
+<p>Mit <strong>2 Min/Bauteil manuell</strong> (bzw. <strong>30 Min für 40 Teile</strong>), <strong>~1 Sek/Bauteil mit App</strong> und <strong>~280 Aufträgen/Jahr</strong> (Ø 19 Teile):</p>
+
+<div class="highlight">
+  <p>Nutzen im Durchschnittsmix: ~2.900 €/Jahr (~64 h)</p>
+  <p>Nutzen im 3-Jahres-Durchschnitt: ~2.070 €/Jahr</p>
+  <p>Listenpreis Basis: 2.990 €</p>
+  <p>Pilotkunden-Kondition: 2.240 € (25 % · Mitentwicklung mit Unterlagen)</p>
+</div>
+
+<p><strong>2.240 €</strong> amortisieren sich im Durchschnittsmix in ca. 9 Monaten — allein ein 40-Teile-Auftrag spart ~29 Minuten (~22 € Kapazität bei 45 €/h).</p>
+
+<div class="footer">
+Alexander Hölzer · DOK-V01 · Nutzenbasierte Bewertung
+</div>
+
+</body>
+</html>

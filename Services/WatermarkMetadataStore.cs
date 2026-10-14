@@ -44,7 +44,6 @@ namespace PDF_umbenenen.Services
             {
                 var placementElements = placements
                     .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Text))
-                    .Where(p => !IsVolatilePlacementCategory(p.Category))
                     .Select(p => new XElement("Placement",
                         new XAttribute("category", p.Category ?? string.Empty),
                         new XAttribute("text", p.Text ?? string.Empty),
@@ -111,9 +110,6 @@ namespace PDF_umbenenen.Services
                     }
                 }
 
-                placements.RemoveAll(p =>
-                    p != null && IsVolatilePlacementCategory(p.Category));
-
                 return true;
             }
             catch
@@ -123,14 +119,17 @@ namespace PDF_umbenenen.Services
             }
         }
 
-        private static bool IsVolatilePlacementCategory(string category)
+        internal static bool IsVolatilePlacementCategory(string category)
         {
             if (string.IsNullOrWhiteSpace(category))
                 return false;
 
             return string.Equals(category, "Material", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase);
+                   || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Brushed", StringComparison.OrdinalIgnoreCase);
         }
 
         private static float ParseFloat(string value, float fallback)

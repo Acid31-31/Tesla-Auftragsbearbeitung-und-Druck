@@ -226,8 +226,10 @@
                     </Border>
                     <Border Grid.Column="1" Style="{StaticResource ExcelGridCell}" BorderThickness="0,0,1,0">
                         <TextBlock Text="{Binding DrawingNumber}" Style="{StaticResource Cell}"
+                                   Tag="excel"
                                    Cursor="Hand"
-                                   ToolTip="Doppelklick: Zeichnungs-PDF öffnen"
+                                   MouseEnter="DrawingNumber_MouseEnter"
+                                   MouseLeave="DrawingNumber_MouseLeave"
                                    MouseLeftButtonDown="DrawingNumber_MouseLeftButtonDown"/>
                     </Border>
                     <Border Grid.Column="2" Style="{StaticResource ExcelGridCell}" BorderThickness="0,0,1,0">
@@ -260,32 +262,21 @@
                             <TextBlock Text="{Binding ExcelAmount}" Style="{StaticResource Cell}" Margin="0"/>
                         </Border>
                     </Border>
-                    <Border Grid.Column="4">
-                        <Border Padding="2" CornerRadius="3" Margin="4,8" VerticalAlignment="Stretch">
+                    <Border Grid.Column="4" Cursor="Hand"
+                            ToolTip="Klicken: Kalender öffnen. Baugruppe → LT-, BG-Einzelteil → FT-, sonst LT-"
+                            MouseLeftButtonUp="ExcelDateCell_MouseLeftButtonUp">
+                        <Border Padding="4,2" CornerRadius="3" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Border.Style>
                                 <Style TargetType="Border">
-                                    <Setter Property="Background" Value="{DynamicResource InputBackground}"/>
-                                    <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
-                                    <Setter Property="BorderThickness" Value="1"/>
+                                    <Setter Property="Background" Value="Transparent"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding HighlightExcelDate}" Value="True">
                                             <Setter Property="Background" Value="{DynamicResource HighlightCellBrush}"/>
-                                            <Setter Property="BorderBrush" Value="{DynamicResource WarningBrush}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <TextBox Text="{Binding ExcelDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     FontSize="12"
-                                     Padding="4,2"
-                                     BorderThickness="0"
-                                     Background="Transparent"
-                                     Foreground="{DynamicResource TextPrimary}"
-                                     CaretBrush="{DynamicResource TextPrimary}"
-                                     VerticalContentAlignment="Center"
-                                     ToolTip="Termin ändern: Baugruppe → LT-, BG-Einzelteil → FT-, sonst LT-"
-                                     KeyDown="ExcelDateBox_KeyDown"
-                                     LostFocus="ExcelDateBox_LostFocus"/>
+                            <TextBlock Text="{Binding ExcelDate}" Style="{StaticResource Cell}" Margin="0"/>
                         </Border>
                     </Border>
                 </Grid>
@@ -416,8 +407,10 @@
                     </Border>
                     <Border Grid.Column="1" Style="{StaticResource PdfGridCell}" BorderThickness="0,0,1,0">
                         <TextBlock Text="{Binding DrawingNumber}" Style="{StaticResource PdfCell}"
+                                   Tag="pdf"
                                    Cursor="Hand"
-                                   ToolTip="Doppelklick: Zeichnungs-PDF öffnen"
+                                   MouseEnter="DrawingNumber_MouseEnter"
+                                   MouseLeave="DrawingNumber_MouseLeave"
                                    MouseLeftButtonDown="DrawingNumber_MouseLeftButtonDown"/>
                     </Border>
                     <Border Grid.Column="2" Style="{StaticResource PdfGridCell}" BorderThickness="0,0,1,0">
@@ -500,8 +493,8 @@
                        HorizontalAlignment="Left" VerticalAlignment="Center"
                        SnapsToDevicePixels="True" RenderOptions.BitmapScalingMode="HighQuality"/>
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <TextBlock Text="Prüf-PDF · Bestellung vs Excel" FontSize="16" FontWeight="SemiBold"/>
-                    <TextBlock Text="Abgleich Excel-Steuerdatei mit Bestell-PDF" FontSize="11"
+                    <TextBlock x:Name="ProtocolTitleTextBlock" Text="Prüf-PDF · Bestellung vs Excel" FontSize="16" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="ProtocolSubtitleTextBlock" Text="Abgleich Excel-Steuerdatei mit Bestell-PDF" FontSize="11"
                                Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
@@ -551,7 +544,7 @@
                             </Border>
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock x:Name="ExcelFileTextBlock" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="Tabelle: Bestellung" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock x:Name="ExcelPaneSubtitleTextBlock" Text="Tabelle: Bestellung" FontSize="11" Foreground="{DynamicResource TextSecondary}"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -707,7 +700,7 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <Button Grid.Row="0" Grid.Column="0"
+                <Button x:Name="LoadExcelButton" Grid.Row="0" Grid.Column="0"
                         Content="📂  Excel öffnen"
                         Style="{StaticResource ProtocolExcelOpenBtn}"
                         Click="LoadExcel_Click"/>
@@ -740,6 +733,8 @@
                     </Border>
                     <Button x:Name="CompleteButton" Content="✓  Prüfung abgeschlossen" Style="{StaticResource ProtocolPrimaryBtn}" IsEnabled="True" Click="Complete_Click"
                             ToolTip="Excel-Termine (links) für die Sortierung übernehmen und weiter"/>
+                    <Button x:Name="GeoSearchButton" Content="◆  GEO suchen" Style="{StaticResource ProtocolOutlineBtn}" Click="GeoSearch_Click"
+                            ToolTip="Sofort suchen. Nach Sortierung/Druck startet die GEO-Suche automatisch beim Schließen der Gesamt-PDF."/>
                     <Button x:Name="AdoptDatesButton" Content="Nur PDF → Excel kopieren" Style="{StaticResource ProtocolOutlineBtn}" Click="AdoptDates_Click" Visibility="Collapsed"
                             ToolTip="Optional: abweichende Termine aus der Bestell-PDF nach links kopieren"/>
                     <Button x:Name="ContinueButton" Content="Trotzdem übernehmen" Style="{StaticResource ProtocolOutlineBtn}" Click="Continue_Click" Visibility="Collapsed"/>
@@ -748,6 +743,50 @@
                 </StackPanel>
             </Grid>
         </Grid>
+
+        <Popup x:Name="DrawingHoverPopup"
+               Placement="Right"
+               HorizontalOffset="10"
+               StaysOpen="True"
+               AllowsTransparency="True">
+            <Border Background="#FF12181E"
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="8">
+                <StackPanel>
+                    <TextBlock x:Name="DrawingHoverTitle"
+                               Foreground="{DynamicResource TextPrimary}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,6"/>
+                    <Image x:Name="DrawingHoverImage"
+                           MaxWidth="440"
+                           MaxHeight="580"
+                           Stretch="Uniform"/>
+                    <TextBlock x:Name="DrawingHoverStatus"
+                               Foreground="{DynamicResource TextSecondary}"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+        </Popup>
+
+        <Popup x:Name="ExcelDateCalendarPopup"
+               Placement="Bottom"
+               StaysOpen="False"
+               AllowsTransparency="True">
+            <Border Background="#FFFFFFFF"
+                    BorderBrush="#FFB0B0B0"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="4">
+                <Calendar x:Name="ExcelDateCalendar"
+                          Language="de-DE"
+                          SelectedDatesChanged="ExcelDateCalendar_SelectedDatesChanged"/>
+            </Border>
+        </Popup>
 
         <Border Grid.Row="2"
                 Background="{DynamicResource FooterBackground}"

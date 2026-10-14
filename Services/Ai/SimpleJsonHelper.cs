@@ -83,7 +83,10 @@ namespace PDF_umbenenen.Services.Ai
                 }
             }
 
-            sb.Append("]}]}");
+            sb.Append("]}]");
+            sb.Append(",\"keep_alive\":\"30m\"");
+            sb.Append(",\"options\":{\"temperature\":0,\"num_predict\":96}");
+            sb.Append('}');
             return sb.ToString();
         }
 
@@ -265,7 +268,7 @@ namespace PDF_umbenenen.Services.Ai
             return true;
         }
 
-        private static string Unescape(string value)
+        internal static string Unescape(string value)
         {
             if (string.IsNullOrEmpty(value))
                 return string.Empty;

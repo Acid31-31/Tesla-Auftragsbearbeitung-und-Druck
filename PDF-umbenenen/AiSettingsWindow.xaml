@@ -1,9 +1,9 @@
 <Window x:Class="PDF_umbenenen.AiSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="KI-Plattform (offline)"
-        Height="520" Width="640"
-        MinHeight="460" MinWidth="560"
+        Title="KI-Einstellungen"
+        Height="900" Width="680"
+        MinHeight="600" MinWidth="600"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppBackground}"
         ResizeMode="CanResize"
@@ -12,32 +12,81 @@
     <Grid Margin="22">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="16"/>
+            <RowDefinition Height="14"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="10"/>
+            <RowDefinition Height="8"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="10"/>
+            <RowDefinition Height="8"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="10"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="10"/>
+            <RowDefinition Height="8"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="14"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="8"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="14"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="8"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
-                   Text="Lokale Offline-Module: Tesseract-OCR, PDF-Layout, Regel-Engine. Kein Ollama, kein Internet."
+                   Text="Lokale Module + externes Sprachmodell. Der Ordner AI_DOK-V01 liegt neben DOK (nicht im Update, ca. 8 GB, separat per ZIP)."
                    Foreground="{DynamicResource TextSecondary}"
                    FontSize="12"
                    TextWrapping="Wrap"/>
 
-        <CheckBox x:Name="LocalVisionCheckBox" Grid.Row="2"
-                  Content="Lokale Zeichnungsanalyse (Layout + OCR + Regeln)"
-                  Foreground="{DynamicResource TextPrimary}"
-                  FontSize="13"/>
+        <StackPanel Grid.Row="2">
+            <CheckBox x:Name="LocalVisionCheckBox"
+                      Content="Lokale Zeichnungsanalyse (Layout + OCR + Regeln)"
+                      Foreground="{DynamicResource TextPrimary}"
+                      FontSize="13"/>
+            <CheckBox x:Name="DrawingVisionCheckBox"
+                      Content="Zeichnungs-Vision aktiv"
+                      Foreground="{DynamicResource TextPrimary}"
+                      FontSize="13"
+                      Margin="0,10,0,6"
+                      ToolTip="Liest Blechdicke und RAL lokal aus der Zeichnung. Gehört zur App, Standard: an."/>
+            <TextBlock x:Name="DrawingVisionModuleTextBlock"
+                       Text="Eingebautes Modul: Ollama · moondream (Bildmodell für Blechdicke und RAL)"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="12"
+                       Margin="0,0,0,8"/>
+            <Border Margin="0,4,0,0" Padding="12,10"
+                    Background="{DynamicResource CardBackground}"
+                    BorderBrush="{DynamicResource GroupBorder}"
+                    BorderThickness="1" CornerRadius="6">
+                <StackPanel>
+                    <TextBlock Text="Zeichnungs-Vision-Update" FontWeight="SemiBold" FontSize="14"
+                               Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,8"/>
+                    <TextBlock x:Name="DrawingVisionInstalledTextBlock"
+                               Text="Installiert: wird gelesen…"
+                               FontSize="14"
+                               Foreground="{DynamicResource TextPrimary}"
+                               Margin="0,0,0,4"/>
+                    <TextBlock x:Name="DrawingVisionLatestTextBlock"
+                               Text="Neueste Version: wird geprüft…"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimary}"/>
+                    <Button x:Name="UpdateDrawingVisionButton"
+                            Content="Jetzt aktualisieren"
+                            MinHeight="32"
+                            Padding="14,0"
+                            Margin="0,10,0,0"
+                            HorizontalAlignment="Left"
+                            Visibility="Collapsed"
+                            Click="UpdateDrawingVision_Click"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
 
         <CheckBox x:Name="LocalOcrCheckBox" Grid.Row="4"
                   Content="Tesseract-OCR für Schriftfelder ohne Textlayer"
@@ -45,11 +94,67 @@
                   FontSize="13"/>
 
         <CheckBox x:Name="AiEnabledCheckBox" Grid.Row="6"
-                  Content="KI-Chat (Regel-Assistent, offline)"
+                  Content="KI aktiv (Chat / Kunden-Assistent)"
                   Foreground="{DynamicResource TextPrimary}"
                   FontSize="13"/>
 
-        <Grid Grid.Row="8">
+        <CheckBox x:Name="OllamaEnabledCheckBox" Grid.Row="8"
+                  Content="Ollama Sprachmodell (AI_DOK-V01) – manuell aktivieren, dann Ordner daneben legen"
+                  Foreground="{DynamicResource TextPrimary}"
+                  FontSize="13"/>
+
+        <Grid Grid.Row="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="KI-Ordner" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextPrimary}" FontSize="13"/>
+            <TextBox x:Name="KiFolderPathTextBox" Grid.Column="1" MinHeight="32" Margin="10,0,0,0"
+                     IsReadOnly="True"
+                     ToolTip="Extern neben DOK – wird nicht mit dem App-Update ausgeliefert"/>
+        </Grid>
+
+        <Border Grid.Row="11" Margin="0,10,0,4" Padding="12,10"
+                Background="{DynamicResource CardBackground}"
+                BorderBrush="{DynamicResource GroupBorder}"
+                BorderThickness="1" CornerRadius="6">
+            <StackPanel>
+                <TextBlock Text="Große KI (Ollama / AI_DOK-V01)" FontWeight="SemiBold" FontSize="14"
+                           Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,8"/>
+                <TextBlock x:Name="OllamaInstalledTextBlock"
+                           Text="Installiert: wird gelesen…"
+                           FontSize="14"
+                           Foreground="{DynamicResource TextPrimary}"
+                           Margin="0,0,0,4"/>
+                <TextBlock x:Name="OllamaLatestTextBlock"
+                           Text="Neueste Version: wird geprüft…"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimary}"/>
+                <Button x:Name="UpdateOllamaButton"
+                        Content="Jetzt aktualisieren"
+                        MinHeight="32"
+                        Padding="14,0"
+                        Margin="0,10,0,0"
+                        HorizontalAlignment="Left"
+                        Visibility="Collapsed"
+                        Click="UpdateOllama_Click"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="120"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Modell" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextPrimary}" FontSize="13"/>
+            <TextBox x:Name="OllamaModelTextBox" Grid.Column="1" MinHeight="32" Margin="10,0,0,0"
+                     ToolTip="z. B. tinyllama (schnell) oder llama3.2:3b (besser, aber langsam auf CPU)"/>
+        </Grid>
+
+        <Grid Grid.Row="14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="120"/>
                 <ColumnDefinition Width="*"/>
@@ -61,10 +166,38 @@
                      ToolTip="Optional: Pfad zu tesseract.exe — leer = automatisch suchen"/>
             <Button x:Name="InstallTesseractButton" Grid.Column="2" Content="Installieren…"
                     MinHeight="32" Padding="12,0" Click="InstallTesseract_Click"
-                    ToolTip="Tesseract OCR herunterladen und installieren (offline, kein Ollama)"/>
+                    ToolTip="Tesseract OCR herunterladen und installieren"/>
         </Grid>
 
-        <Grid Grid.Row="10">
+        <Border Grid.Row="15" Margin="0,10,0,4" Padding="12,10"
+                Background="{DynamicResource CardBackground}"
+                BorderBrush="{DynamicResource GroupBorder}"
+                BorderThickness="1" CornerRadius="6">
+            <StackPanel>
+                <TextBlock Text="Tesseract-Update" FontWeight="SemiBold" FontSize="14"
+                           Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,8"/>
+                <TextBlock x:Name="TesseractInstalledTextBlock"
+                           Text="Installiert: wird gelesen…"
+                           FontSize="14"
+                           Foreground="{DynamicResource TextPrimary}"
+                           Margin="0,0,0,4"/>
+                <TextBlock x:Name="TesseractLatestTextBlock"
+                           Text="Neueste Version: wird geprüft…"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimary}"/>
+                <Button x:Name="UpdateTesseractButton"
+                        Content="Jetzt aktualisieren"
+                        MinHeight="32"
+                        Padding="14,0"
+                        Margin="0,10,0,0"
+                        HorizontalAlignment="Left"
+                        Visibility="Collapsed"
+                        Click="UpdateTesseract_Click"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="120"/>
                 <ColumnDefinition Width="*"/>
@@ -75,21 +208,21 @@
                      ToolTip="z. B. deu+eng"/>
         </Grid>
 
-        <TextBlock Grid.Row="12"
+        <TextBlock Grid.Row="18"
                    x:Name="StatusHintTextBlock"
-                   Text="Tesseract: wird geprüft…"
+                   Text="Status wird geprüft…"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource TextSecondary}"
                    FontSize="12"/>
 
-        <TextBlock Grid.Row="13"
-                   Text="Hinweis: Die KI läuft komplett offline (Regeln + PDF-Layout). Für OCR fehlt nur Tesseract — ein separates Programm, kein Ollama und kein Internet."
+        <TextBlock Grid.Row="20"
+                   Text="Hinweis: AI_DOK-V01 neben den DOK-Ordner legen (z. B. Z:\DOK-V01\AI_DOK-V01). Nicht ins GitHub-Update packen – zu groß, später per ZIP kopieren."
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource TextSecondary}"
                    FontSize="11"
                    Margin="0,0,0,4"/>
 
-        <StackPanel Grid.Row="14" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+        <StackPanel Grid.Row="22" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Content="Abbrechen" Width="100" Height="32" Margin="0,0,10,0"
                     Style="{StaticResource DialogSecondaryButton}"
                     IsCancel="True" Click="Cancel_Click"/>

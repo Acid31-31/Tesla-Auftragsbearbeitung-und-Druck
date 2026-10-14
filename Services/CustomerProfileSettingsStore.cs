@@ -2,14 +2,29 @@ using System;
 using System.IO;
 using System.Text;
 using System.Xml.Linq;
+using PDF_umbenenen.Models;
 using PDF_umbenenen.Services.Ai;
 
 namespace PDF_umbenenen.Services
 {
+    internal sealed class CustomerFolderSettings
+    {
+        /// <summary>Zielordner für die Bestell-PDF (nur Tesla).</summary>
+        public string OrderDestinationFolder { get; set; } = string.Empty;
+
+        /// <summary>Zielordner für entpackte ZIP-Daten / sortierte Auftragsdateien (nur Tesla).</summary>
+        public string UnpackDestinationFolder { get; set; } = string.Empty;
+
+        public bool HasAnyFolder =>
+            !string.IsNullOrWhiteSpace(OrderDestinationFolder)
+            || !string.IsNullOrWhiteSpace(UnpackDestinationFolder);
+    }
+
     internal static class CustomerProfileSettingsStore
     {
         private const string WatermarkFileName = "watermark-settings.xml";
         private const string AiFileName = "ai-settings.xml";
+        private const string FoldersFileName = "folders.xml";
 
         private static string ProfileDirectory(string profileId)
         {
@@ -17,6 +32,48 @@ namespace PDF_umbenenen.Services
                 return string.Empty;
 
             return Path.Combine(AppInfo.UserDataDirectory, "Customers", profileId.Trim());
+        }
+
+        public static CustomerFolderSettings LoadFolders(string profileId)
+        {
+            var settings = new CustomerFolderSettings();
+            if (!CustomerProfile.IsBuiltInTeslaId(profileId))
+                return settings;
+
+            try
+            {
+                var path = Path.Combine(ProfileDirectory(profileId), FoldersFileName);
+                if (!File.Exists(path))
+                    return settings;
+
+                var root = XDocument.Load(path).Root;
+                if (root == null)
+                    return settings;
+
+                settings.OrderDestinationFolder = ((string)root.Element("OrderDestinationFolder") ?? string.Empty).Trim();
+                settings.UnpackDestinationFolder = ((string)root.Element("UnpackDestinationFolder") ?? string.Empty).Trim();
+            }
+            catch
+            {
+            }
+
+            return settings;
+        }
+
+        public static void SaveFolders(string profileId, CustomerFolderSettings settings)
+        {
+            if (!CustomerProfile.IsBuiltInTeslaId(profileId) || settings == null)
+                return;
+
+            var dir = ProfileDirectory(profileId);
+            Directory.CreateDirectory(dir);
+
+            new XDocument(
+                new XElement("Folders",
+                    new XElement("OrderDestinationFolder", settings.OrderDestinationFolder ?? string.Empty),
+                    new XElement("UnpackDestinationFolder", settings.UnpackDestinationFolder ?? string.Empty)
+                )
+            ).Save(Path.Combine(dir, FoldersFileName));
         }
 
         public static bool HasSnapshot(string profileId)

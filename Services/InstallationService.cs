@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Xml.Linq;
 
 namespace PDF_umbenenen.Services
 {
@@ -13,6 +14,8 @@ namespace PDF_umbenenen.Services
         public string InstalledExePath { get; set; } = string.Empty;
 
         public string Message { get; set; } = string.Empty;
+
+        public string TesseractStatus { get; set; } = string.Empty;
     }
 
     internal static class InstallationService
@@ -37,6 +40,7 @@ namespace PDF_umbenenen.Services
             string targetDir,
             bool installPublisherCertificate,
             bool launchAfterInstall,
+            bool installTesseractOcr = true,
             IProgress<string> progress = null)
         {
             var result = new InstallationResult();
@@ -68,6 +72,27 @@ namespace PDF_umbenenen.Services
                 {
                     progress?.Report("Herausgeber-Zertifikat wird installiert…");
                     CertificateTrustService.TryInstallPublisherCertificate();
+                }
+
+                if (installTesseractOcr)
+                {
+                    progress?.Report("Tesseract OCR wird eingerichtet…");
+                    if (TesseractInstallService.TryEnsureForInstall(sourceDir, targetDir, progress, out var tessPath, out var tessMessage))
+                    {
+                        WriteTargetAiSettings(targetDir, tessPath, ocrEnabled: true);
+                        result.TesseractStatus = "eingerichtet (" + tessPath + ")";
+                    }
+                    else
+                    {
+                        WriteTargetAiSettings(targetDir, string.Empty, ocrEnabled: true);
+                        result.TesseractStatus = tessMessage
+                            ?? "nicht eingerichtet – bitte Internet prüfen oder Setup erneut ausführen";
+                    }
+                }
+                else
+                {
+                    WriteTargetAiSettings(targetDir, string.Empty, ocrEnabled: false);
+                    result.TesseractStatus = "nicht ausgewählt";
                 }
 
                 var installedExe = Path.Combine(targetDir, AppInfo.ExeFileName);
@@ -142,6 +167,35 @@ namespace PDF_umbenenen.Services
 
             CopyNativeDependencies(sourceDir, targetDir);
             CopyBundledToolDirectory(sourceDir, targetDir, "tesseract");
+        }
+
+        private static void WriteTargetAiSettings(string targetDir, string tesseractPath, bool ocrEnabled)
+        {
+            if (string.IsNullOrWhiteSpace(targetDir))
+                return;
+
+            try
+            {
+                Directory.CreateDirectory(targetDir);
+                var path = Path.Combine(targetDir, "ai-settings.xml");
+                var existed = File.Exists(path);
+                var settings = existed
+                    ? Ai.AiSettingsStore.ReadFrom(path)
+                    : new Ai.AiSettings();
+
+                settings.LocalOcrEnabled = ocrEnabled;
+                settings.LocalVisionEnabled = true;
+                settings.AiEnabled = true;
+                if (!existed)
+                    settings.OllamaEnabled = false;
+                if (!string.IsNullOrWhiteSpace(tesseractPath))
+                    settings.TesseractPath = tesseractPath;
+
+                Ai.AiSettingsStore.WriteTo(path, settings);
+            }
+            catch
+            {
+            }
         }
 
         private static void CopyBundledToolDirectory(string sourceDir, string targetDir, string folderName)

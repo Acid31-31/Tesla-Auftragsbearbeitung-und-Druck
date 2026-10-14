@@ -26,9 +26,8 @@ namespace PDF_umbenenen.Services.Ai
                     "• Wasserzeichen An/Aus schalten (Button im Bereich „Wasserzeichen“)\r\n" +
                     "• Die Auftragsnummer im Textfeld eintragen – sie wird auf jede PDF-Seite gedruckt\r\n" +
                     "• Positionen wählen (Dropdown „Daten-Position“ / „Auftragsnr.-Pos.“)\r\n" +
-                    "• Intelligente Platzierung aktivieren – KI analysiert die PDF und setzt:\r\n" +
-                    "  Stückzahl neben Zeichnungsnr., Lieferort oben Mitte, BG unten links, Auftragsnr. oben rechts\r\n" +
-                    "• Im KI-Chat z. B. „Intelligente Wasserzeichen-Platzierung an“\r\n\r\n" +
+                    "• Intelligente Platzierung ist immer aktiv – die App analysiert die PDF und setzt:\r\n" +
+                    "  Stückzahl neben Zeichnungsnr., Lieferort oben Mitte, BG unten links, Auftragsnr. oben rechts\r\n\r\n" +
                     "Nach Positionsänderung: erneut „Sortieren & umbenennen“ ausführen!\r\n\r\n" +
                     "Nicht manuell pro PDF einstellbar (kommt automatisch aus Excel):\r\n" +
                     "• Menge → Spalte „Requested Amount“\r\n" +
@@ -43,15 +42,13 @@ namespace PDF_umbenenen.Services.Ai
                 Keywords = new[] { "position", "verschieb", "oben links", "oben rechts", "unten links", "unten rechts", "rechts mitte", "links mitte" },
                 Answer =
                     "Wasserzeichen-Position (intelligent):\r\n\r\n" +
-                    "1. Schalter „Intelligente Platzierung (KI analysiert PDF-Inhalt)“ aktivieren\r\n" +
-                    "2. „Sortieren & umbenennen“ ausführen\r\n\r\n" +
+                    "1. „Sortieren & umbenennen“ ausführen (intelligente Platzierung ist immer an)\r\n\r\n" +
                     "Die App liest vorhandenen Text in der PDF (Zeichnungsnummer, Schriftfeld) und platziert:\r\n" +
                     "• Stückzahl neben der Zeichnungsnummer\r\n" +
                     "• Lieferort oben Mitte\r\n" +
                     "• Baugruppennummer unten links\r\n" +
                     "• Auftragsnummer oben rechts\r\n\r\n" +
-                    "Excel wird nicht geändert – nur die Position in der PDF.\r\n\r\n" +
-                    "Im KI-Chat: „Intelligente Wasserzeichen-Platzierung an“"
+                    "Excel wird nicht geändert – nur die Position in der PDF."
             },
             new HelpEntry
             {
@@ -65,7 +62,7 @@ namespace PDF_umbenenen.Services.Ai
                     "• Baugruppennummer (Excel/BG) → unten links, freier Platz\r\n" +
                     "• Auftragsnummer (Feld oben) → oben rechts\r\n" +
                     "• Lieferdatum → oben links (freier Platz)\r\n\r\n" +
-                    "Schalter „Intelligente Platzierung“ im Bereich Wasserzeichen muss an sein.\r\n" +
+                    "Intelligente Platzierung ist immer aktiv.\r\n" +
                     "Danach erneut „Sortieren & umbenennen“!\r\n\r\n" +
                     "Voraussetzungen:\r\n" +
                     "• Schalter steht auf „An“\r\n" +

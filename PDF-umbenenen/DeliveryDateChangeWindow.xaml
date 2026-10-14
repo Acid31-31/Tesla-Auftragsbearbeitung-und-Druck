@@ -1,0 +1,76 @@
+<Window x:Class="PDF_umbenenen.DeliveryDateChangeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Liefer-/Fertigungstermin ändern"
+        Width="460"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource AppBackground}"
+        Foreground="{DynamicResource TextPrimary}">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="18"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="ScopeTextBlock" TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource TextPrimary}">
+            Neues Datum für alle bereits sortierten Zeichnungen. Die Sortierung bleibt, nur das Wasserzeichen und die Gesamt-PDF werden neu geschrieben.
+        </TextBlock>
+
+        <StackPanel Grid.Row="2">
+            <TextBlock Text="Neues Datum" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <DatePicker x:Name="DatePicker"
+                        SelectedDateFormat="Short"
+                        Language="de-DE"
+                        FontSize="16"
+                        Padding="6"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4">
+            <TextBlock Text="Kennzeichnung" FontWeight="SemiBold" Margin="0,0,0,6"
+                       Foreground="{DynamicResource TextPrimary}"/>
+            <RadioButton x:Name="KeepPrefixRadio"
+                         IsChecked="True"
+                         Margin="0,0,0,6"
+                         Foreground="{DynamicResource TextPrimary}">
+                <TextBlock Text="Wie bisher (LT oder FT je Zeichnung)"
+                           Foreground="{DynamicResource TextPrimary}"
+                           TextWrapping="Wrap"/>
+            </RadioButton>
+            <RadioButton x:Name="LieferRadio"
+                         Margin="0,0,0,6"
+                         Foreground="{DynamicResource TextPrimary}">
+                <TextBlock Text="Liefertermin (LT-)"
+                           Foreground="{DynamicResource TextPrimary}"/>
+            </RadioButton>
+            <RadioButton x:Name="FertigungsRadio"
+                         Foreground="{DynamicResource TextPrimary}">
+                <TextBlock Text="Fertigungstermin (FT-)"
+                           Foreground="{DynamicResource TextPrimary}"/>
+            </RadioButton>
+        </StackPanel>
+
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Abbrechen"
+                    Width="110"
+                    Height="34"
+                    Margin="0,0,8,0"
+                    IsCancel="True"
+                    Click="Cancel_Click"/>
+            <Button Content="Übernehmen"
+                    Width="130"
+                    Height="34"
+                    IsDefault="True"
+                    FontWeight="SemiBold"
+                    Click="Ok_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

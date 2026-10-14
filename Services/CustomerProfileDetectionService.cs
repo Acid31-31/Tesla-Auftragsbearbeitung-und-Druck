@@ -27,18 +27,6 @@ namespace PDF_umbenenen.Services
                 };
             }
 
-            if (profiles.Count == 1)
-            {
-                var onlyProfile = profiles[0];
-                var singleScore = ScoreProfile(onlyProfile, keys);
-                return new CustomerDetectionResult
-                {
-                    Profile = onlyProfile,
-                    MatchCount = Math.Max(0, singleScore),
-                    TotalCount = keys.Count
-                };
-            }
-
             CustomerProfile bestProfile = null;
             var bestScore = -1;
             var secondScore = -1;
@@ -58,7 +46,8 @@ namespace PDF_umbenenen.Services
                 }
             }
 
-            if (bestProfile != null && bestScore > 0 && bestScore > secondScore)
+            // Nie einen Kunden mit 0 Treffern erzwingen (früher: einziges Profil = immer Tesla)
+            if (bestProfile != null && bestScore > 0 && (profiles.Count == 1 || bestScore > secondScore))
             {
                 return new CustomerDetectionResult
                 {
@@ -93,27 +82,68 @@ namespace PDF_umbenenen.Services
             if (profile == null || string.IsNullOrWhiteSpace(drawingKey))
                 return false;
 
-            var key = AiTextHelper.NormalizeKey(drawingKey);
+            var key = drawingKey.Trim();
+            var normalized = AiTextHelper.NormalizeKey(key);
+
             if (profile.SampleDrawingNumbers != null)
             {
                 foreach (var sample in profile.SampleDrawingNumbers)
                 {
-                    if (OrderVerificationDrawingKey.Equal(sample, key))
+                    if (string.IsNullOrWhiteSpace(sample))
+                        continue;
+                    if (OrderVerificationDrawingKey.Equal(sample, key)
+                        || OrderVerificationDrawingKey.Equal(sample, normalized)
+                        || string.Equals(AiTextHelper.NormalizeKey(sample), normalized, StringComparison.OrdinalIgnoreCase))
                         return true;
                 }
             }
 
+            if (string.IsNullOrWhiteSpace(profile.DrawingNumberPattern))
+                return false;
+
             try
             {
                 var regex = new Regex(profile.DrawingNumberPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-                if (regex.IsMatch(drawingKey) || regex.IsMatch(key))
+                if (regex.IsMatch(key))
                     return true;
+
+                // Normalisierte Keys ohne Leerzeichen: Muster mit Leerzeichen/Bindestrich anpassen
+                if (!string.IsNullOrWhiteSpace(normalized) && normalized.Length >= 6)
+                {
+                    var spacedBack = Regex.Replace(normalized, @"([A-Z]+)(\d)", "$1 $2");
+                    if (regex.IsMatch(normalized) || regex.IsMatch(spacedBack))
+                        return true;
+
+                    // RT110000001 ↔ Muster RT1(?:[\s\-_/]+\d{1,5}){3}
+                    if (LooksLikeSpacedSegmentKey(normalized) && PatternLooksLikeSpacedSegment(profile.DrawingNumberPattern))
+                    {
+                        var prefix = Regex.Match(profile.DrawingNumberPattern, @"\\b([A-Z]{1,6}\d?)");
+                        if (prefix.Success
+                            && normalized.StartsWith(prefix.Groups[1].Value, StringComparison.OrdinalIgnoreCase)
+                            && normalized.Length > prefix.Groups[1].Value.Length + 4)
+                            return true;
+                    }
+                }
             }
             catch
             {
             }
 
-            return OrderVerificationDrawingKey.IsLikelyDrawingToken(drawingKey);
+            // KEIN Fallback auf „irgendeine Zeichnungsnummer“ – sonst matched Tesla auch EcoMark/RT.
+            return false;
+        }
+
+        private static bool LooksLikeSpacedSegmentKey(string normalized)
+        {
+            return Regex.IsMatch(normalized ?? string.Empty, @"^[A-Z]{1,6}\d\d{6,}$", RegexOptions.IgnoreCase);
+        }
+
+        private static bool PatternLooksLikeSpacedSegment(string pattern)
+        {
+            if (string.IsNullOrWhiteSpace(pattern))
+                return false;
+            return pattern.IndexOf(@"[\s\-_/]", StringComparison.Ordinal) >= 0
+                   || pattern.IndexOf("\\s", StringComparison.Ordinal) >= 0;
         }
 
         private static int ScoreProfile(CustomerProfile profile, IList<string> keys)

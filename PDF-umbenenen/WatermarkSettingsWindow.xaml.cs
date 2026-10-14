@@ -10,7 +10,7 @@ namespace PDF_umbenenen
             Settings = new WatermarkSettings
             {
                 WatermarksEnabled = settings?.WatermarksEnabled ?? true,
-                UseSmartPlacement = settings?.UseSmartPlacement ?? true,
+                UseSmartPlacement = true,
                 ExtractMaterialType = settings?.ExtractMaterialType ?? true,
                 ExtractMaterialThickness = settings?.ExtractMaterialThickness ?? true,
                 MaterialThicknessPlacement = MaterialThicknessPlacement.BottomLeftFixed,
@@ -26,7 +26,6 @@ namespace PDF_umbenenen
             };
 
             WatermarksEnabledCheckBox.IsChecked = Settings.WatermarksEnabled;
-            SmartPlacementCheckBox.IsChecked = Settings.UseSmartPlacement;
             ExtractMaterialTypeCheckBox.IsChecked = Settings.ExtractMaterialType;
             ExtractMaterialThicknessCheckBox.IsChecked = Settings.ExtractMaterialThickness;
             BgWatermarkEnabledCheckBox.IsChecked = Settings.BgWatermarkEnabled;
@@ -50,7 +49,7 @@ namespace PDF_umbenenen
         private void Save_Click(object sender, RoutedEventArgs e)
         {
             Settings.WatermarksEnabled = WatermarksEnabledCheckBox.IsChecked == true;
-            Settings.UseSmartPlacement = SmartPlacementCheckBox.IsChecked == true;
+            Settings.UseSmartPlacement = true;
             Settings.ExtractMaterialType = ExtractMaterialTypeCheckBox.IsChecked == true;
             Settings.ExtractMaterialThickness = ExtractMaterialThicknessCheckBox.IsChecked == true;
             // Material/BG immer feste Position; An/Aus über die Checkboxen.

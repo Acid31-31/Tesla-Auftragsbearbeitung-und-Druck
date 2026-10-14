@@ -52,10 +52,11 @@
                   Foreground="{DynamicResource TextPrimary}"
                   FontSize="13"/>
 
-        <CheckBox x:Name="SmartPlacementCheckBox" Grid.Row="4"
-                  Content="Intelligente Platzierung (PDF-Analyse)"
-                  Foreground="{DynamicResource TextPrimary}"
-                  FontSize="13"/>
+        <TextBlock Grid.Row="4"
+                   Text="Intelligente Platzierung ist immer aktiv (PDF-Analyse)."
+                   Foreground="{DynamicResource TextSecondary}"
+                   FontSize="12"
+                   TextWrapping="Wrap"/>
 
         <TextBlock Grid.Row="6"
                    Text="Material &amp; Baugruppe (feste Position)"

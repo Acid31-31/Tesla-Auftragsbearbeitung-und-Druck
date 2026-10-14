@@ -42,9 +42,21 @@ namespace PDF_umbenenen
             _mainWindow?.OpenCorrectWatermarkDialog();
         }
 
+        private void OpenWorkspaceFolder_Click(object sender, RoutedEventArgs e)
+        {
+            _mainWindow?.OpenWorkspaceFolderFromUi();
+        }
+
         private void OpenManageCustomers_Click(object sender, RoutedEventArgs e)
         {
             _mainWindow?.OpenManageCustomersDialog();
+        }
+
+        private void OpenGeoSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new GeoSettingsWindow { Owner = this };
+            ThemeWindowService.Attach(win);
+            win.ShowDialog();
         }
 
         private void CheckUpdates_Click(object sender, RoutedEventArgs e)

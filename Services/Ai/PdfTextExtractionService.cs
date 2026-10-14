@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -18,11 +19,35 @@ namespace PDF_umbenenen.Services.Ai
             if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
                 return string.Empty;
 
+            var pages = Math.Max(1, maxPages);
+            var cacheKey = BuildCacheKey(pdfPath, pages);
+
             lock (_cacheLock)
             {
                 string cached;
-                if (_cache.TryGetValue(pdfPath, out cached))
+                if (_cache.TryGetValue(cacheKey, out cached))
                     return cached;
+
+                // Früherer Aufruf mit weniger Seiten darf eine volle Extraktion nicht blockieren.
+                string best = null;
+                var bestPages = -1;
+                foreach (var pair in _cache)
+                {
+                    int cachedPages;
+                    string cachedPath;
+                    if (!TryParseCacheKey(pair.Key, out cachedPath, out cachedPages))
+                        continue;
+                    if (!string.Equals(cachedPath, pdfPath, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (cachedPages >= pages && cachedPages > bestPages)
+                    {
+                        best = pair.Value;
+                        bestPages = cachedPages;
+                    }
+                }
+
+                if (best != null)
+                    return best;
             }
 
             if (!IsAvailable)
@@ -30,10 +55,10 @@ namespace PDF_umbenenen.Services.Ai
 
             try
             {
-                var text = ExtractWithITextSharp(pdfPath, maxPages);
+                var text = ExtractWithITextSharp(pdfPath, pages);
                 lock (_cacheLock)
                 {
-                    _cache[pdfPath] = text ?? string.Empty;
+                    _cache[cacheKey] = text ?? string.Empty;
                 }
 
                 return text ?? string.Empty;
@@ -52,6 +77,30 @@ namespace PDF_umbenenen.Services.Ai
             }
         }
 
+        private static string BuildCacheKey(string pdfPath, int maxPages)
+        {
+            return pdfPath + "\u0001" + maxPages.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static bool TryParseCacheKey(string key, out string pdfPath, out int maxPages)
+        {
+            pdfPath = null;
+            maxPages = 0;
+            if (string.IsNullOrWhiteSpace(key))
+                return false;
+
+            var sep = key.LastIndexOf('\u0001');
+            if (sep <= 0 || sep >= key.Length - 1)
+                return false;
+
+            pdfPath = key.Substring(0, sep);
+            return int.TryParse(
+                key.Substring(sep + 1),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out maxPages);
+        }
+
         private static string ExtractWithITextSharp(string pdfPath, int maxPages)
         {
             var assembly = AppDomain.CurrentDomain.GetAssemblies()
@@ -60,9 +109,16 @@ namespace PDF_umbenenen.Services.Ai
                 return string.Empty;
 
             var readerType = assembly.GetType("iTextSharp.text.pdf.PdfReader");
-            var strategyType = assembly.GetType("iTextSharp.text.pdf.parser.SimpleTextExtractionStrategy");
+            var locationStrategyType = assembly.GetType("iTextSharp.text.pdf.parser.LocationTextExtractionStrategy");
+            var simpleStrategyType = assembly.GetType("iTextSharp.text.pdf.parser.SimpleTextExtractionStrategy");
             var parserType = assembly.GetType("iTextSharp.text.pdf.parser.PdfTextExtractor");
-            if (readerType == null || strategyType == null || parserType == null)
+            if (readerType == null || parserType == null)
+                return string.Empty;
+
+            // LocationTextExtractionStrategy: Spaltenreihenfolge wie „1 1,00 Stk“.
+            // SimpleTextExtractionStrategy verdreht BIOS-Bestellungen zu „1,00 1 Stk“ (Pos als Menge).
+            var strategyType = locationStrategyType ?? simpleStrategyType;
+            if (strategyType == null)
                 return string.Empty;
 
             object reader = null;
@@ -76,6 +132,14 @@ namespace PDF_umbenenen.Services.Ai
                 var getTextFromPage = parserType.GetMethod(
                     "GetTextFromPage",
                     new[] { readerType, typeof(int), strategyType });
+
+                if (getTextFromPage == null && simpleStrategyType != null && !ReferenceEquals(strategyType, simpleStrategyType))
+                {
+                    strategyType = simpleStrategyType;
+                    getTextFromPage = parserType.GetMethod(
+                        "GetTextFromPage",
+                        new[] { readerType, typeof(int), strategyType });
+                }
 
                 if (getTextFromPage == null)
                     return string.Empty;

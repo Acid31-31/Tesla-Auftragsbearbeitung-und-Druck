@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>Protokoll – Lager-Kiosk für Produktionsreste</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Calibri", "Segoe UI", Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.35;
+    color: #1a1a1a;
+  }
+  h1 { font-size: 18pt; margin: 0 0 4pt 0; letter-spacing: 0.02em; }
+  h2 { font-size: 13pt; margin: 16pt 0 8pt 0; border-bottom: 1px solid #333; padding-bottom: 3pt; }
+  h3 { font-size: 11.5pt; margin: 12pt 0 6pt 0; }
+  p { margin: 0 0 8pt 0; }
+  ul, ol { margin: 0 0 8pt 18pt; padding: 0; }
+  li { margin: 0 0 3pt 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 10pt 0; }
+  th, td { border: 1px solid #444; padding: 5pt 7pt; vertical-align: top; text-align: left; }
+  th { background: #efefef; font-weight: 600; }
+  blockquote {
+    margin: 8pt 0 10pt 0;
+    padding: 8pt 12pt;
+    border-left: 3px solid #333;
+    background: #f6f6f6;
+  }
+  .meta { width: 100%; margin: 10pt 0 14pt 0; }
+  .meta td { border: none; padding: 2pt 8pt 2pt 0; width: 50%; }
+  .kicker { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.08em; color: #444; margin: 0 0 6pt 0; }
+  .foot { font-size: 9pt; color: #555; margin-top: 18pt; border-top: 1px solid #333; padding-top: 6pt; }
+  .check { font-family: "Segoe UI Symbol", "Calibri", sans-serif; }
+  .note { font-weight: 600; }
+</style>
+</head>
+<body>
+<p class="kicker">Protokoll / Konzept</p>
+<h1>Erweiterung DOK-V01 – Lager-Kiosk für Produktionsreste</h1>
+
+<table class="meta">
+  <tr><td><strong>Dokument:</strong> Konzept zur internen Vorstellung</td><td><strong>Produkt:</strong> DOK-V01</td></tr>
+  <tr><td><strong>Thema:</strong> Erfassung und Nutzung von Kunden-Restteilen im Lager</td><td><strong>Stand:</strong> 01.10.2026</td></tr>
+  <tr><td><strong>Status:</strong> Vorschlag – noch nicht umgesetzt</td><td><strong>Ersteller:</strong> Alexander Hölzer</td></tr>
+</table>
+
+<h2>1. Anlass</h2>
+<p>Im Betrieb liegen <strong>Kunden-Restteile</strong> (Überproduktion, nicht abgerufene Mengen). Niemand hat einen zuverlässigen Überblick, <strong>was</strong> im Lager liegt, <strong>wie viel</strong>, und <strong>zu welchem Kunden / welcher Zeichnung</strong>.</p>
+<p>Beim nächsten Auftrag derselben Zeichnung wird oft <strong>neu gefertigt</strong>, obwohl Restteile vorhanden wären.</p>
+<p class="note">Ziel dieses Dokuments: Entscheidung, ob die Erweiterung gebaut werden soll.</p>
+
+<h2>2. Ist-Zustand</h2>
+<table>
+  <tr><th>Punkt</th><th>Heute</th></tr>
+  <tr><td>Restteile</td><td>physisch im Lager, oft ohne zentrale Liste</td></tr>
+  <tr><td>Wissen</td><td>bei einzelnen Personen, nicht in der Auftragsvorbereitung</td></tr>
+  <tr><td>DOK-V01</td><td>sortiert Aufträge, kennt das Lager <strong>nicht</strong></td></tr>
+  <tr><td>Anderer PC (Lager)</td><td>soll <strong>nicht</strong> die volle DOK-V01-App bedienen</td></tr>
+  <tr><td>Excel am Lager-PC</td><td><strong>nicht</strong> gewünscht</td></tr>
+</table>
+<p>Folge: Restteile werden übersehen. Zeit, Material und Geld gehen verloren.</p>
+
+<h2>3. Ziel</h2>
+<p>Beim <strong>Auftrags-Sortieren</strong> in DOK-V01 automatisch prüfen:</p>
+<blockquote>Liegt zu dieser Zeichnungsnummer schon ein Rest im Kundenlager?</blockquote>
+<p>Wenn ja: klarer Hinweis (Kunde, Zeichnung, Menge, optional Lagerplatz) – <strong>bevor</strong> neu produziert wird.</p>
+
+<h2>4. Vorgeschlagene Lösung: Lager-Kiosk</h2>
+<p>Kein Excel. Keine volle DOK-V01 auf den Lager-PCs.</p>
+<p>Stattdessen eine <strong>eigene, abgespeckte Kiosk-Oberfläche</strong> auf den Lager-PCs:</p>
+<ul>
+  <li>Vollbild, große Tasten, wenige Schritte</li>
+  <li>Nur Rest erfassen – kein Sortieren, kein Wasserzeichen, keine Einstellungen</li>
+  <li>Dieselbe Zeichnungslogik wie DOK-V01 (Tesla TSL-…, EcoMark RT1-…, Spiegelbild -S)</li>
+</ul>
+<p><strong>Sobald die Zeichnungsnummer eingegeben ist</strong>, sucht der Kiosk die Zeichnung <strong>automatisch im jeweiligen Kundenordner</strong>, <strong>legt eine Kopie beim Rest ab</strong> und <strong>zeigt die Zeichnung am Bildschirm</strong>. Der Mitarbeiter sieht sofort, ob es das richtige Teil ist.</p>
+<p>Die Sortier-App (DOK-V01) <strong>liest</strong> diese Daten beim Auftrag. Die Kiosk-App <strong>schreibt</strong> sie am Lager.</p>
+
+<h2>5. Ablauf im Betrieb</h2>
+<h3>5.1 Lager-PC (Mitarbeiter Produktion / Lager)</h3>
+<ol>
+  <li>Kiosk starten (Desktop-Verknüpfung, startet Vollbild).</li>
+  <li><strong>Zeichnungsnummer</strong> scannen oder tippen.</li>
+  <li>Der Kiosk ermittelt den Kunden (Tesla / EcoMark / …) und sucht die Zeichnung <strong>im Kundenordner</strong>.</li>
+  <li>Die gefundene Zeichnung wird <strong>am Kiosk angezeigt</strong> und <strong>zum Rest im Lagerordner abgelegt</strong> (Kopie, Original im Kundenordner bleibt).</li>
+  <li>Mitarbeiter prüft visuell: stimmt das Blech mit der Zeichnung überein?</li>
+  <li>Restmenge eingeben.</li>
+  <li>Optional: Lagerplatz (Regal / Fach).</li>
+  <li>Speichern.</li>
+</ol>
+<p>Wird die Zeichnung nicht gefunden: klare Meldung am Kiosk, Rest wird <strong>nicht</strong> stillschweigend ohne Bild gespeichert.</p>
+<p>Dauer: wenige Sekunden pro Rest. Keine Schulung für die volle DOK-V01 nötig. Kein manuelles Suchen der PDF.</p>
+
+<h3>5.2 Büro / Auftrags-PC (DOK-V01)</h3>
+<ol>
+  <li>Auftrag wie bisher laden und sortieren.</li>
+  <li>Die App prüft jede Zeichnung gegen den Lagerbestand.</li>
+  <li>Treffer erscheinen im <strong>Protokoll</strong>, z. B.:</li>
+</ol>
+<blockquote>Lager Tesla: TSL-11935-322 – 8 Stück – Platz B-12</blockquote>
+<ol start="4">
+  <li>Der Bearbeiter entscheidet: Rest mitliefern / verrechnen / Lager nachziehen.</li>
+</ol>
+<p>Es wird <strong>nichts automatisch aus dem Lager gebucht</strong>, solange das nicht ausdrücklich gewünscht ist. Zuerst nur <strong>Hinweis</strong>.</p>
+
+<h2>6. Datenhaltung (für IT / Geschäftsführung)</h2>
+<table>
+  <tr><th>Punkt</th><th>Vorschlag</th></tr>
+  <tr><td>Kundenordner</td><td>vorhandene Zeichnungsablage je Kunde (Quelle für die Anzeige)</td></tr>
+  <tr><td>Lagerablage</td><td><strong>ein gemeinsamer Netzordner</strong>, z. B. \\Server\Kundenlager\</td></tr>
+  <tr><td>Struktur</td><td>Unterordner je Kunde (Tesla, EcoMark, …)</td></tr>
+  <tr><td>Pro Rest</td><td>Datensatz (Nummer, Menge, Platz, Datum) <strong>plus Kopie der Zeichnung</strong></td></tr>
+  <tr><td>Excel</td><td>nicht erforderlich</td></tr>
+  <tr><td>Internet</td><td>nicht erforderlich (nur lokales Netz)</td></tr>
+</table>
+<p>Alle Kiosk-PCs und der Sortier-PC zeigen auf <strong>denselben</strong> Lagerordner. Die Zeichnung kommt <strong>nicht</strong> vom Mitarbeiter per Datei, sondern <strong>automatisch aus dem Kundenordner</strong>.</p>
+<p>Ohne Netzfreigabe kennt jeder PC nur sich selbst – das wäre unbrauchbar.</p>
+
+<h2>7. Was bewusst nicht vorgesehen ist</h2>
+<ul>
+  <li>Keine volle DOK-V01 auf Lager-PCs</li>
+  <li>Kein Excel am Lager-PC</li>
+  <li>Kein ERP / keine Barcode-Pflicht in der ersten Stufe</li>
+  <li>Keine automatische Bestandsbuchung gegen den Kundenauftrag (kann später kommen)</li>
+  <li>Keine Cloud, keine externe KI</li>
+</ul>
+
+<h2>8. Nutzen</h2>
+<table>
+  <tr><th>Nutzen</th><th>Wirkung</th></tr>
+  <tr><td>Transparenz</td><td>Jeder Auftrag sieht, ob Restteile existieren</td></tr>
+  <tr><td>Weniger Doppelproduktion</td><td>Material und Maschinenzeit sparen</td></tr>
+  <tr><td>Weniger Abhängigkeit von Einzelwissen</td><td>Bestand steht in der App, nicht nur „im Kopf“</td></tr>
+  <tr><td>Geringe Hürde am Lager</td><td>Kiosk statt komplexer Software</td></tr>
+  <tr><td>Sichtprüfung</td><td>Zeichnung erscheint sofort – falsche Nummer fällt auf</td></tr>
+  <tr><td>Kundengetrennt</td><td>Tesla-Reste und EcoMark-Reste bleiben getrennt</td></tr>
+</table>
+
+<h2>9. Voraussetzungen im Betrieb</h2>
+<ol>
+  <li><strong>Kundenordner</strong> je Kunde mit den Original-Zeichnungen (lesen).</li>
+  <li><strong>Netzwerk-Lagerordner</strong>, den Lager-PCs beschreiben und der Auftrags-PC lesen darf.</li>
+  <li>Kiosk-PCs: Windows, .NET 4.8 (wie DOK-V01).</li>
+  <li>Verantwortlicher, der Kunden- und Lager-Pfad einmal festlegt.</li>
+  <li>Kurze Betriebsregel: Jeder Rest, der ins Lager geht, wird <strong>sofort</strong> im Kiosk erfasst.</li>
+</ol>
+<p>Ohne Punkt 5 bleibt das Lager in der App leer – die Technik allein reicht nicht.<br />
+Ohne erreichbaren Kundenordner kann der Kiosk die Zeichnung nicht anzeigen.</p>
+
+<h2>10. Umsetzung (wenn genehmigt)</h2>
+<table>
+  <tr><th>Schritt</th><th>Inhalt</th></tr>
+  <tr><td>1</td><td>Netzordner und Kundenunterordner anlegen</td></tr>
+  <tr><td>2</td><td>Lager-Kiosk: Nummer eingeben → Zeichnung aus Kundenordner laden, anzeigen, zum Rest ablegen; Menge/Platz speichern</td></tr>
+  <tr><td>3</td><td>DOK-V01: beim Sortieren Lager prüfen und ins Protokoll schreiben</td></tr>
+  <tr><td>4</td><td>Test mit Tesla und EcoMark</td></tr>
+  <tr><td>5</td><td>Verteilung per Update / USB wie bei DOK-V01</td></tr>
+</table>
+<p><strong>Erst nach Freigabe durch den Arbeitgeber wird entwickelt.</strong><br />
+Dieses Dokument ist keine Beauftragung.</p>
+
+<h2>11. Offene Punkte zur Entscheidung</h2>
+<p>Bitte ankreuzen bzw. festlegen:</p>
+<p class="check">
+☐ Erweiterung wird gewünscht<br />
+☐ Erweiterung wird zurückgestellt<br />
+☐ Netz-Lagerordner vorhanden / wird bereitgestellt: _________________________________<br />
+☐ Kundenordner (Zeichnungen) je Kunde: _________________________________<br />
+☐ Lagerplatz-Feld Pflicht oder optional: _________________________________<br />
+☐ Stückzahl Pflicht: ja / nein<br />
+☐ Hinweis im Protokoll reicht (keine automatische Buchung)<br />
+☐ Später: Restmenge nach Verwendung im Auftrag automatisch verringern
+</p>
+
+<h2>12. Kenntnisnahme</h2>
+<table>
+  <tr><th>Rolle</th><th>Name</th><th>Datum</th><th>Unterschrift</th></tr>
+  <tr><td>Vorstellung</td><td>Alexander Hölzer</td><td>01.10.2026</td><td></td></tr>
+  <tr><td>Arbeitgeber / Entscheidung</td><td></td><td></td><td></td></tr>
+</table>
+
+<p class="foot">DOK-V01 · Konzept Lager-Kiosk · 01.10.2026 · nicht Bestandteil der aktuellen Version 1.1 R83</p>
+</body>
+</html>

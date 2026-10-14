@@ -40,7 +40,7 @@ namespace PDF_umbenenen.Services
 
             var manifestPath = GetManifestPath(installDirectory);
             if (!File.Exists(manifestPath))
-                return false;
+                return true;
 
             try
             {

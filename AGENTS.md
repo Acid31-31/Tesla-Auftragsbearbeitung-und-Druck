@@ -5,11 +5,16 @@
 | Feld | Wert |
 |------|------|
 | Produkt | **DOK-V01** (Desktop-WPF-App) |
+| **Quellcode (einziger Ort)** | `Z:\Programierung\DOK-V01-Optimierung\` |
+| **Programm / Release** | `Z:\DOK-V01\DOK-V01-Rxx\` — bauen mit `.\build-to-z.ps1` |
+| **KI (portabel)** | `Z:\DOK-V01\AI_DOK-V01\` (Ordner `AI_DOK-V01` neben EXE) |
 | Namespace / Ordner | `PDF_umbenenen` (historischer Name) |
-| Version | `AppInfo.cs` → aktuell **1.1 R58** (`AssemblyVersion` `1.1.0.58`) |
+| Version | `AppInfo.cs` → aktuell **1.1 R86** |
 | Zielgruppe | Blechbearbeitung / Tesla-Zeichnungen (TSL-*), Auftrags-PDF-Sortierung |
 | GitHub | `Acid31-31/Tesla-Auftragsbearbeitung-und-Druck` |
 | Framework | .NET Framework 4.8, WPF, C# |
+
+**E: ist tabu** — kein Quellcode, kein Build, kein Start von dort.
 
 ---
 

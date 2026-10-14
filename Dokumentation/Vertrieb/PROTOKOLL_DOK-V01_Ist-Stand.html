@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>Protokoll – DOK-V01 Ist-Stand</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Calibri", "Segoe UI", Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.32;
+    color: #1a1a1a;
+  }
+  h1 { font-size: 17pt; margin: 0 0 4pt 0; }
+  h2 { font-size: 12.5pt; margin: 13pt 0 6pt 0; border-bottom: 1px solid #333; padding-bottom: 2pt; }
+  h3 { font-size: 11pt; margin: 10pt 0 5pt 0; }
+  p { margin: 0 0 7pt 0; }
+  ul, ol { margin: 0 0 7pt 18pt; padding: 0; }
+  li { margin: 0 0 2pt 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 8pt 0; }
+  th, td { border: 1px solid #444; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+  th { background: #efefef; font-weight: 600; }
+  .kicker { font-size: 9.5pt; text-transform: uppercase; letter-spacing: 0.08em; color: #444; margin: 0 0 5pt 0; }
+  .meta { width: 100%; margin: 8pt 0 12pt 0; }
+  .meta td { border: none; padding: 1pt 8pt 1pt 0; width: 50%; }
+  .foot { font-size: 9pt; color: #555; margin-top: 14pt; border-top: 1px solid #333; padding-top: 5pt; }
+  .check { font-family: "Segoe UI Symbol", "Calibri", sans-serif; }
+  .note { font-weight: 600; }
+</style>
+</head>
+<body>
+<p class="kicker">Protokoll / Ist-Stand</p>
+<h1>DOK-V01 – aktueller Stand der Anwendung</h1>
+
+<table class="meta">
+  <tr><td><strong>Dokument:</strong> Betriebsstand zur internen Vorstellung</td><td><strong>Produkt:</strong> DOK-V01</td></tr>
+  <tr><td><strong>Version:</strong> 1.1 <strong>R83</strong></td><td><strong>Stand:</strong> 01.10.2026</td></tr>
+  <tr><td><strong>Status:</strong> Im Einsatz / Testbetrieb (Demo 6 Monate)</td><td><strong>Ersteller:</strong> Alexander Hölzer</td></tr>
+</table>
+
+<h2>1. Zweck</h2>
+<p><strong>DOK-V01</strong> bereitet technische Zeichnungen (PDF) für die Fertigung auf:</p>
+<ol>
+  <li>Auftrag laden (Excel, PDFs, ZIP, Bestell-PDF)</li>
+  <li>Zeichnungen <strong>sortieren und umbenennen</strong> (01_…, 02_…)</li>
+  <li>Optional <strong>Wasserzeichen</strong> (Auftrag, Lieferort, Menge, Termin, BG, Material, Oberfläche)</li>
+  <li><strong>Prüfprotokoll</strong> (Bestellung ↔ Zeichnungen)</li>
+  <li><strong>Gesamt-PDF</strong> zum Drucken</li>
+</ol>
+<p>Zielgruppe: Lohnfertigung Blech – aktuell fest für <strong>Tesla</strong> und <strong>EcoMark</strong>.</p>
+
+<h2>2. Kunden</h2>
+<table>
+  <tr><th>Kunde</th><th>Auftragseingang</th><th>Zeichnungen</th></tr>
+  <tr><td><strong>Tesla</strong></td><td>Excel (Zeichnungsnummer + Menge)</td><td>TSL-…, Spiegelbild mit Endung -S getrennt</td></tr>
+  <tr><td><strong>EcoMark</strong></td><td>Bestell-PDF (kein Excel nötig)</td><td>RT1 …, Lieferort fest „EcoMark“</td></tr>
+</table>
+<p>Die App erkennt den Kunden an den Unterlagen. Tesla-Funktionen werden bei EcoMark nicht erzwungen und umgekehrt.</p>
+
+<h2>3. Typischer Ablauf am Arbeitsplatz</h2>
+<ol>
+  <li>Alte Bearbeitung löschen (optional)</li>
+  <li>Dateien per <strong>Drag &amp; Drop</strong> laden (ZIP, Excel, PDFs, Bestell-PDF, auch aus Outlook)</li>
+  <li>Auftragsnummer prüfen</li>
+  <li><strong>Sortieren &amp; umbenennen</strong></li>
+  <li>Optional <strong>Zusammenfügen &amp; Vorschau</strong> → _GESAMT_…pdf drucken</li>
+  <li>Prüfprotokoll bei Bedarf</li>
+</ol>
+<p>Die Ablage liegt lokal am PC. Arbeits-PCs aktualisieren über die App bzw. USB-Installation.</p>
+
+<h2>4. Was die App heute kann</h2>
+<h3>4.1 Sortierung</h3>
+<ul>
+  <li>Zuordnung Zeichnungs-PDF ↔ Auftragszeile</li>
+  <li>Reihenfolge wie in Excel bzw. Bestell-PDF</li>
+  <li><strong>Spiegelbild:</strong> …-S ist eine eigene Position, Mengen werden nicht mit der Basiszeichnung vermischt</li>
+  <li>Defekte Zeichnung per Drag &amp; Drop ersetzen, nur bei gleicher Zeichnungsnummer (mit Bestätigung)</li>
+</ul>
+
+<h3>4.2 Wasserzeichen (einschaltbar)</h3>
+<table>
+  <tr><th>Stempel</th><th>Inhalt</th></tr>
+  <tr><td>Auftrag / Lieferort / Menge / Termin / BG</td><td>aus Excel, Bestellung oder Eingabe</td></tr>
+  <tr><td>Material</td><td>z. B. VA-4,0 aus Schriftfeld (lokal, ohne Cloud-KI)</td></tr>
+  <tr><td>RAL</td><td>Pulver, wenn im Schriftfeld erkannt (Einstellung)</td></tr>
+  <tr><td>ELOX</td><td>wenn erkannt (Einstellung)</td></tr>
+  <tr><td>Gebürstet</td><td>neben der Materialangabe (u. a. EcoMark)</td></tr>
+  <tr><td>Vernickelt / Oberflächenfeld</td><td><strong>nur Tesla:</strong> Text aus „OBERFLÄCHENBEHANDLUNG“</td></tr>
+</table>
+<p>Leeres Oberflächenfeld, Rauheitstabelle (Rohe Oberfläche, Rz, …) und Nachbarzellen im Schriftfeld werden <strong>nicht</strong> gestempelt.</p>
+<p>Manuelle Korrektur der <strong>Materialstärke</strong> in der Vorschau ändert nur die Stärke. RAL, Gebürstet, Termin und übrige Stempel bleiben stehen.</p>
+
+<h3>4.3 Vorschau &amp; Gesamt-PDF</h3>
+<ul>
+  <li>Zusammengeführte Datei mit durchgehenden Seitenzahlen</li>
+  <li>Zeichnung in der Vorschau prüfen</li>
+  <li>Liefertermin und Material nachträglich anpassen, ohne den ganzen Auftrag neu zu sortieren (wo vorgesehen)</li>
+</ul>
+
+<h3>4.4 Prüfprotokoll</h3>
+<p>Abgleich Bestellung / Excel mit den vorliegenden Zeichnungen: fehlende Positionen, Mengen, Termine. Einheitliche Bezeichnungen, auch im EcoMark-Modus.</p>
+
+<h2>5. Technik und Betrieb (kurz)</h2>
+<table>
+  <tr><th>Punkt</th><th>Stand</th></tr>
+  <tr><td>Plattform</td><td>Windows, .NET 4.8, lokale Desktop-App</td></tr>
+  <tr><td>Erkennung Schriftfeld</td><td>PDF-Text + optionales Tesseract-OCR, <strong>ohne Internet / ohne Cloud-KI</strong></td></tr>
+  <tr><td>Updates</td><td>automatisch von GitHub, signierte EXE, SHA256-Prüfung</td></tr>
+  <tr><td>Installation</td><td>USB-Setup (Programm installieren.exe) oder Update in der App</td></tr>
+  <tr><td>Demo</td><td><strong>6 Monate</strong> Testlaufzeit (mit R82/R83 neu gestartet, auch nach Ablauf)</td></tr>
+  <tr><td>Sicherheit</td><td>Code-Signatur, geschütztes Entpacken von ZIP-Dateien</td></tr>
+</table>
+<p>Aktuelles Release: GitHub v1.1-R83<br />
+USB / Programm: USB-Version\DOK-V01-R83 sowie Z:\DOK-V01\DOK-V01-R83</p>
+
+<h2>6. Letzte wesentliche Änderungen (R81–R83)</h2>
+<table>
+  <tr><th>Rev.</th><th>Inhalt</th></tr>
+  <tr><td><strong>R81</strong></td><td>Zeichnung ersetzen; Materialstärke in der Vorschau ändern, ohne andere Stempel zu verlieren</td></tr>
+  <tr><td><strong>R82</strong></td><td>Demo 6 Monate; EcoMark behält Stempel nach manueller Änderung; Protokoll-Texte vereinheitlicht</td></tr>
+  <tr><td><strong>R83</strong></td><td>Tesla-Oberflächenbehandlung (z. B. Vernickelt); leeres Feld nicht stempeln; Spiegelbild -S getrennt</td></tr>
+</table>
+
+<h2>7. Was bewusst noch nicht enthalten ist</h2>
+<ul>
+  <li><strong>Lager-Kiosk</strong> für Produktionsreste (separates Konzept, 01.10.2026 – noch nicht gebaut)</li>
+  <li>Kein ERP-Anschluss</li>
+  <li>Keine Cloud-KI</li>
+  <li>Keine Erfassung von Restteilen auf fremden PCs in der aktuellen Version</li>
+</ul>
+
+<h2>8. Nutzen im Betrieb (Ist)</h2>
+<table>
+  <tr><th>Vorher (manuell)</th><th>Mit DOK-V01</th></tr>
+  <tr><td>Zeichnungen einzeln suchen, umbenennen, Stempel von Hand</td><td>Batch: laden → sortieren → fertige PDFs</td></tr>
+  <tr><td>Material / RAL / Oberfläche oft übersehen oder vertippt</td><td>Aus Schriftfeld, tesla-/kundenspezifisch</td></tr>
+  <tr><td>EcoMark und Tesla unterschiedliche Listen</td><td>Ein Programm, zwei Kundenprofile</td></tr>
+  <tr><td>Nach Korrektur „alles weg“</td><td>Stempel bleiben (R81/R82)</td></tr>
+</table>
+
+<h2>9. Offene Punkte / nächste Schritte</h2>
+<p class="check">
+☐ R83 auf allen Arbeits-PCs per Update einspielen<br />
+☐ Festinstallation prüfen (nicht die Entwicklungsvorschau)<br />
+☐ Entscheidung Lager-Kiosk: siehe separates Protokoll PROTOKOLL_Lager-Kiosk.pdf<br />
+☐ Weitere Kunden nur nach Auftrag
+</p>
+
+<h2>10. Kenntnisnahme</h2>
+<table>
+  <tr><th>Rolle</th><th>Name</th><th>Datum</th><th>Unterschrift</th></tr>
+  <tr><td>Vorstellung</td><td>Alexander Hölzer</td><td>01.10.2026</td><td></td></tr>
+  <tr><td>Arbeitgeber / Kenntnisnahme</td><td></td><td></td><td></td></tr>
+</table>
+
+<p class="foot">DOK-V01 · Ist-Stand 1.1 R83 · 01.10.2026</p>
+</body>
+</html>

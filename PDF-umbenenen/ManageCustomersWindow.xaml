@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Kunden verwalten"
-        Height="520" Width="620"
+        Height="680" Width="720"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppBackground}"
         Foreground="{DynamicResource TextPrimary}"
@@ -14,6 +14,8 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="12"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="12"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="12"/>
@@ -51,7 +53,7 @@
             </ListBox>
 
             <TextBlock x:Name="EmptyHintTextBlock"
-                       Text="Noch kein Kunde angelegt.&#x0a;&#x0a;«Neu Kunden anlegen» → Name eingeben → 1–3 Zeichnungs-PDFs (optional Bestell-PDF/Excel) hineinziehen → Analysieren → Speichern."
+                       Text="Noch kein Kunde angelegt.&#x0a;&#x0a;«Neu Kunden anlegen» → 3 Schritte: Name &amp; Unterlagen → Dateien → Prüfen &amp; Speichern. KI optional in jedem Schritt."
                        Foreground="{DynamicResource TextSecondary}"
                        FontSize="13"
                        TextAlignment="Center"
@@ -75,7 +77,83 @@
                        Text="Profil auswählen, um gespeicherte Einstellungen anzuzeigen."/>
         </Border>
 
-        <Grid Grid.Row="6">
+        <!-- Nur Tesla: Zielordner -->
+        <Border x:Name="TeslaFoldersPanel"
+                Grid.Row="6"
+                Padding="12"
+                CornerRadius="8"
+                BorderBrush="{DynamicResource GroupBorder}"
+                BorderThickness="1"
+                Background="{DynamicResource CardBackground}"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0"
+                           Text="Tesla – Ordner (nach Sortierung &amp; Ausdruck / ZIP-Entpacken)"
+                           FontWeight="SemiBold" FontSize="13"
+                           TextWrapping="Wrap"/>
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Bestellung hin" VerticalAlignment="Center" FontSize="12"
+                               ToolTip="Nur die originale Prüf-/Bestell-PDF (keine Druck-/Gesamt-Kopien)"/>
+                    <TextBox x:Name="TeslaOrderFolderTextBox" Grid.Column="1" Height="36"
+                             MinHeight="36"
+                             Padding="8,0"
+                             FontSize="12"
+                             VerticalContentAlignment="Center"
+                             HorizontalContentAlignment="Left"
+                             TextWrapping="NoWrap"
+                             IsReadOnly="True"
+                             Background="{DynamicResource InputBackground}"
+                             Foreground="{DynamicResource TextPrimary}"
+                             BorderBrush="{DynamicResource InputBorder}"
+                             ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                    <Button Grid.Column="3" Content="…" Width="40" Height="36"
+                            Style="{StaticResource DialogSecondaryButton}"
+                            Click="BrowseTeslaOrderFolder_Click"
+                            ToolTip="Ordner wählen (Explorer)"/>
+                </Grid>
+                <Grid Grid.Row="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Entpackte Daten" VerticalAlignment="Center" FontSize="12"
+                               ToolTip="Nur Originale aus dem ZIP (keine sortierten 01_… / Gesamt / Druck-Dateien)"/>
+                    <TextBox x:Name="TeslaUnpackFolderTextBox" Grid.Column="1" Height="36"
+                             MinHeight="36"
+                             Padding="8,0"
+                             FontSize="12"
+                             VerticalContentAlignment="Center"
+                             HorizontalContentAlignment="Left"
+                             TextWrapping="NoWrap"
+                             IsReadOnly="True"
+                             Background="{DynamicResource InputBackground}"
+                             Foreground="{DynamicResource TextPrimary}"
+                             BorderBrush="{DynamicResource InputBorder}"
+                             ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                    <Button Grid.Column="3" Content="…" Width="40" Height="36"
+                            Style="{StaticResource DialogSecondaryButton}"
+                            Click="BrowseTeslaUnpackFolder_Click"
+                            ToolTip="Ordner wählen (Explorer)"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="8">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                 <Button Content="Neu Kunden anlegen"
                         MinWidth="150"

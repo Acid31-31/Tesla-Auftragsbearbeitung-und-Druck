@@ -107,6 +107,14 @@ namespace PDF_umbenenen.Services
                 {
                     return true;
                 }
+
+                // Bohrungsangaben „2 x Ø5,5“ / „4 x M5“ – keine Blechstärke
+                if (System.Text.RegularExpressions.Regex.IsMatch(upper, @"\d+\s*[xX]\s*[Ø⌀O0]")
+                    || System.Text.RegularExpressions.Regex.IsMatch(upper, @"\d+\s*[xX]\s*M\d")
+                    || System.Text.RegularExpressions.Regex.IsMatch(upper, @"\d+\s*[xX]\s*R\d"))
+                {
+                    return true;
+                }
             }
 
             if (IsLikelyStandardHoleDiameter(mm))
@@ -118,8 +126,36 @@ namespace PDF_umbenenen.Services
             return false;
         }
 
+        /// <summary>Segmente aus Zeichnungsnummern (z. B. RT1 10 00 0001) nicht als Blechstärke werten.</summary>
+        public static bool IsLikelyDrawingNumberNoise(string rawText)
+        {
+            if (string.IsNullOrWhiteSpace(rawText))
+                return false;
+
+            var text = rawText.Trim();
+            if (PDF_umbenenen.Models.OrderVerificationDrawingKey.IsLikelyDrawingToken(text))
+                return true;
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(
+                    text,
+                    @"\bRT\d+(?:[\s\-_/]+\d{1,5}){2,}\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return true;
+
+            if (System.Text.RegularExpressions.Regex.IsMatch(
+                    text,
+                    @"^RT\d+\s*$",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return true;
+
+            return false;
+        }
+
         public static bool IsLikelyMaterialNumberFragment(string rawText, double mm)
         {
+            if (IsLikelyDrawingNumberNoise(rawText))
+                return true;
+
             if (IsSuspiciousThinGauge(mm))
             {
                 if (string.IsNullOrWhiteSpace(rawText))
@@ -248,7 +284,23 @@ namespace PDF_umbenenen.Services
             if (IsSuspiciousThinGauge(thin))
                 return thick;
 
-            if (IsPlausiblePlateThicknessMm(thick) && thickScore <= thinScore + 35f)
+            // Winkel/Abkantung: 2–6 mm ist die Blechstärke, 8–20 mm das Schenkelmaß.
+            // Platte ohne Dünnmaß: nur 15 mm in der Seitenansicht bleibt 15 mm.
+            if (IsTypicalSheetThickness(thin)
+                && IsStandardSheetGauge(thin, 0.15d)
+                && thick > MaxAutoDetectedSheetMm)
+            {
+                if (IsSuspiciousThinGauge(thin)
+                    && thickScore <= thinScore - 45f
+                    && IsPlausiblePlateThicknessMm(thick))
+                {
+                    return thick;
+                }
+
+                return thin;
+            }
+
+            if (IsPlausiblePlateThicknessMm(thick) && thickScore <= thinScore - 40f)
                 return thick;
 
             if (IsTypicalSheetThickness(thin)
@@ -270,7 +322,7 @@ namespace PDF_umbenenen.Services
                 return thin;
             }
 
-            return thickScore <= thinScore + 25f ? thick : thin;
+            return thickScore <= thinScore - 20f ? thick : thin;
         }
 
         private static double PickBestThinSideViewThicknessMm(
@@ -307,7 +359,10 @@ namespace PDF_umbenenen.Services
 
             var standardGauge = usable
                 .Where(c => IsStandardSheetGauge(c.Value, 0.12d) && c.Value <= MaxAutoDetectedSheetMm)
+                .GroupBy(c => Math.Round(c.Value, 1))
+                .Select(g => (Value: g.Key, Score: g.Min(x => x.Score), Count: g.Count()))
                 .OrderBy(c => c.Score)
+                .ThenByDescending(c => c.Count)
                 .ThenBy(c => StandardGaugeDistance(c.Value))
                 .ToList();
             if (standardGauge.Count > 0)
@@ -324,7 +379,6 @@ namespace PDF_umbenenen.Services
             return usable
                 .OrderBy(c => c.Score)
                 .ThenBy(c => StandardGaugeDistance(c.Value))
-                .ThenBy(c => c.Value)
                 .First()
                 .Value;
         }
@@ -439,6 +493,30 @@ namespace PDF_umbenenen.Services
                 .Where(c => !IsMaterialNumberThicknessFalsePositive(c.ValueMm, materialRaw, c.Source, c.Source))
                 .Where(c => !IsLikelyHoleDiameterMm(c.ValueMm))
                 .ToList();
+
+            var sideViewEarly = usable
+                .Where(c => IsSideViewSource(c.Source)
+                            || c.Priority == PriorityThreeViewText
+                            || c.Priority == PriorityRasterSideProfile
+                            || c.Priority == PrioritySideViewText)
+                .Where(c => c.ValueMm >= 0.8d && c.ValueMm <= MaxAutoDetectedSheetMm)
+                .Where(c => IsStandardSheetGauge(c.ValueMm, 0.15d))
+                .ToList();
+
+            // Nur altes Wasserzeichen (8 mm) darf der Seitenansicht weichen – nicht THK/Blechdicke 8 mm.
+            if (sideViewEarly.Count > 0 && explicitLabeled.Count > 0)
+            {
+                var bestSide = PickBestQuality(sideViewEarly);
+                var bestExplicit = PickBestQuality(explicitLabeled);
+
+                if (bestExplicit.SuspectWatermark
+                    && bestExplicit.ValueMm > MaxAutoDetectedSheetMm
+                    && bestSide.ValueMm <= MaxAutoDetectedSheetMm)
+                {
+                    return bestSide.ValueMm;
+                }
+            }
+
             if (explicitLabeled.Count > 0)
             {
                 var bestExplicit = PickBestQuality(explicitLabeled);
@@ -508,6 +586,8 @@ namespace PDF_umbenenen.Services
                 return resultMm;
 
             var value = resultMm.Value;
+            var valueFromSideView = candidates.Any(c =>
+                Math.Abs(c.ValueMm - value) < 0.08d && IsSideViewSource(c.Source));
             var trustedThin = candidates
                 .Where(c => !c.SuspectWatermark)
                 .Where(c => c.ValueMm >= 0.8d && c.ValueMm <= 6.5d)
@@ -536,11 +616,24 @@ namespace PDF_umbenenen.Services
                     return thin;
                 }
 
-                // Explizite Blechdicke schlägt Seitenansicht/Raster (z. B. 6 mm statt 1,5 mm).
+                // Explizite Blechdicke im Schriftfeld schlägt Seitenansicht.
+                // Nicht: Rahmen-„2“ oder OCR-2 gegen echte 5/15 mm rechts.
                 if (Math.Abs(value - thin) > 0.35d
                     && (value >= 4d || !HasExplicitSourceForValue(candidates, value)))
                 {
-                    return thin;
+                    var thinSource = trustedThin[0].Source ?? string.Empty;
+                    var thinIsTitleBlock =
+                        string.Equals(thinSource, "blechdicke", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(thinSource, "blechdicke-rect", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(thinSource, "blechdicke-nachbar", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(thinSource, "schriftfeld-thk", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(thinSource, "schriftfeld-label", StringComparison.OrdinalIgnoreCase);
+
+                    if (!(valueFromSideView && IsPlausiblePlateThicknessMm(value) && !thinIsTitleBlock)
+                        && !(valueFromSideView && IsStandardSheetGauge(value, 0.15d) && !thinIsTitleBlock))
+                    {
+                        return thin;
+                    }
                 }
             }
 
@@ -550,7 +643,8 @@ namespace PDF_umbenenen.Services
             if (HasExplicitSourceForValue(candidates, value))
                 return resultMm;
 
-            if (trustedThin.Count > 0)
+            if (trustedThin.Count > 0
+                && !(valueFromSideView && IsPlausiblePlateThicknessMm(value)))
                 return trustedThin[0].ValueMm;
 
             var typicalThin = candidates
@@ -563,7 +657,12 @@ namespace PDF_umbenenen.Services
                 .ToList();
 
             if (typicalThin.Count > 0 && value > MaxAutoDetectedSheetMm + 2d)
+            {
+                if (valueFromSideView && IsPlausiblePlateThicknessMm(value))
+                    return resultMm;
+
                 return typicalThin[0].ValueMm;
+            }
 
             return resultMm;
         }
@@ -622,6 +721,7 @@ namespace PDF_umbenenen.Services
                 case "schriftfeld-thk":
                 case "schriftfeld-label":
                 case "ocr-schriftfeld":
+                case "zeichnung-profil":
                     return true;
                 default:
                     return false;

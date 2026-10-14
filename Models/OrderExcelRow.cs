@@ -14,6 +14,17 @@ namespace PDF_umbenenen.Models
 
         public string ParentArticleNumber { get; set; }
 
+        /// <summary>Alle Parent-Artikel, wenn dasselbe Teil in mehreren Baugruppen steckt.</summary>
+        public List<string> ParentArticleNumbers { get; set; } = new List<string>();
+
+        /// <summary>BG-Zeichnungsnummern (aufgelöst aus Parent-Artikeln), z. B. TSL-… R00.</summary>
+        public List<string> BgDrawingNumbers { get; set; } = new List<string>();
+
+        public string RevisionNumber { get; set; }
+
+        /// <summary>Materialstärke aus sortierter PDF/Wasserzeichen (z. B. 3mm).</summary>
+        public string MaterialThicknessMm { get; set; }
+
         public string Amount { get; set; }
 
         public string DeliveryDate { get; set; }

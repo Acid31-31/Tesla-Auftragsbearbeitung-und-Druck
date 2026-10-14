@@ -192,20 +192,22 @@ namespace PDF_umbenenen.Services
 
             {
 
-                if (string.IsNullOrWhiteSpace(row.ParentArticleNumber))
+                var parents = new List<string>();
+                if (row.ParentArticleNumbers != null)
+                    parents.AddRange(row.ParentArticleNumbers);
+                if (!string.IsNullOrWhiteSpace(row.ParentArticleNumber))
+                    parents.Add(row.ParentArticleNumber);
 
-                    continue;
-
-
-
-                if (articleToDrawing.TryGetValue(row.ParentArticleNumber.Trim(), out var parentDrawing)
-
-                    && !string.IsNullOrWhiteSpace(parentDrawing))
-
+                foreach (var parent in parents)
                 {
+                    if (string.IsNullOrWhiteSpace(parent))
+                        continue;
 
-                    keys.Add(parentDrawing);
-
+                    if (articleToDrawing.TryGetValue(parent.Trim(), out var parentDrawing)
+                        && !string.IsNullOrWhiteSpace(parentDrawing))
+                    {
+                        keys.Add(parentDrawing);
+                    }
                 }
 
             }
@@ -328,7 +330,7 @@ namespace PDF_umbenenen.Services
 
                 display.StatusIcon = "✕";
 
-                display.StatusTitle = "Fehlt in PDF";
+                display.StatusTitle = "Fehlt in der Bestellliste (Auftragsbestätigung)";
 
                 display.StatusDetail = "Position nur in Excel";
 

@@ -119,9 +119,7 @@ namespace PdfDiag
             Console.WriteLine("DOK-V01 Lizenzschlüssel");
             Console.WriteLine("PC-Code (dieser Rechner): " + LicenseActivationService.GetMachineCode());
             Console.WriteLine("Maschinen-Schlüssel:     " + LicenseActivationService.GenerateMachineKey(machineCode));
-#if DEBUG
             Console.WriteLine("Universal-Schlüssel:     " + LicenseActivationService.GenerateMasterKey());
-#endif
             Console.WriteLine();
             Console.WriteLine("Hinweis: Für einen fremden PC den Kunden-PC-Code angeben:");
             Console.WriteLine("  PdfDiag --license-key ABCD-EF01-2345");
@@ -340,6 +338,9 @@ namespace PdfDiag
                 .ToList();
 
             var missing = 0;
+            WatermarkProcessingContext.BatchMode = true;
+            try
+            {
             foreach (var file in files)
             {
                 var combined = PdfMaterialExtractionService.Extract(file, 1);
@@ -354,6 +355,11 @@ namespace PdfDiag
                     mat = mat.Substring(0, 25) + "...";
 
                 Console.WriteLine(string.Format("{0,-32} {1,-18} {2,-12} {3}", name, wm, th, mat));
+            }
+            }
+            finally
+            {
+                WatermarkProcessingContext.BatchMode = false;
             }
 
             Console.WriteLine(new string('=', 120));

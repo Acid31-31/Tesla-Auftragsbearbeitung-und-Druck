@@ -62,7 +62,10 @@ namespace PDF_umbenenen.Services
                     continue;
 
                 if (string.Equals(placement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(placement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(placement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "Brushed", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 // Feste BG rechts senkrecht (−90°) nicht verschieben.

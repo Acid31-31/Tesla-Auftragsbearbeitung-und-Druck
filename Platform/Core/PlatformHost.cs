@@ -136,7 +136,16 @@ namespace PDF_umbenenen.Platform.Core
                 modelLoader.TryLoad("tesseract-cli");
 
                 if (configuration.GetSetting("api.enabled", false))
-                    Api.Start(configuration.GetSetting("api.port", 8765));
+                {
+                    try
+                    {
+                        Api.Start(configuration.GetSetting("api.port", 8765));
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warning("api", "Lokale REST-API nicht gestartet: " + ex.Message);
+                    }
+                }
 
                 BatchProcessor.Start(Resources.RecommendedWorkerCount);
                 _initialized = true;

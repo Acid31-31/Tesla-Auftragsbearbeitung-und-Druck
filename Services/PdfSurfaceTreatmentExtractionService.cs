@@ -14,6 +14,14 @@ namespace PDF_umbenenen.Services
 
         public bool HasAnodizing { get; set; }
 
+        /// <summary>Bürstrichtung + Oberflächenbehandlung „…gebürstet“.</summary>
+        public bool HasBrushed { get; set; }
+
+        public bool HasNickelPlating { get; set; }
+
+        /// <summary>Freier Text aus dem Schriftfeld, der kein RAL/Elox/Vernickelt/Gebürstet ist.</summary>
+        public bool HasGenericSurfaceTreatment { get; set; }
+
         public string RalCode { get; set; } = string.Empty;
 
         public string SurfaceTreatmentText { get; set; } = string.Empty;
@@ -28,18 +36,23 @@ namespace PDF_umbenenen.Services
         {
             "OBERFLAECHENBEHANDLUNG",
             "OBERFLÄCHENBEHANDLUNG",
+            "OBERFL CHENBEHANDLUNG",
             "OBERFL.BEHANDLUNG",
             "OBERFL BEHANDLUNG",
             "OBERFLAECHEN BEHANDLUNG",
             "OBERFLAECHENBEHANDL",
+            "PULVERBESCHICHTUNG",
+            "PULVERLACK",
+            "EINBRENNLACK",
             "SURFACE TREATMENT",
             "SURFACE FINISH",
+            "POWDER COAT",
             "FINISH",
             "COATING"
         };
 
         private static readonly Regex RalCodeRegex = new Regex(
-            @"\bRAL\s*[-/]?\s*([0-9]{4})\b",
+            @"\bRAL\s*[-/:]?\s*([0-9]{4})\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly Regex RalCodeLooseRegex = new Regex(
@@ -47,7 +60,7 @@ namespace PDF_umbenenen.Services
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly Regex SurfaceSectionRegex = new Regex(
-            @"(?:OBERFL[AÄ]?CHEN\s*BEHANDLUNG|SURFACE\s*TREATMENT|SURFACE\s*FINISH)\s*[:\-]?\s*([^\r\n|]{3,120})",
+            @"(?:OBERFL(?:AE|[AÄ]|\s*)?CHE?N?\s*\.?\s*BEHANDLUNG|PULVERBESCHICHTUNG|SURFACE\s*TREATMENT|SURFACE\s*FINISH|POWDER\s*COAT)\s*[:\-]?\s*([^\r\n|]{0,120})",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly string[] AnodizingTokens =
@@ -56,10 +69,79 @@ namespace PDF_umbenenen.Services
             "ANODIZATION", "HARTELOX", "HARD ANOD", "ELOKTROLYTISCH"
         };
 
+        private static readonly string[] NickelPlatingTokens =
+        {
+            "VERNICKELT", "VERNICKELUNG", "VERNICKELN", "NICKELPLAT", "NICKEL PLAT",
+            "NICKEL-PLAT", "CHEMISCH NICKEL", "CHEMISCHES NICKEL"
+        };
+
+        private static readonly Regex NickelPlatingRegex = new Regex(
+            @"VERN(?:I|\s*I)CKELT|VERNICKELUNG|NICKEL[\s\-]?PLAT|CHEMISCH(?:ES)?\s+NICKEL",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
         private static readonly string[] PowderTokens =
         {
             "EINBRENNLACK", "PULVER", "POWDER", "BESCHICHTET", "LACKIERT", "COATING"
         };
+
+        private static readonly string[] RoughnessTableTokens =
+        {
+            "ROHE OBERFL", "ROHE OBER", "ROUGH",
+            "GESCHRUPPT", "GESCHLICHTET", "GESCHLIFFEN", "POLIERT"
+        };
+
+        private static readonly string[] SurfaceFieldStopTokens =
+        {
+            "ZULAESSIGE", "ZULÄSSIGE", "ZULASSIGE", "ROUGH",
+            "GESCHRUPPT", "GESCHLICHTET", "GESCHLIFFEN",
+            "ROHE OBER", "ROHE OBERFL", "ALLGEMEINTOLERANZ",
+            "MASSSTAB", "MAßSTAB", "GEWICHT", "WERKSTOFF",
+            "ZEICHNUNGS", "AENDERUNG", "ÄNDERUNG", "BLATT",
+            "BEMERKUNG", "TOLERANZ", "EUROPEAN", "PROJECTION",
+            "FORMAT", "BAUTEIL", "KONSTRUKTEUR", "GEZEICHNET",
+            "GEPRUEFT", "GEPRÜFT", "ABWEICHUNG", "DATEIPFAD",
+            "DATIPFAD", "KATEGORIE", "ENTSTANDEN", "AUSSENMA",
+            "ZEICHNUNGSNR", "ZEICHNUNGSNUMMER"
+        };
+
+        private static readonly string[] TitleBlockBoilerplateTokens =
+        {
+            "EUROPEAN", "PROJECTION", "FORMAT", "MASSSTAB", "MAßSTAB",
+            "BAUTEILBENENNUNG", "BAUTEIL", "ZEICHNUNGSNUMMER", "KONSTRUKTEUR",
+            "GEZEICHNET", "GEPRUEFT", "GEPRÜFT", "ZULAESSIGE", "ZULÄSSIGE",
+            "ABWEICHUNG", "ALLGEMEINTOLERANZ", "DATEIPFAD", "DATIPFAD",
+            "KATEGORIE", "ENTSTANDEN", "AENDERUNGSLAGE", "ÄNDERUNGSLAGE",
+            "TESLA AUTOMATION", "AUSSENMA"
+        };
+
+        private static readonly Regex SurfacePlaceholderRegex = new Regex(
+            @"^(?:[-–—./]+|keine|ohne|nein|n\.?\s*a\.?|n/?a|none|blank|nicht\s+angegeben|nicht\s+vorgesehen)$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex SurfaceThicknessRegex = new Regex(
+            @"\b(\d+(?:[.,]\d+)?)\s*(?:µ\s*m|μm|um)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        // PDF-Textlayer: Umlaute oft als Leerzeichen → „geb rstet“, „B rstrichtung“, „Oberfl chen…“
+        private static readonly Regex BrushDirectionRegex = new Regex(
+            @"B(?:UE|[ÜüUu]|\s*)R?S\s*T\s*RICHTUNG|BUERSTRICHTUNG|B\s*RSTRICHTUNG|BRUSH(?:ING)?\s*DIRECTION",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex BrushedFinishRegex = new Regex(
+            @"einseitig\s+geb(?:ue|[üu]|\s+)rstet|\bgeb(?:ue|[üu]|\s+)rstet\b|\bgebrstet\b|\bbrushed\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex SurfaceBrushedContextRegex = new Regex(
+            @"OBERFL(?:AE|[AÄ]|\s*)?CHE?N?\s*\.?\s*BEHANDLUNG[^\r\n]{0,120}?(?:einseitig\s+)?geb(?:ue|[üu]|\s+)rstet",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex OneSidedBrushedRegex = new Regex(
+            @"einseitig\s+geb(?:ue|[üu]|\s+)rstet",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex GebuerstetLooseRegex = new Regex(
+            @"geb(?:ue|[üu]|\s+)rstet|\bgebrstet\b|\bbrushed\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private const float TitleBlockBottomFraction = 0.42f;
 
@@ -73,20 +155,30 @@ namespace PDF_umbenenen.Services
                 SurfaceCache.Clear();
         }
 
+        /// <summary>Letzter Extract-Lauf: wurde Gebürstet erkannt?</summary>
+        public static bool LastExtractHadBrushed { get; private set; }
+
         public static PdfSurfaceTreatmentInfo Extract(string pdfPath, int pageNumber = 1)
         {
+            LastExtractHadBrushed = false;
             var info = new PdfSurfaceTreatmentInfo();
             if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
                 return info;
 
-            var cacheKey = pdfPath + "|" + pageNumber + "|" + File.GetLastWriteTimeUtc(pdfPath).Ticks;
+            var teslaSurface = WatermarkProcessingContext.IsTeslaSurfaceStampEnabled;
+            var cacheKey = pdfPath + "|" + pageNumber + "|" + File.GetLastWriteTimeUtc(pdfPath).Ticks
+                           + "|tesla=" + teslaSurface;
             lock (SurfaceCacheLock)
             {
                 if (SurfaceCache.TryGetValue(cacheKey, out var cached))
+                {
+                    LastExtractHadBrushed = cached != null && cached.HasBrushed;
                     return cached;
+                }
             }
 
             info = ExtractUncached(pdfPath, pageNumber);
+            LastExtractHadBrushed = info != null && info.HasBrushed;
             lock (SurfaceCacheLock)
                 SurfaceCache[cacheKey] = info;
 
@@ -101,25 +193,46 @@ namespace PDF_umbenenen.Services
             var pageText = PdfLayoutAnalysisService.ExtractPageText(pdfPath, pageNumber);
             var rectText = BuildRectSearchText(layout.TextRects);
 
-            // Metadaten nur aus Schriftfeld-/Seitenkontext – RAL nie seitenweit raten.
+            // Metadaten aus Schriftfeld; RAL zusätzlich direkt im Schriftfeld-Text
+            // (Label und Wert oft in getrennten Rects / Umlaute als Leerzeichen).
             foreach (var source in new[] { titleBlockText, pageText })
                 TryApplySurfaceMetadata(info, source);
 
-            // RAL nur im Oberflächenabschnitt oder nahe am Label – nicht aus ganzem Seitenteil.
             TryApplyRalCode(info, ExtractSurfaceSection(Normalize(titleBlockText)), allowStandalonePowderNumber: true);
+            if (string.IsNullOrWhiteSpace(info.RalCode))
+                TryApplyRalCode(info, Normalize(titleBlockText), allowStandalonePowderNumber: false);
             if (string.IsNullOrWhiteSpace(info.RalCode))
                 TryApplyRalCode(info, ExtractSurfaceSection(Normalize(pageText)), allowStandalonePowderNumber: true);
 
             TryApplyRalFromTitleBlockRects(info, layout.TextRects, layout.PageWidth, layout.PageHeight);
 
-            if (string.IsNullOrWhiteSpace(info.RalCode) && info.HasSurfaceTreatmentEntry)
+            if (string.IsNullOrWhiteSpace(info.RalCode)
+                || string.IsNullOrWhiteSpace(info.SurfaceTreatmentText))
             {
                 var ocrText = ReadOcrFallback(pdfPath, pageNumber);
                 if (!string.IsNullOrWhiteSpace(ocrText))
                 {
                     TryApplySurfaceMetadata(info, ocrText);
                     TryApplyRalCode(info, ExtractSurfaceSection(Normalize(ocrText)), allowStandalonePowderNumber: true);
+                    if (string.IsNullOrWhiteSpace(info.RalCode))
+                        TryApplyRalCode(info, Normalize(ocrText), allowStandalonePowderNumber: false);
+                    if (WatermarkProcessingContext.IsTeslaSurfaceStampEnabled)
+                        TryCaptureSurfaceFieldText(info, ocrText);
                 }
+            }
+
+            if (WatermarkProcessingContext.IsTeslaSurfaceStampEnabled)
+            {
+                TryCaptureSurfaceFieldFromRects(info, layout.TextRects, layout.PageWidth, layout.PageHeight);
+                SanitizeCapturedSurfaceField(info);
+            }
+
+            if (string.IsNullOrWhiteSpace(info.RalCode)
+                && !WatermarkProcessingContext.BatchMode)
+            {
+                var vision = DrawingVisionRecognitionService.TryAnalyze(pdfPath, pageNumber);
+                if (vision != null && vision.HasReliableRal)
+                    info.RalCode = vision.RalCode;
             }
 
             if (!string.IsNullOrWhiteSpace(info.RalCode) && IsPlausibleRalCode(info.RalCode))
@@ -140,16 +253,206 @@ namespace PDF_umbenenen.Services
                 }
             }
 
+            TryApplyBrushedFinish(info, titleBlockText, pageText, rectText, pdfPath, pageNumber);
+            if (WatermarkProcessingContext.IsTeslaSurfaceStampEnabled)
+            {
+                TryApplyNickelPlating(info, titleBlockText, pageText, rectText, pdfPath, pageNumber);
+                SanitizeCapturedSurfaceField(info);
+                info.HasGenericSurfaceTreatment = IsGenericSurfaceField(info);
+            }
+            else
+            {
+                info.HasNickelPlating = false;
+                info.HasGenericSurfaceTreatment = false;
+            }
+
             return info;
+        }
+
+        internal static string ResolveNickelPlatingStampText(PdfSurfaceTreatmentInfo info)
+        {
+            if (info == null || !info.HasNickelPlating)
+                return string.Empty;
+
+            if (IsNickelLikeText(info.SurfaceTreatmentText))
+                return FormatSurfaceStampText(info.SurfaceTreatmentText);
+
+            return "Vernickelt";
+        }
+
+        internal static string ResolveGenericSurfaceStampText(PdfSurfaceTreatmentInfo info)
+        {
+            if (info == null || !info.HasGenericSurfaceTreatment)
+                return string.Empty;
+
+            return FormatSurfaceStampText(info.SurfaceTreatmentText);
+        }
+
+        /// <summary>
+        /// Gebürstet-Erkennung: Textlayer + OCR. „gebürstet“ mit Oberflächen-/Bürstrichtungs-Kontext.
+        /// </summary>
+        private static void TryApplyBrushedFinish(
+            PdfSurfaceTreatmentInfo info,
+            string titleBlockText,
+            string pageText,
+            string rectText,
+            string pdfPath = null,
+            int pageNumber = 1)
+        {
+            if (info == null)
+                return;
+
+            var combined = Normalize(
+                (titleBlockText ?? string.Empty) + "\n"
+                + (pageText ?? string.Empty) + "\n"
+                + (rectText ?? string.Empty));
+
+            // OCR Schriftfeld immer dazunehmen – EcoMark oft ohne brauchbaren Textlayer
+            if (!string.IsNullOrWhiteSpace(pdfPath))
+            {
+                var ocrText = Normalize(ReadOcrFallback(pdfPath, pageNumber));
+                if (!string.IsNullOrWhiteSpace(ocrText))
+                    combined = combined + "\n" + ocrText;
+            }
+
+            if (string.IsNullOrWhiteSpace(combined))
+            {
+                LogBrushedDetect(pdfPath, false, "empty-text");
+                return;
+            }
+
+            // App-Wasserzeichen „Gebürstet“ nicht als Nachweis werten
+            combined = Regex.Replace(
+                combined,
+                @"^\s*GEB(?:UE|[ÜüUu])RSTET\s*$",
+                " ",
+                RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
+            var compact = Regex.Replace(combined, @"[^A-Za-z0-9]", string.Empty);
+            var hasGebuerstet = GebuerstetLooseRegex.IsMatch(combined)
+                || compact.IndexOf("GEBRSTET", StringComparison.OrdinalIgnoreCase) >= 0
+                || compact.IndexOf("GEBUERSTET", StringComparison.OrdinalIgnoreCase) >= 0;
+            var hasEinseitigGebuerstet = OneSidedBrushedRegex.IsMatch(combined)
+                || Regex.IsMatch(
+                    combined,
+                    @"einseitig.{0,24}geb(?:ue|[üu]|\s+)rstet",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                || (compact.IndexOf("EINSEITIG", StringComparison.OrdinalIgnoreCase) >= 0
+                    && (compact.IndexOf("GEBRSTET", StringComparison.OrdinalIgnoreCase) >= 0
+                        || compact.IndexOf("GEBUERSTET", StringComparison.OrdinalIgnoreCase) >= 0));
+            var hasOberfl = SurfaceBrushedContextRegex.IsMatch(combined)
+                || combined.IndexOf("OBERFLAECHENBEHANDLUNG", StringComparison.OrdinalIgnoreCase) >= 0
+                || combined.IndexOf("OBERFLACHEBEHANDLUNG", StringComparison.OrdinalIgnoreCase) >= 0
+                || (combined.IndexOf("OBERFL", StringComparison.OrdinalIgnoreCase) >= 0
+                    && combined.IndexOf("BEHANDLUNG", StringComparison.OrdinalIgnoreCase) >= 0);
+            var hasBrushDirection = BrushDirectionRegex.IsMatch(combined)
+                                    || compact.IndexOf("BUESTRICHTUNG", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || compact.IndexOf("BURSTRICHTUNG", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || compact.IndexOf("BRSTRICHTUNG", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || compact.IndexOf("BUESTRICHT", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            var surfaceSection = ExtractSurfaceSection(combined);
+            var surfaceOk = (!string.IsNullOrWhiteSpace(surfaceSection)
+                             && BrushedFinishRegex.IsMatch(surfaceSection))
+                            || hasEinseitigGebuerstet
+                            || SurfaceBrushedContextRegex.IsMatch(combined);
+
+            // Entscheidung: gebürstet + (Oberfläche / einseitig / Bürstrichtung)
+            var ok = surfaceOk
+                     || (hasGebuerstet && (hasOberfl || hasBrushDirection || hasEinseitigGebuerstet))
+                     || (hasBrushDirection && hasGebuerstet);
+
+            LogBrushedDetect(
+                pdfPath,
+                ok,
+                "geb=" + hasGebuerstet
+                + " einseitig=" + hasEinseitigGebuerstet
+                + " oberfl=" + hasOberfl
+                + " dir=" + hasBrushDirection
+                + " surfaceOk=" + surfaceOk);
+
+            if (!ok)
+                return;
+
+            info.HasBrushed = true;
+            info.HasSurfaceTreatmentEntry = true;
+            if (string.IsNullOrWhiteSpace(info.SurfaceTreatmentText))
+                info.SurfaceTreatmentText = "einseitig gebürstet";
+        }
+
+        private static void TryApplyNickelPlating(
+            PdfSurfaceTreatmentInfo info,
+            string titleBlockText,
+            string pageText,
+            string rectText,
+            string pdfPath = null,
+            int pageNumber = 1)
+        {
+            if (info == null || info.HasNickelPlating)
+                return;
+
+            var combined = Normalize(
+                (titleBlockText ?? string.Empty) + "\n"
+                + (pageText ?? string.Empty) + "\n"
+                + (rectText ?? string.Empty));
+
+            if (!string.IsNullOrWhiteSpace(pdfPath))
+            {
+                var ocrText = Normalize(ReadOcrFallback(pdfPath, pageNumber));
+                if (!string.IsNullOrWhiteSpace(ocrText))
+                    combined = combined + "\n" + ocrText;
+            }
+
+            if (string.IsNullOrWhiteSpace(combined))
+                return;
+
+            var compact = Regex.Replace(combined, @"[^A-Za-z0-9]", string.Empty);
+            var found = NickelPlatingRegex.IsMatch(combined)
+                        || ContainsAnyToken(combined, NickelPlatingTokens)
+                        || compact.IndexOf("VERNICKELT", StringComparison.OrdinalIgnoreCase) >= 0
+                        || compact.IndexOf("NICKELPLAT", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!found)
+                return;
+
+            info.HasNickelPlating = true;
+            info.HasSurfaceTreatmentEntry = true;
+            if (string.IsNullOrWhiteSpace(info.SurfaceTreatmentText) || !IsNickelLikeText(info.SurfaceTreatmentText))
+            {
+                var fromSection = ExtractSurfaceSection(combined);
+                info.SurfaceTreatmentText = IsNickelLikeText(fromSection)
+                    ? FormatSurfaceStampText(fromSection)
+                    : "Vernickelt";
+            }
+        }
+
+        private static void LogBrushedDetect(string pdfPath, bool hasBrushed, string detail)
+        {
+            try
+            {
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DOK-V01");
+                Directory.CreateDirectory(dir);
+                var line = DateTime.Now.ToString("s")
+                           + " HasBrushed=" + hasBrushed
+                           + " " + detail
+                           + " file=" + (pdfPath ?? string.Empty)
+                           + Environment.NewLine;
+                File.AppendAllText(Path.Combine(dir, "brushed-debug.log"), line);
+            }
+            catch
+            {
+                // ignore
+            }
         }
 
         private static string ReadOcrFallback(string pdfPath, int pageNumber)
         {
-            var ocrText = TitleBlockOcrService.TryReadTitleBlock(pdfPath, pageNumber) ?? string.Empty;
+            var ocrText = TitleBlockOcrService.TryReadTitleBlockThorough(pdfPath, pageNumber) ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(ocrText))
                 return ocrText;
 
-            return TitleBlockOcrService.TryReadTitleBlockThorough(pdfPath, pageNumber) ?? string.Empty;
+            return TitleBlockOcrService.TryReadTitleBlock(pdfPath, pageNumber) ?? string.Empty;
         }
 
         private static void TryApplySurfaceMetadata(PdfSurfaceTreatmentInfo info, string text)
@@ -159,12 +462,22 @@ namespace PDF_umbenenen.Services
 
             var normalized = Normalize(text);
             var section = ExtractSurfaceSection(normalized);
-            if (string.IsNullOrWhiteSpace(section) || !HasMeaningfulSurfaceContent(section))
+            var originalSection = ExtractSurfaceSection(text);
+            if (string.IsNullOrWhiteSpace(section) && string.IsNullOrWhiteSpace(originalSection))
                 return;
 
-            info.HasSurfaceTreatmentEntry = true;
-            if (string.IsNullOrWhiteSpace(info.SurfaceTreatmentText))
-                info.SurfaceTreatmentText = section.Trim();
+            if (!HasMeaningfulSurfaceContent(section) && !HasMeaningfulSurfaceContent(originalSection))
+                return;
+
+            var display = !string.IsNullOrWhiteSpace(originalSection) && HasKnownSurfaceContent(originalSection)
+                ? originalSection
+                : section;
+            if (string.IsNullOrWhiteSpace(info.SurfaceTreatmentText)
+                && HasKnownSurfaceContent(display)
+                && !ContainsTitleBlockBoilerplate(display))
+            {
+                info.SurfaceTreatmentText = FormatSurfaceStampText(display);
+            }
 
             if (string.IsNullOrWhiteSpace(info.RalCode))
                 TryApplyRalCode(info, section, allowStandalonePowderNumber: true);
@@ -181,6 +494,15 @@ namespace PDF_umbenenen.Services
                 || ContainsAnyToken(section, PowderTokens);
 
             info.HasAnodizing = info.HasAnodizing || ContainsAnyToken(section, AnodizingTokens);
+            info.HasNickelPlating = info.HasNickelPlating
+                || ContainsAnyToken(section, NickelPlatingTokens)
+                || NickelPlatingRegex.IsMatch(section);
+
+            if (info.HasPowderCoating || info.HasAnodizing || info.HasNickelPlating
+                || !string.IsNullOrWhiteSpace(info.SurfaceTreatmentText))
+            {
+                info.HasSurfaceTreatmentEntry = true;
+            }
         }
 
         private static void TryApplyRalCode(
@@ -209,9 +531,13 @@ namespace PDF_umbenenen.Services
             if (info == null || !string.IsNullOrWhiteSpace(info.RalCode) || rects == null || rects.Count == 0)
                 return;
 
+            var watermarkBand = Math.Max(28f, pageHeight * 0.045f);
             var bottomLimit = pageHeight * TitleBlockBottomFraction;
             var titleRects = rects
-                .Where(r => r != null && r.Bottom <= bottomLimit && !string.IsNullOrWhiteSpace(r.Text))
+                .Where(r => r != null
+                            && r.Bottom <= bottomLimit
+                            && r.Bottom >= watermarkBand
+                            && !string.IsNullOrWhiteSpace(r.Text))
                 .ToList();
 
             if (titleRects.Count == 0)
@@ -222,12 +548,9 @@ namespace PDF_umbenenen.Services
                             || SurfaceSectionRegex.IsMatch(Normalize(r.Text)))
                 .ToList();
 
-            // Nur in/nahe der Oberflächenzeile suchen – nie den ganzen Schriftfeld-Block.
-            if (surfaceRects.Count == 0)
-                return;
-
             var searchRects = titleRects
-                .Where(r => IsNearSurfaceTreatmentArea(r, surfaceRects, pageWidth, pageHeight)
+                .Where(r => surfaceRects.Count == 0
+                            || IsNearSurfaceTreatmentArea(r, surfaceRects, pageWidth, pageHeight)
                             || ContainsAnyToken(r.Text, SurfaceTreatmentLabels)
                             || (r.Text ?? string.Empty).IndexOf("RAL", StringComparison.OrdinalIgnoreCase) >= 0)
                 .ToList();
@@ -237,24 +560,6 @@ namespace PDF_umbenenen.Services
                 var text = (rect.Text ?? string.Empty).Trim();
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
-
-                if (IsAppGeneratedRalWatermark(text)
-                    && !ContainsAnyToken(text, PowderTokens)
-                    && surfaceRects.All(s =>
-                        s == null
-                        || string.IsNullOrWhiteSpace(s.Text)
-                        || !ContainsAnyToken(s.Text, PowderTokens)))
-                {
-                    // Reines „RAL 1234“ ohne Lack-/Pulver-Kontext: oft Wasserzeichen vom letzten Lauf.
-                    if (!titleRects.Any(r =>
-                            r != null
-                            && !string.IsNullOrWhiteSpace(r.Text)
-                            && ContainsAnyToken(r.Text, PowderTokens)
-                            && IsNearSurfaceTreatmentArea(r, surfaceRects, pageWidth, pageHeight)))
-                    {
-                        continue;
-                    }
-                }
 
                 var code = ExtractRalCode(text, allowStandalonePowderNumber: false);
                 if (!string.IsNullOrWhiteSpace(code))
@@ -452,6 +757,291 @@ namespace PDF_umbenenen.Services
                 .Select(r => r.Text.Trim()));
         }
 
+        private static void TryCaptureSurfaceFieldFromRects(
+            PdfSurfaceTreatmentInfo info,
+            IList<PdfTextRect> rects,
+            float pageWidth,
+            float pageHeight)
+        {
+            if (info == null || rects == null || rects.Count == 0)
+                return;
+
+            var bottomLimit = pageHeight * TitleBlockBottomFraction;
+            var watermarkBand = Math.Max(28f, pageHeight * 0.045f);
+            var titleRects = rects
+                .Where(r => r != null
+                            && r.Bottom <= bottomLimit
+                            && r.Bottom >= watermarkBand
+                            && !string.IsNullOrWhiteSpace(r.Text))
+                .ToList();
+            if (titleRects.Count == 0)
+                return;
+
+            var labels = titleRects.Where(r => IsSurfaceLabelText(r.Text)).ToList();
+            if (labels.Count == 0)
+                return;
+
+            foreach (var label in labels.OrderByDescending(r => r.Top))
+            {
+                var inline = StripSurfaceLabelPrefix(label.Text);
+                if (TryAssignSurfaceFieldText(info, inline, overwrite: true))
+                    return;
+
+                var nearby = new List<PdfTextRect>();
+                var belowLimit = Math.Max(48f, pageHeight * 0.055f);
+                foreach (var candidate in titleRects)
+                {
+                    if (candidate == label
+                        || IsSurfaceLabelText(candidate.Text)
+                        || IsSurfaceStopText(candidate.Text)
+                        || ContainsTitleBlockBoilerplate(candidate.Text))
+                    {
+                        continue;
+                    }
+
+                    var below = candidate.Top <= label.Bottom + 4f
+                                && candidate.Bottom >= label.Bottom - belowLimit
+                                && candidate.Left >= label.Left - 10f
+                                && candidate.Right <= label.Right + 28f;
+                    if (below)
+                        nearby.Add(candidate);
+                }
+
+                var joined = string.Join(
+                    " ",
+                    nearby.OrderByDescending(r => r.Top).ThenBy(r => r.Left)
+                        .Select(r => (r.Text ?? string.Empty).Trim())
+                        .Where(t => !string.IsNullOrWhiteSpace(t)));
+                if (TryAssignSurfaceFieldText(info, joined, overwrite: true))
+                    return;
+            }
+        }
+
+        private static void TryCaptureSurfaceFieldText(PdfSurfaceTreatmentInfo info, string text)
+        {
+            if (info == null || string.IsNullOrWhiteSpace(text))
+                return;
+
+            TryAssignSurfaceFieldText(info, ExtractSurfaceSection(text));
+        }
+
+        private static bool TryAssignSurfaceFieldText(PdfSurfaceTreatmentInfo info, string raw, bool overwrite = false)
+        {
+            var formatted = FormatSurfaceStampText(raw);
+            if (!IsStampableGenericSurfaceValue(formatted) && !HasKnownSurfaceContent(formatted))
+                return false;
+
+            info.HasSurfaceTreatmentEntry = true;
+            if (overwrite
+                || string.IsNullOrWhiteSpace(info.SurfaceTreatmentText)
+                || IsWeakSurfaceFieldText(info.SurfaceTreatmentText)
+                || ContainsTitleBlockBoilerplate(info.SurfaceTreatmentText))
+            {
+                info.SurfaceTreatmentText = formatted;
+            }
+
+            ApplySurfaceFlagsFromText(info, formatted);
+            return true;
+        }
+
+        private static void ApplySurfaceFlagsFromText(PdfSurfaceTreatmentInfo info, string text)
+        {
+            if (info == null || string.IsNullOrWhiteSpace(text))
+                return;
+
+            if (string.IsNullOrWhiteSpace(info.RalCode))
+                TryApplyRalCode(info, text, allowStandalonePowderNumber: true);
+
+            info.HasPowderCoating = info.HasPowderCoating
+                || !string.IsNullOrWhiteSpace(info.RalCode)
+                || ContainsAnyToken(text, PowderTokens);
+            info.HasAnodizing = info.HasAnodizing || ContainsAnyToken(text, AnodizingTokens);
+            info.HasNickelPlating = info.HasNickelPlating
+                || ContainsAnyToken(text, NickelPlatingTokens)
+                || NickelPlatingRegex.IsMatch(text);
+            info.HasBrushed = info.HasBrushed || BrushedFinishRegex.IsMatch(text);
+        }
+
+        private static bool IsGenericSurfaceField(PdfSurfaceTreatmentInfo info)
+        {
+            if (info == null || !IsStampableGenericSurfaceValue(info.SurfaceTreatmentText))
+                return false;
+
+            var text = info.SurfaceTreatmentText;
+            if (info.HasPowderCoating && IsCoveredByKnownSurface(text, PowderTokens, isPowder: true, isAnodizing: false, isNickel: false, isBrushed: false))
+                return false;
+            if (info.HasAnodizing && IsCoveredByKnownSurface(text, AnodizingTokens, isPowder: false, isAnodizing: true, isNickel: false, isBrushed: false))
+                return false;
+            if (info.HasNickelPlating && IsCoveredByKnownSurface(text, NickelPlatingTokens, isPowder: false, isAnodizing: false, isNickel: true, isBrushed: false))
+                return false;
+            if (info.HasBrushed && IsCoveredByKnownSurface(text, null, isPowder: false, isAnodizing: false, isNickel: false, isBrushed: true))
+                return false;
+
+            return true;
+        }
+
+        private static bool IsCoveredByKnownSurface(
+            string text,
+            IEnumerable<string> tokens,
+            bool isPowder,
+            bool isAnodizing,
+            bool isNickel,
+            bool isBrushed)
+        {
+            var leftover = text ?? string.Empty;
+            leftover = Regex.Replace(leftover, @"\bRAL\s*[-/:]?\s*[0-9OIl]{4}\b", " ", RegexOptions.IgnoreCase);
+            leftover = Regex.Replace(leftover, @"\bRAL\b", " ", RegexOptions.IgnoreCase);
+            leftover = SurfaceThicknessRegex.Replace(leftover, " ");
+            leftover = Regex.Replace(leftover, @"\b\d+(?:[.,]\d+)?\b", " ");
+
+            if (tokens != null)
+            {
+                foreach (var token in tokens)
+                    leftover = Regex.Replace(leftover, Regex.Escape(token), " ", RegexOptions.IgnoreCase);
+            }
+
+            if (isNickel)
+            {
+                leftover = NickelPlatingRegex.Replace(leftover, " ");
+                leftover = Regex.Replace(leftover, @"CHEMISCH(?:ES)?", " ", RegexOptions.IgnoreCase);
+            }
+
+            if (isAnodizing)
+                leftover = Regex.Replace(leftover, @"ELOKTROLYTISCH|ELEKTROLYTISCH", " ", RegexOptions.IgnoreCase);
+
+            if (isBrushed)
+            {
+                leftover = GebuerstetLooseRegex.Replace(leftover, " ");
+                leftover = Regex.Replace(leftover, @"einseitig", " ", RegexOptions.IgnoreCase);
+            }
+
+            leftover = Regex.Replace(leftover, @"[^A-Za-zÄÖÜäöüß]", string.Empty);
+            return leftover.Length < 3;
+        }
+
+        private static bool IsNickelLikeText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            return ContainsAnyToken(text, NickelPlatingTokens) || NickelPlatingRegex.IsMatch(text);
+        }
+
+        private static bool IsWeakSurfaceFieldText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return true;
+
+            var trimmed = text.Trim();
+            return trimmed.Equals("RAL", StringComparison.OrdinalIgnoreCase)
+                   || trimmed.Equals("ELOX", StringComparison.OrdinalIgnoreCase)
+                   || trimmed.Equals("Vernickelt", StringComparison.OrdinalIgnoreCase)
+                   || trimmed.Equals("Gebürstet", StringComparison.OrdinalIgnoreCase)
+                   || trimmed.Equals("einseitig gebürstet", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string FormatSurfaceStampText(string text)
+        {
+            var cleaned = CleanupSection(text);
+            if (string.IsNullOrWhiteSpace(cleaned) || ContainsTitleBlockBoilerplate(cleaned))
+                return string.Empty;
+
+            cleaned = SurfaceThicknessRegex.Replace(cleaned, "$1µm");
+            if (cleaned.Length > 40)
+                cleaned = cleaned.Substring(0, 40).Trim();
+
+            return cleaned;
+        }
+
+        private static bool IsSurfaceLabelText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var compact = Regex.Replace(Normalize(text), @"[^A-Z0-9]", string.Empty);
+            return compact.IndexOf("OBERFLAECHENBEHANDL", StringComparison.OrdinalIgnoreCase) >= 0
+                   || compact.IndexOf("OBERFLCHENBEHANDL", StringComparison.OrdinalIgnoreCase) >= 0
+                   || compact.IndexOf("SURFACETREATMENT", StringComparison.OrdinalIgnoreCase) >= 0
+                   || compact.IndexOf("SURFACEFINISH", StringComparison.OrdinalIgnoreCase) >= 0
+                   || ContainsAnyToken(text, SurfaceTreatmentLabels);
+        }
+
+        private static bool IsSurfaceStopText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (ContainsTitleBlockBoilerplate(text)
+                || IsRoughnessTableNoise(text))
+                return true;
+
+            var compact = Regex.Replace(Normalize(text), @"\s+", " ").Trim();
+            if (compact.Equals("ROHE", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("FEIN", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("POLIERT", StringComparison.OrdinalIgnoreCase)
+                || compact.StartsWith("ROHE ", StringComparison.OrdinalIgnoreCase)
+                || compact.StartsWith("OBERFLAECHE RZ", StringComparison.OrdinalIgnoreCase)
+                || compact.StartsWith("OBERFLACHE RZ", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return ContainsAnyToken(compact, SurfaceFieldStopTokens);
+        }
+
+        private static bool ContainsTitleBlockBoilerplate(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (ContainsAnyToken(text, TitleBlockBoilerplateTokens))
+                return true;
+
+            if (Regex.IsMatch(text, @"\bR[az]\s*\d", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                return true;
+
+            var compact = Regex.Replace(Normalize(text), @"[^A-Z0-9]", string.Empty);
+            return compact.IndexOf("EUROPEANPROJECTION", StringComparison.OrdinalIgnoreCase) >= 0
+                   || compact.IndexOf("FORMATA4", StringComparison.OrdinalIgnoreCase) >= 0
+                   || compact.IndexOf("OBERFLAECHERZ", StringComparison.OrdinalIgnoreCase) >= 0
+                   || compact.IndexOf("OBERFLACHERZ", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void SanitizeCapturedSurfaceField(PdfSurfaceTreatmentInfo info)
+        {
+            if (info == null)
+                return;
+
+            if (ContainsTitleBlockBoilerplate(info.SurfaceTreatmentText)
+                || IsRoughnessTableNoise(info.SurfaceTreatmentText)
+                || IsSurfaceStopText(info.SurfaceTreatmentText)
+                || SurfacePlaceholderRegex.IsMatch((info.SurfaceTreatmentText ?? string.Empty).Trim()))
+            {
+                info.SurfaceTreatmentText = string.Empty;
+                info.HasGenericSurfaceTreatment = false;
+                if (!info.HasPowderCoating && !info.HasAnodizing && !info.HasNickelPlating && !info.HasBrushed)
+                    info.HasSurfaceTreatmentEntry = false;
+            }
+        }
+
+        private static string StripSurfaceLabelPrefix(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var cleaned = text.Trim();
+            foreach (var label in SurfaceTreatmentLabels.OrderByDescending(l => l.Length))
+            {
+                if (cleaned.StartsWith(label, StringComparison.OrdinalIgnoreCase))
+                {
+                    cleaned = cleaned.Substring(label.Length);
+                    break;
+                }
+            }
+
+            return CleanupSection(cleaned);
+        }
+
         private static string ExtractSurfaceSection(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -486,30 +1076,122 @@ namespace PDF_umbenenen.Services
             var cleaned = section.Trim(' ', ':', '.', '-', '\t', '|', ';');
             cleaned = Regex.Replace(cleaned, @"\s{2,}", " ").Trim();
 
-            var stopIdx = cleaned.IndexOf("ZULAESSIGE", StringComparison.OrdinalIgnoreCase);
-            if (stopIdx < 0)
-                stopIdx = cleaned.IndexOf("ZULÄSSIGE", StringComparison.OrdinalIgnoreCase);
-            if (stopIdx < 0)
-                stopIdx = cleaned.IndexOf("ROUGH", StringComparison.OrdinalIgnoreCase);
-            if (stopIdx > 8)
-                cleaned = cleaned.Substring(0, stopIdx).Trim();
+            foreach (var stop in SurfaceFieldStopTokens.Concat(TitleBlockBoilerplateTokens))
+            {
+                var stopIdx = cleaned.IndexOf(stop, StringComparison.OrdinalIgnoreCase);
+                if (stopIdx == 0)
+                    return string.Empty;
+                if (stopIdx > 0)
+                    cleaned = cleaned.Substring(0, stopIdx).Trim();
+            }
+
+            var roughIdx = cleaned.IndexOf("ROHE", StringComparison.OrdinalIgnoreCase);
+            if (roughIdx == 0)
+                return string.Empty;
+            if (roughIdx > 0)
+                cleaned = cleaned.Substring(0, roughIdx).Trim();
+
+            if (ContainsTitleBlockBoilerplate(cleaned) || IsRoughnessTableNoise(cleaned))
+                return string.Empty;
 
             return cleaned;
         }
 
-        private static bool HasMeaningfulSurfaceContent(string section)
+        private static bool IsRoughnessTableNoise(string text)
         {
-            if (string.IsNullOrWhiteSpace(section))
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var compact = Regex.Replace(Normalize(text), @"[^A-Z0-9]", string.Empty);
+            if (compact.IndexOf("BEHANDLUNG", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+
+            if (compact.Equals("OBERFLAECHE", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("OBERFLACHE", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("ROHEOBERFLAECHE", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("ROHEOBERFLACHE", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("ROHE", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("ROUGH", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("GESCHRUPPT", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("GESCHLICHTET", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("FEINGESCHLICHTET", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("POLIERT", StringComparison.OrdinalIgnoreCase)
+                || compact.Equals("FEIN", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (ContainsAnyToken(text, RoughnessTableTokens))
+                return true;
+
+            return Regex.IsMatch(
+                text.Trim(),
+                @"^(?:rohe\s*)?oberfl(?:ae|[äa])che$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        private static bool HasKnownSurfaceContent(string section)
+        {
+            if (string.IsNullOrWhiteSpace(section) || ContainsTitleBlockBoilerplate(section))
                 return false;
 
             if (RalCodeRegex.IsMatch(section) || RalCodeLooseRegex.IsMatch(section))
                 return true;
 
+            if (section.IndexOf("RAL", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
             if (ContainsAnyToken(section, PowderTokens) || ContainsAnyToken(section, AnodizingTokens))
                 return true;
 
-            // Keine bloße 4-stellige Zahl / DIN-Text als Oberflächenbehandlung werten.
-            return false;
+            if (ContainsAnyToken(section, NickelPlatingTokens) || NickelPlatingRegex.IsMatch(section))
+                return true;
+
+            if (BrushedFinishRegex.IsMatch(section))
+                return true;
+
+            return IsStandaloneRalCandidate(section.Trim())
+                   || !string.IsNullOrWhiteSpace(ExtractStandaloneSurfaceRalNumber(section));
+        }
+
+        private static bool IsStampableGenericSurfaceValue(string section)
+        {
+            if (string.IsNullOrWhiteSpace(section)
+                || IsLabelOnly(section)
+                || IsSurfaceStopText(section)
+                || ContainsTitleBlockBoilerplate(section)
+                || IsRoughnessTableNoise(section)
+                || SurfacePlaceholderRegex.IsMatch(section.Trim()))
+            {
+                return false;
+            }
+
+            if (HasKnownSurfaceContent(section))
+                return true;
+
+            if (section.Length > 40)
+                return false;
+
+            var letters = Regex.Replace(section, @"[^A-Za-zÄÖÜäöüß]", string.Empty);
+            return letters.Length >= 4
+                   && !Regex.IsMatch(section, @"\bR[az]\b", RegexOptions.IgnoreCase);
+        }
+
+        private static bool HasMeaningfulSurfaceContent(string section)
+        {
+            if (string.IsNullOrWhiteSpace(section)
+                || IsLabelOnly(section)
+                || IsSurfaceStopText(section)
+                || ContainsTitleBlockBoilerplate(section))
+            {
+                return false;
+            }
+
+            var trimmed = section.Trim();
+            if (SurfacePlaceholderRegex.IsMatch(trimmed))
+                return false;
+
+            return HasKnownSurfaceContent(section);
         }
 
         private static bool IsLabelOnly(string section)
@@ -539,8 +1221,9 @@ namespace PDF_umbenenen.Services
                 return string.Empty;
 
             var bottomLimit = pageHeight * TitleBlockBottomFraction;
+            var watermarkBand = Math.Max(28f, pageHeight * 0.045f);
             var titleRects = rects
-                .Where(r => r != null && r.Bottom <= bottomLimit)
+                .Where(r => r != null && r.Bottom <= bottomLimit && r.Bottom >= watermarkBand)
                 .OrderByDescending(r => r.Top)
                 .ThenBy(r => r.Left)
                 .ToList();

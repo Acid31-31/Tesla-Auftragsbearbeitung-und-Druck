@@ -20,6 +20,25 @@ namespace PDF_umbenenen.Models
 
         public long AssetId { get; set; }
 
+        public long AssetSizeBytes { get; set; }
+
         public string ErrorMessage { get; set; } = string.Empty;
+
+        public string AssetSizeDisplay
+        {
+            get { return FormatMegabytes(AssetSizeBytes); }
+        }
+
+        public static string FormatMegabytes(long bytes)
+        {
+            if (bytes <= 0)
+                return string.Empty;
+
+            var mb = bytes / (1024.0 * 1024.0);
+            return string.Format(
+                System.Globalization.CultureInfo.GetCultureInfo("de-DE"),
+                "{0:0.0} MB",
+                mb);
+        }
     }
 }

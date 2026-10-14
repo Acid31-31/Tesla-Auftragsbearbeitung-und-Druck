@@ -21,7 +21,7 @@
         <StackPanel Grid.Row="0">
             <TextBlock Text="Einstellungen"
                        FontSize="20" FontWeight="SemiBold"/>
-            <TextBlock Text="KI, Wasserzeichen, Kundenprofile und Darstellung."
+            <TextBlock Text="KI, Wasserzeichen, GEO-Suche, Kundenprofile und Darstellung."
                        Foreground="{DynamicResource TextSecondary}"
                        FontSize="12"
                        Margin="0,6,0,0"
@@ -75,6 +75,21 @@
                     </Grid>
                 </Button>
 
+                <Button Style="{StaticResource SettingsHubButton}" Click="OpenWorkspaceFolder_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="📁" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Ablage öffnen" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Arbeitsordner im Explorer anzeigen"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
                 <Button Style="{StaticResource SettingsHubButton}" Click="OpenManageCustomers_Click">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -85,6 +100,21 @@
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="Kundenprofile" FontWeight="SemiBold" FontSize="14"/>
                             <TextBlock Text="Kunden anlegen – App lernt aus Beispiel-Dateien"
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Button>
+
+                <Button Style="{StaticResource SettingsHubButton}" Click="OpenGeoSettings_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="◆" FontSize="18" Margin="0,0,14,0" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="GEO-Suche" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Suchordner für Lasermaschinen-.geo-Dateien"
                                        Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"/>
                         </StackPanel>
                     </Grid>

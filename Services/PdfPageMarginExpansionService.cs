@@ -235,6 +235,77 @@ namespace PDF_umbenenen.Services
             return true;
         }
 
+        /// <summary>
+        /// Gleiche Seitengröße wie die bereits gestempelte PDF, ohne Raster-Messung.
+        /// </summary>
+        public static bool TryExpandToMatchReference(
+            string sourcePdfPath,
+            string referencePdfPath,
+            int pageNumber)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePdfPath)
+                || string.IsNullOrWhiteSpace(referencePdfPath)
+                || !File.Exists(sourcePdfPath)
+                || !File.Exists(referencePdfPath))
+            {
+                return false;
+            }
+
+            if (!PdfWatermarkService.TryGetPageSize(sourcePdfPath, pageNumber, out var srcW, out var srcH)
+                || !PdfWatermarkService.TryGetPageSize(referencePdfPath, pageNumber, out var dstW, out var dstH))
+            {
+                return false;
+            }
+
+            if (dstH <= srcH + 0.75f && dstW <= srcW + 0.75f)
+                return false;
+
+            var pageScale = WatermarkPageScale.Get(dstW, dstH);
+            var band = WatermarkPageScale.GetRequiredTopClearancePt(dstW, dstH)
+                + Math.Max(5f, 6f * pageScale);
+            if (band * 2f >= dstH - 40f)
+                band = Math.Max(8f, (dstH - 40f) / 2f);
+
+            var scale = (dstH - (2f * band)) / srcH;
+            if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0f)
+                return false;
+
+            scale = Math.Max(MinScale, Math.Min(MaxScale, scale));
+            var marginBottom = dstH - (srcH * scale) - band;
+            if (marginBottom < 0f)
+                marginBottom = 0f;
+
+            var plan = new PdfMarginExpansionPlan
+            {
+                ShouldExpand = true,
+                MarginTop = band,
+                MarginBottom = marginBottom,
+                MarginLeft = (dstW - (srcW * scale)) / 2f,
+                MarginRight = 0f,
+                Scale = scale
+            };
+            plan.MarginRight = dstW - (srcW * scale) - plan.MarginLeft;
+
+            var tempPath = sourcePdfPath + ".margin.tmp";
+            try
+            {
+                PdfWatermarkService.RewritePdfWithExpandedMargins(sourcePdfPath, tempPath, plan, pageNumber);
+                File.Copy(tempPath, sourcePdfPath, true);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { /* ignore */ }
+                }
+            }
+        }
+
         public static bool TryExpandSourceInPlace(
             string sourcePdfPath,
             int pageNumber,

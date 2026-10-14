@@ -12,6 +12,9 @@ namespace PDF_umbenenen
     {
         private readonly AppUpdateInfo _update;
         private bool _isUpdating;
+        private CancellationTokenSource _updateCts;
+
+        public bool Postponed { get; private set; }
 
         public UpdateAvailableWindow(AppUpdateInfo update)
         {
@@ -19,14 +22,32 @@ namespace PDF_umbenenen
             ThemeWindowService.Attach(this);
 
             _update = update ?? new AppUpdateInfo();
+
+            var sizeText = _update.AssetSizeBytes > 0
+                ? _update.AssetSizeDisplay
+                : string.Empty;
+
             VersionTextBlock.Text = string.Format(
                 "Installiert: {0}   →   Neu: {1}",
                 AppInfo.DisplayVersion,
                 string.IsNullOrWhiteSpace(_update.ReleaseTag) ? "unbekannt" : _update.ReleaseTag);
 
-            NotesTextBlock.Text = string.IsNullOrWhiteSpace(_update.ReleaseNotes)
+            SizeTextBlock.Text = string.IsNullOrWhiteSpace(sizeText)
+                ? "Update-Größe: wird beim Download angezeigt"
+                : "Update-Größe: " + sizeText;
+
+            var notes = string.IsNullOrWhiteSpace(_update.ReleaseNotes)
                 ? "Keine Release-Notizen."
                 : FormatReleaseNotesForDisplay(_update.ReleaseNotes);
+
+            if (!string.IsNullOrWhiteSpace(sizeText)
+                && notes.IndexOf(sizeText, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                notes = "Update-Größe: " + sizeText + Environment.NewLine + Environment.NewLine + notes;
+            }
+
+            NotesTextBlock.Text = notes;
+            Closing += UpdateAvailableWindow_Closing;
         }
 
         private static string FormatReleaseNotesForDisplay(string notes)
@@ -74,12 +95,17 @@ namespace PDF_umbenenen
                 return;
 
             _isUpdating = true;
+            _updateCts = new CancellationTokenSource();
             UpdateButton.IsEnabled = false;
-            LaterButton.IsEnabled = false;
+            LaterButton.IsEnabled = true;
+            LaterButton.Content = "Abbrechen – später";
             NotesBorder.Visibility = Visibility.Collapsed;
             ProgressPanel.Visibility = Visibility.Visible;
             UpdateProgressBar.Value = 0;
             PercentTextBlock.Text = "0 %";
+            DownloadSizeTextBlock.Text = string.IsNullOrWhiteSpace(_update.AssetSizeDisplay)
+                ? "Update-Größe: wird geladen…"
+                : "Update-Größe: " + _update.AssetSizeDisplay;
             StatusTextBlock.Text = "Update wird vorbereitet…";
 
             try
@@ -89,23 +115,41 @@ namespace PDF_umbenenen
                     UpdateProgressBar.Value = info.Percent;
                     PercentTextBlock.Text = info.Percent + " %";
                     StatusTextBlock.Text = info.Message;
+                    if (info.TotalBytes > 0)
+                    {
+                        DownloadSizeTextBlock.Text = AppUpdateInfo.FormatMegabytes(info.BytesRead)
+                            + " von " + AppUpdateInfo.FormatMegabytes(info.TotalBytes);
+                    }
+                    else if (info.BytesRead > 0)
+                    {
+                        DownloadSizeTextBlock.Text = AppUpdateInfo.FormatMegabytes(info.BytesRead) + " geladen";
+                    }
                 });
 
                 var stagedRoot = await GitHubUpdateService.DownloadAndStageUpdateAsync(
                     _update,
                     progress,
-                    CancellationToken.None).ConfigureAwait(true);
+                    _updateCts.Token).ConfigureAwait(true);
 
                 StatusTextBlock.Text = "Installation wird gestartet…";
                 PercentTextBlock.Text = "100 %";
                 UpdateProgressBar.Value = 100;
                 GitHubUpdateService.LaunchUpdaterAndShutdown(stagedRoot);
             }
+            catch (OperationCanceledException)
+            {
+                ResetAfterCancel();
+                Postponed = true;
+                DialogResult = false;
+                Close();
+            }
             catch (Exception ex)
             {
                 _isUpdating = false;
+                DisposeUpdateCts();
                 UpdateButton.IsEnabled = true;
                 LaterButton.IsEnabled = true;
+                LaterButton.Content = "Später";
                 NotesBorder.Visibility = Visibility.Visible;
                 ProgressPanel.Visibility = Visibility.Collapsed;
                 StatusTextBlock.Text = "Update fehlgeschlagen.";
@@ -115,8 +159,58 @@ namespace PDF_umbenenen
 
         private void LaterButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_isUpdating)
+            {
+                RequestCancelUpdate();
+                return;
+            }
+
+            Postponed = true;
             DialogResult = false;
             Close();
+        }
+
+        private void UpdateAvailableWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (!_isUpdating)
+                return;
+
+            e.Cancel = true;
+            RequestCancelUpdate();
+        }
+
+        private void RequestCancelUpdate()
+        {
+            try
+            {
+                _updateCts?.Cancel();
+            }
+            catch
+            {
+            }
+
+            LaterButton.IsEnabled = false;
+            if (StatusTextBlock != null)
+                StatusTextBlock.Text = "Update wird abgebrochen…";
+        }
+
+        private void ResetAfterCancel()
+        {
+            _isUpdating = false;
+            DisposeUpdateCts();
+        }
+
+        private void DisposeUpdateCts()
+        {
+            try
+            {
+                _updateCts?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _updateCts = null;
         }
     }
 }

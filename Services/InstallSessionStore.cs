@@ -26,6 +26,7 @@ namespace PDF_umbenenen.Services
                     new XElement("LicenseAccepted", options.LicenseAccepted),
                     new XElement("InstallPublisherCertificate", options.InstallPublisherCertificate),
                     new XElement("LaunchAfterInstall", options.LaunchAfterInstall),
+                    new XElement("InstallTesseractOcr", options.InstallTesseractOcr),
                     new XElement("SourceDirectory", options.SourceDirectory ?? string.Empty),
                     new XElement("TargetDirectory", options.TargetDirectory ?? string.Empty),
                     new XElement("CreatedUtc", DateTime.UtcNow.ToString("o"))))
@@ -62,6 +63,7 @@ namespace PDF_umbenenen.Services
                     LicenseAccepted = true,
                     InstallPublisherCertificate = ParseBool(root.Element("InstallPublisherCertificate"), true),
                     LaunchAfterInstall = ParseBool(root.Element("LaunchAfterInstall"), true),
+                    InstallTesseractOcr = ParseBool(root.Element("InstallTesseractOcr"), true),
                     SourceDirectory = (string)root.Element("SourceDirectory") ?? string.Empty,
                     TargetDirectory = (string)root.Element("TargetDirectory") ?? string.Empty
                 };

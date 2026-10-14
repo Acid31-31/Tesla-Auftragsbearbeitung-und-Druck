@@ -23,6 +23,9 @@ namespace PDF_umbenenen.Services
         private static readonly Regex TableRowRegex = new Regex(
             @"\bTGA\d+\b.*?\b(\d+(?:[.,]\d+)?)\s*EA\b.*?\b(20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex EaWithIsoDateRegex = new Regex(
+            @"\b(\d+(?:[.,]\d+)?)\s*EA\b[^\r\n]{0,40}?\b(20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex AmountRegex = new Regex(
             @"(?:Menge|Qty|Quantity|Amount|Stück|Stk\.?)\s*[:\-]?\s*(\d{1,5})",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -58,7 +61,7 @@ namespace PDF_umbenenen.Services
                         results,
                         seen,
                         line,
-                        OrderVerificationDateHelper.ExtractDueDate(line),
+                        OrderVerificationDateHelper.NormalizeToEu(rowMatch.Groups[2].Value),
                         NormalizeTableQty(rowMatch.Groups[1].Value));
                     continue;
                 }
@@ -74,9 +77,8 @@ namespace PDF_umbenenen.Services
                 if (articles.Count == 0 && drawings.Count == 0)
                     continue;
 
-                var dateBlockStart = Math.Max(0, i - 3);
-                var dateBlock = BuildContextBlock(lines, dateBlockStart, Math.Min(15, lines.Count - dateBlockStart));
-                var date = OrderVerificationDateHelper.ExtractDueDate(dateBlock);
+                // Nur vorwärts bis zur nächsten TGA-Zeile – sonst greift Due Date der vorherigen Position.
+                var date = ExtractDueDateForLineItem(lines, i);
                 var rowContext = BuildContextBlock(lines, i, Math.Min(8, lines.Count - i));
                 var amount = OrderVerificationAmountHelper.ExtractQuantity(rowContext)
                     ?? ExtractTableQuantity(line)
@@ -337,6 +339,44 @@ namespace PDF_umbenenen.Services
             return string.Join(" ", lines.Skip(startIndex).Take(end - startIndex));
         }
 
+        /// <summary>
+        /// Due Date nur vorwärts ab der Positionszeile bis zur nächsten TGA-Zeile.
+        /// Lookback greift sonst das Due Date der vorherigen Bestellposition.
+        /// </summary>
+        private static string ExtractDueDateForLineItem(IList<string> lines, int lineIndex)
+        {
+            if (lines == null || lineIndex < 0 || lineIndex >= lines.Count)
+                return string.Empty;
+
+            for (var i = lineIndex; i < lines.Count; i++)
+            {
+                if (i > lineIndex && ArticleRegex.IsMatch(lines[i]))
+                    break;
+
+                var eaDate = EaWithIsoDateRegex.Match(lines[i]);
+                if (eaDate.Success)
+                    return OrderVerificationDateHelper.NormalizeToEu(eaDate.Groups[2].Value);
+
+                // In derselben Zeile wie TGA/Zeichnung: TableRow-Muster
+                var rowMatch = TableRowRegex.Match(lines[i]);
+                if (rowMatch.Success)
+                    return OrderVerificationDateHelper.NormalizeToEu(rowMatch.Groups[2].Value);
+
+                // Reine Datumszeile direkt hinter Qty/EA (ohne TGA auf der Zeile)
+                if (i > lineIndex)
+                {
+                    var dateOnly = OrderVerificationDateHelper.ExtractDueDate(lines[i]);
+                    if (!string.IsNullOrWhiteSpace(dateOnly)
+                        && (TableQtyRegex.IsMatch(lines[i]) || TableQtyRegex.IsMatch(lines[i - 1])))
+                    {
+                        return dateOnly;
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
         private static void AddLine(
             ICollection<OrderVerificationLine> results,
             ISet<string> seen,
@@ -431,3 +471,4 @@ namespace PDF_umbenenen.Services
         }
     }
 }
+

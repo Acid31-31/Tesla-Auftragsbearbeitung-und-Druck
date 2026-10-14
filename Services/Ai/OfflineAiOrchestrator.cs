@@ -1,23 +1,28 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using PDF_umbenenen.Services;
 
 namespace PDF_umbenenen.Services.Ai
 {
     internal enum AiBackendMode
     {
         Disabled,
-        RulesOnly
+        RulesOnly,
+        Ollama
     }
 
     /// <summary>
-    /// Offline-KI ohne Ollama: ausschließlich lokale Regeln und Plattform-Module.
+    /// Offline-KI: Regeln + optionales portable Ollama aus externem Ordner AI_DOK-V01.
     /// </summary>
     internal sealed class OfflineAiOrchestrator : IDisposable
     {
         private readonly AiSettings _settings = new AiSettings();
         private readonly RuleBasedFallback _fallback = new RuleBasedFallback();
+        private readonly OllamaAiBackend _ollama = new OllamaAiBackend();
         private AiBackendMode _mode = AiBackendMode.RulesOnly;
+        private string _ollamaLastError = string.Empty;
 
         public OfflineAiOrchestrator()
         {
@@ -30,6 +35,11 @@ namespace PDF_umbenenen.Services.Ai
 
         public RuleBasedFallback Fallback => _fallback;
 
+        public string OllamaLastError =>
+            !string.IsNullOrWhiteSpace(_ollamaLastError)
+                ? _ollamaLastError
+                : (_ollama.LastError ?? string.Empty);
+
         public void ReloadSettings()
         {
             var loaded = AiSettingsStore.Load();
@@ -38,32 +48,74 @@ namespace PDF_umbenenen.Services.Ai
             _settings.TesseractPath = loaded.TesseractPath;
             _settings.OcrLanguages = loaded.OcrLanguages;
             _settings.LocalVisionEnabled = loaded.LocalVisionEnabled;
-            _mode = _settings.AiEnabled ? AiBackendMode.RulesOnly : AiBackendMode.Disabled;
+            _settings.DrawingVisionEnabled = loaded.DrawingVisionEnabled;
+            _settings.LocalLlmBaseUrl = loaded.LocalLlmBaseUrl;
+            _settings.LocalLlmModel = loaded.LocalLlmModel;
+            _settings.LocalLlmApiKey = loaded.LocalLlmApiKey;
+            _settings.OllamaEnabled = loaded.OllamaEnabled;
+            _settings.OllamaBaseUrl = loaded.OllamaBaseUrl;
+            _settings.OllamaModel = loaded.OllamaModel;
+            _settings.OllamaUsePortableFolder = loaded.OllamaUsePortableFolder;
+            _settings.OllamaPortableDirectory = loaded.OllamaPortableDirectory;
+            _ollama.Configure(_settings);
+            ApplyCurrentSettings();
         }
 
         public void SaveSettings()
         {
             AiSettingsStore.Save(_settings);
+            _ollama.Configure(_settings);
             ApplyCurrentSettings();
         }
 
         public void ApplyCurrentSettings()
         {
-            _mode = _settings.AiEnabled ? AiBackendMode.RulesOnly : AiBackendMode.Disabled;
+            if (!_settings.AiEnabled)
+            {
+                _mode = AiBackendMode.Disabled;
+                return;
+            }
+
+            _mode = _settings.OllamaEnabled ? AiBackendMode.Ollama : AiBackendMode.RulesOnly;
         }
 
-        public Task RefreshAvailabilityAsync(CancellationToken cancellationToken)
+        public async Task RefreshAvailabilityAsync(CancellationToken cancellationToken)
         {
-            _mode = _settings.AiEnabled ? AiBackendMode.RulesOnly : AiBackendMode.Disabled;
-            return Task.CompletedTask;
+            ApplyCurrentSettings();
+            _ollamaLastError = string.Empty;
+
+            if (!_settings.AiEnabled || !_settings.OllamaEnabled)
+            {
+                if (_settings.AiEnabled)
+                    _mode = AiBackendMode.RulesOnly;
+                return;
+            }
+
+            _ollama.Configure(_settings);
+            var ok = await _ollama.CheckAvailabilityAsync(cancellationToken).ConfigureAwait(false);
+            if (ok)
+            {
+                _mode = AiBackendMode.Ollama;
+                return;
+            }
+
+            _ollamaLastError = _ollama.LastError;
+            _mode = AiBackendMode.RulesOnly;
         }
 
-        public Task EnsureAvailabilityAsync(CancellationToken cancellationToken)
+        public async Task EnsureAvailabilityAsync(CancellationToken cancellationToken)
         {
-            if (!_settings.LocalOcrEnabled)
-                return Task.CompletedTask;
+            if (_settings.LocalOcrEnabled)
+                await TesseractBootstrapService.EnsureAvailableAsync(cancellationToken).ConfigureAwait(false);
 
-            return TesseractBootstrapService.EnsureAvailableAsync(cancellationToken);
+            await RefreshAvailabilityAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        public bool CanUseOllama()
+        {
+            return _settings.AiEnabled
+                   && _settings.OllamaEnabled
+                   && _mode == AiBackendMode.Ollama;
         }
 
         public string GetStatusText()
@@ -75,14 +127,77 @@ namespace PDF_umbenenen.Services.Ai
                 ? (Cli.TesseractCliService.IsAvailable() ? "OCR: Tesseract" : "OCR: Tesseract fehlt")
                 : "OCR: aus";
 
-            return "KI-Vision aktiv (Wasserzeichen-Platzierung) · " + ocr;
+            var kiDir = OllamaPortableService.ResolveKiDirectory(_settings);
+            if (_settings.OllamaEnabled && _mode == AiBackendMode.Ollama)
+            {
+                return "Ollama aktiv (" + (_settings.OllamaModel ?? "?") + ") · "
+                       + ocr + " · KI-Ordner: " + kiDir;
+            }
+
+            if (_settings.OllamaEnabled)
+            {
+                var err = string.IsNullOrWhiteSpace(OllamaLastError) ? "nicht erreichbar" : OllamaLastError;
+                return "Ollama aus/fehlt (" + err + ") · Regeln aktiv · " + ocr;
+            }
+
+            return "KI-Vision/Regeln aktiv · " + ocr
+                   + (_settings.DrawingVisionEnabled ? " · Zeichnungs-Vision: an" : string.Empty);
         }
 
-        public Task<string> CompleteAsync(string prompt, bool jsonFormat, CancellationToken cancellationToken)
-            => Task.FromResult(string.Empty);
+        public async Task<string> CompleteAsync(string prompt, bool jsonFormat, CancellationToken cancellationToken)
+        {
+            if (!CanUseOllama() && _settings.OllamaEnabled)
+                await RefreshAvailabilityAsync(cancellationToken).ConfigureAwait(false);
 
-        public Task<string> ChatAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
-            => _fallback.ChatAsync(systemPrompt, userPrompt, cancellationToken);
+            if (!CanUseOllama())
+                return string.Empty;
+
+            var result = await _ollama.CompleteAsync(prompt, jsonFormat, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(result))
+                _ollamaLastError = _ollama.LastError;
+            return result ?? string.Empty;
+        }
+
+        public async Task<string> ChatAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
+        {
+            if (!CanUseOllama() && _settings.OllamaEnabled)
+                await RefreshAvailabilityAsync(cancellationToken).ConfigureAwait(false);
+
+            if (CanUseOllama())
+            {
+                var ollama = await _ollama.ChatAsync(systemPrompt, userPrompt, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(ollama))
+                    return ollama;
+                _ollamaLastError = _ollama.LastError;
+            }
+
+            return await _fallback.ChatAsync(systemPrompt, userPrompt, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>Nur Ollama – kein Regel-Fallback (für Kunden-Assistent).</summary>
+        public async Task<string> ChatOllamaOnlyAsync(
+            string systemPrompt,
+            string userPrompt,
+            IReadOnlyList<(string role, string content)> priorMessages,
+            CancellationToken cancellationToken)
+        {
+            if (!_settings.AiEnabled || !_settings.OllamaEnabled)
+                return string.Empty;
+
+            await RefreshAvailabilityAsync(cancellationToken).ConfigureAwait(false);
+            if (!CanUseOllama())
+                return string.Empty;
+
+            var messages = new List<(string role, string content)>();
+            if (priorMessages != null)
+                messages.AddRange(priorMessages);
+            messages.Add(("user", userPrompt ?? string.Empty));
+
+            var result = await _ollama.ChatAsync(systemPrompt, messages, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(result))
+                _ollamaLastError = _ollama.LastError;
+            return result ?? string.Empty;
+        }
 
         public void Dispose()
         {

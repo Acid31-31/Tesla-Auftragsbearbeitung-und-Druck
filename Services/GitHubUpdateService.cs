@@ -71,6 +71,7 @@ namespace PDF_umbenenen.Services
                 result.DownloadUrl = asset.DownloadUrl;
                 result.AssetId = asset.AssetId;
                 result.AssetName = asset.Name ?? AppInfo.UpdateAssetFileName;
+                result.AssetSizeBytes = asset.SizeBytes;
             }
             catch (Exception ex)
             {
@@ -104,13 +105,13 @@ namespace PDF_umbenenen.Services
             var errors = new List<string>();
             if (!string.IsNullOrWhiteSpace(update.DownloadUrl))
             {
-                if (await TryDownloadBrowserAssetAsync(update.DownloadUrl, packagePath, errors, progress, cancellationToken).ConfigureAwait(false))
+                if (await TryDownloadBrowserAssetAsync(update.DownloadUrl, packagePath, errors, progress, update.AssetSizeBytes, cancellationToken).ConfigureAwait(false))
                     goto downloaded;
             }
 
             if (update.AssetId > 0)
             {
-                if (await TryDownloadReleaseAssetAsync(update.AssetId, packagePath, errors, progress, cancellationToken).ConfigureAwait(false))
+                if (await TryDownloadReleaseAssetAsync(update.AssetId, packagePath, errors, progress, update.AssetSizeBytes, cancellationToken).ConfigureAwait(false))
                     goto downloaded;
             }
 
@@ -159,8 +160,8 @@ namespace PDF_umbenenen.Services
                 throw new ArgumentException("Kein Update-Staging-Verzeichnis.", nameof(stagedAppRoot));
 
             stagedAppRoot = Path.GetFullPath(stagedAppRoot);
-            var appRoot = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (!AppInfo.IsRegisteredInstallDirectory(appRoot))
+            var appRoot = AppInfo.TryResolveUpdateTargetDirectory();
+            if (string.IsNullOrWhiteSpace(appRoot))
             {
                 throw new InvalidOperationException(
                     "Updates sind nur in einer festen Installation erlaubt.\n"
@@ -269,6 +270,7 @@ namespace PDF_umbenenen.Services
             string packagePath,
             ICollection<string> errors,
             IProgress<UpdateProgressInfo> progress,
+            long expectedSizeBytes,
             CancellationToken cancellationToken)
         {
             if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri)
@@ -298,7 +300,7 @@ namespace PDF_umbenenen.Services
                             await CopyStreamWithProgressAsync(
                                 stream,
                                 file,
-                                response.Content.Headers.ContentLength,
+                                response.Content.Headers.ContentLength ?? (expectedSizeBytes > 0 ? expectedSizeBytes : (long?)null),
                                 5,
                                 75,
                                 "Update wird heruntergeladen…",
@@ -323,6 +325,7 @@ namespace PDF_umbenenen.Services
             string packagePath,
             ICollection<string> errors,
             IProgress<UpdateProgressInfo> progress,
+            long expectedSizeBytes,
             CancellationToken cancellationToken)
         {
             var apiUrl = string.Format(
@@ -362,7 +365,7 @@ namespace PDF_umbenenen.Services
                                 await CopyStreamWithProgressAsync(
                                     stream,
                                     file,
-                                    response.Content.Headers.ContentLength,
+                                    response.Content.Headers.ContentLength ?? (expectedSizeBytes > 0 ? expectedSizeBytes : (long?)null),
                                     5,
                                     75,
                                     "Update wird heruntergeladen…",
@@ -490,6 +493,8 @@ namespace PDF_umbenenen.Services
             public string Name { get; set; }
 
             public string DownloadUrl { get; set; }
+
+            public long SizeBytes { get; set; }
         }
 
         private static ReleaseAssetInfo ExtractPreferredAsset(string json)
@@ -507,12 +512,13 @@ namespace PDF_umbenenen.Services
                 if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                if (name.IndexOf("DOK-V01", StringComparison.OrdinalIgnoreCase) < 0)
-                    continue;
-
-                var asset = FindAssetNearName(json, name, match.Index);
-                if (asset != null)
-                    return asset;
+                if (name.StartsWith("DOK-V01-Release", StringComparison.OrdinalIgnoreCase)
+                    || name.IndexOf("DOK-V01", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    var asset = FindAssetNearName(json, name, match.Index);
+                    if (asset != null)
+                        return asset;
+                }
             }
 
             return null;
@@ -555,12 +561,35 @@ namespace PDF_umbenenen.Services
                 return null;
 
             var url = FindDownloadUrlNearIndex(json, index);
+            long sizeBytes = ExtractAssetSizeBytes(json, index);
+
             return new ReleaseAssetInfo
             {
                 AssetId = assetId,
                 Name = assetName,
-                DownloadUrl = url
+                DownloadUrl = url,
+                SizeBytes = sizeBytes
             };
+        }
+
+        private static long ExtractAssetSizeBytes(string json, int nameIndex)
+        {
+            if (string.IsNullOrWhiteSpace(json) || nameIndex < 0 || nameIndex >= json.Length)
+                return 0;
+
+            var afterName = json.Substring(nameIndex, Math.Min(12000, json.Length - nameIndex));
+            var sizeMatch = Regex.Match(afterName, "\"size\"\\s*:\\s*(\\d+)");
+            long sizeBytes;
+            if (sizeMatch.Success && long.TryParse(sizeMatch.Groups[1].Value, out sizeBytes) && sizeBytes > 0)
+                return sizeBytes;
+
+            var beforeStart = Math.Max(0, nameIndex - 4000);
+            var before = json.Substring(beforeStart, nameIndex - beforeStart);
+            var beforeMatch = Regex.Match(before, "\"size\"\\s*:\\s*(\\d+)(?!.*\"size\"\\s*:\\s*\\d+)", RegexOptions.Singleline);
+            if (beforeMatch.Success && long.TryParse(beforeMatch.Groups[1].Value, out sizeBytes) && sizeBytes > 0)
+                return sizeBytes;
+
+            return 0;
         }
 
         private static string FindDownloadUrlNearIndex(string json, int nameIndex)
@@ -711,9 +740,14 @@ namespace PDF_umbenenen.Services
             return true;
         }
 
-        private static void ReportProgress(IProgress<UpdateProgressInfo> progress, int percent, string message)
+        private static void ReportProgress(
+            IProgress<UpdateProgressInfo> progress,
+            int percent,
+            string message,
+            long bytesRead = 0,
+            long totalBytes = 0)
         {
-            progress?.Report(new UpdateProgressInfo(percent, message));
+            progress?.Report(new UpdateProgressInfo(percent, message, bytesRead, totalBytes));
         }
 
         private static async Task CopyStreamWithProgressAsync(
@@ -738,15 +772,16 @@ namespace PDF_umbenenen.Services
 
                 var percent = percentStart;
                 if (totalBytes.HasValue && totalBytes.Value > 0)
-                {
                     percent = percentStart + (int)(totalRead * (percentEnd - percentStart) / totalBytes.Value);
-                }
                 else if (totalRead > 0)
-                {
                     percent = Math.Min(percentEnd - 1, percentStart + (int)(totalRead / 250000));
-                }
 
-                ReportProgress(progress, percent, message);
+                ReportProgress(
+                    progress,
+                    percent,
+                    message,
+                    totalRead,
+                    totalBytes.GetValueOrDefault());
             }
         }
 

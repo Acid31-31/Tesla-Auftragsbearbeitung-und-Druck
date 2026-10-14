@@ -104,7 +104,7 @@ namespace PDF_umbenenen.Models
             }
             else
             {
-                AppendSection(lines, "In Excel, fehlt in Bestell-PDF", MissingInPdf);
+                AppendSection(lines, "In Excel, fehlt in der Bestellliste (Auftragsbestätigung)", MissingInPdf);
                 AppendSection(lines, "In Bestell-PDF, fehlt in Excel", MissingInExcel);
                 AppendSection(lines, "Zeichnungs-PDF fehlt in Ablage", MissingDrawingPdfs);
                 AppendSection(lines, "Zeichnungs-PDF nicht in Bestell-PDF", DrawingsNotInOrderPdf);
@@ -126,7 +126,7 @@ namespace PDF_umbenenen.Models
             var sb = new StringBuilder();
             sb.AppendLine("Die Bestell-PDF weicht von der Excel-Datei ab:");
             if (MissingInPdf.Count > 0)
-                sb.AppendLine("• " + MissingInPdf.Count + " Excel-Zeile(n) fehlen in der PDF");
+                sb.AppendLine("• " + MissingInPdf.Count + " Excel-Zeile(n) fehlen in der Bestellliste (Auftragsbestätigung)");
             if (MissingInExcel.Count > 0)
                 sb.AppendLine("• " + MissingInExcel.Count + " PDF-Position(en) fehlen in Excel");
             if (FieldMismatches.Count > 0)

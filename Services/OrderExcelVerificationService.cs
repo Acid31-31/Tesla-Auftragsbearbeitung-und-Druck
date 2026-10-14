@@ -32,7 +32,9 @@ namespace PDF_umbenenen.Services
 
             PdfTextExtractionService textService,
 
-            IEnumerable<string> pdfDrawingSearchKeys = null)
+            IEnumerable<string> pdfDrawingSearchKeys = null,
+
+            IList<OrderVerificationLine> parsedOrderLines = null)
 
         {
 
@@ -72,7 +74,11 @@ namespace PDF_umbenenen.Services
 
 
 
-            var pdfLines = _parser.Parse(orderPdfPath, textService).ToList();
+            var pdfLines = parsedOrderLines != null && parsedOrderLines.Count > 0
+
+                ? parsedOrderLines.ToList()
+
+                : _parser.Parse(orderPdfPath, textService).ToList();
 
             report.PdfLineCount = pdfLines.Count;
 

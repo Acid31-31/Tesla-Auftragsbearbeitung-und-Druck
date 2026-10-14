@@ -29,7 +29,7 @@ if ([string]::IsNullOrWhiteSpace($Tag)) {
 }
 
 if (-not $SkipBuild) {
-    $ensureTesseract = Join-Path $root "ensure-tesseract-bundle.ps1"
+    $ensureTesseract = Join-Path $root "Skripte\Setup\ensure-tesseract-bundle.ps1"
     if (Test-Path $ensureTesseract) {
         Write-Host "Bereite Tesseract-OCR-Bundle vor..."
         & powershell -ExecutionPolicy Bypass -File $ensureTesseract -ProjectRoot $root
@@ -66,52 +66,8 @@ if (Test-Path $staging) {
 }
 New-Item -ItemType Directory -Path $staging | Out-Null
 
-Get-ChildItem $releaseDir -File | Where-Object {
-    $_.Extension -in @('.exe', '.dll', '.config')
-} | ForEach-Object {
-    Copy-Item $_.FullName -Destination (Join-Path $staging $_.Name) -Force
-}
-
-$nativeSource = Join-Path $releaseDir "native"
-if (Test-Path $nativeSource) {
-    $nativeTarget = Join-Path $staging "native"
-    New-Item -ItemType Directory -Path $nativeTarget -Force | Out-Null
-    Copy-Item (Join-Path $nativeSource "*") $nativeTarget -Recurse -Force
-    Write-Host "native-Ordner ins Release-Paket kopiert."
-}
-
-$tesseractSource = Join-Path $releaseDir "tesseract"
-if (Test-Path $tesseractSource) {
-    $tesseractTarget = Join-Path $staging "tesseract"
-    New-Item -ItemType Directory -Path $tesseractTarget -Force | Out-Null
-    Copy-Item (Join-Path $tesseractSource "*") $tesseractTarget -Recurse -Force
-    Write-Host "tesseract-Ordner ins Release-Paket kopiert."
-}
-
-$iconSource = Join-Path $root "Assets\AppIcon.ico"
-if (Test-Path $iconSource) {
-    $assetsFolder = Join-Path $staging "Assets"
-    New-Item -ItemType Directory -Path $assetsFolder -Force | Out-Null
-    Copy-Item $iconSource (Join-Path $assetsFolder "AppIcon.ico") -Force
-    Copy-Item $iconSource (Join-Path $staging "AppIcon.ico") -Force
-}
-
-$licenseSource = Join-Path $root "LICENSE_DE.txt"
-if (Test-Path $licenseSource) {
-    Copy-Item $licenseSource (Join-Path $staging "LICENSE_DE.txt") -Force
-}
-
-$cerSource = Join-Path $releaseDir "CodeSigning.cer"
-if (-not (Test-Path $cerSource)) {
-    $cerSource = Join-Path $root "cert\DOK-CodeSigning.cer"
-}
-if (-not (Test-Path $cerSource)) {
-    $cerSource = Join-Path $root "CodeSigning.cer"
-}
-if (Test-Path $cerSource) {
-    Copy-Item $cerSource (Join-Path $staging "CodeSigning.cer") -Force
-    Write-Host "CodeSigning.cer: $cerSource"
-}
+Copy-DokProgramPayload -ReleaseDir $releaseDir -Destination $staging -ProjectRoot $root
+Write-Host "Komplettes Programm ins Release-Paket kopiert."
 
 $GitHubUpdatesArePublic = $true
 $updateToken = $env:GITHUB_UPDATE_TOKEN
@@ -129,6 +85,7 @@ if (-not [string]::IsNullOrWhiteSpace($updateToken)) {
 }
 
 $zipPath = Join-Path $releaseRoot $assetName
+$compatZipPath = Join-Path $releaseRoot "DOK-V01-Release.zip"
 $legacyZipPath = Join-Path $root "DOK-V01-Release.zip"
 
 if (-not (Test-Path $releaseRoot)) {
@@ -160,16 +117,24 @@ if (Test-Path $signPackageScript) {
 if (Test-Path $zipPath) {
     Remove-Item $zipPath -Force
 }
+if (Test-Path $compatZipPath) {
+    Remove-Item $compatZipPath -Force
+}
 if (Test-Path $legacyZipPath) {
     Remove-Item $legacyZipPath -Force
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($releaseFolder, $zipPath)
+Copy-Item $zipPath $compatZipPath -Force
+Copy-Item $zipPath $legacyZipPath -Force
 
 $hash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$zipBytes = (Get-Item $zipPath).Length
+$zipMb = [math]::Round($zipBytes / 1MB, 1)
+$zipMbText = $zipMb.ToString("0.0", [System.Globalization.CultureInfo]::GetCultureInfo("de-DE")) + " MB"
 
-$notesSourcePath = Join-Path $root "RELEASE_NOTES.md"
+$notesSourcePath = Join-Path $root "Dokumentation\Release\RELEASE_NOTES.md"
 $changelog = ""
 if (Test-Path $notesSourcePath) {
     $changelog = (Get-Content -Path $notesSourcePath -Raw -Encoding UTF8)
@@ -185,8 +150,11 @@ Bitte vor dem Release die Datei RELEASE_NOTES.md mit den Aenderungen fuellen.
 "@
 }
 
-# SHA256 muss in den Release-Notes stehen (Update-Pruefung). Changelog bleibt in RELEASE_NOTES.md erhalten.
+# Groesse steht oben, damit sie auch in aelteren Update-Fenstern sichtbar ist.
+# SHA256 muss in den Release-Notes stehen (Update-Pruefung).
 $notes = @"
+Update-Größe: $zipMbText (komplettes Programm – alle PCs auf denselben Stand)
+
 $changelog
 
 ---
@@ -195,11 +163,12 @@ SHA256: $hash
 Die App prueft diese Pruefsumme und die digitale Signatur vor der Installation.
 "@
 
-$generatedNotesPath = Join-Path $root "RELEASE_NOTES.generated.md"
+$generatedNotesPath = Join-Path $root "Dokumentation\Release\RELEASE_NOTES.generated.md"
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($generatedNotesPath, $notes, $utf8NoBom)
 
 Write-Host "ZIP: $zipPath"
+Write-Host "Größe: $zipMbText ($zipBytes Bytes)"
 Write-Host "SHA256: $hash"
 Write-Host "Tag: $Tag"
 
@@ -221,7 +190,8 @@ if (-not $gh) {
 
 $releaseArgs = @(
     "release", "create", $Tag,
-    $zipPath,
+    "-R", "Acid31-31/Tesla-Auftragsbearbeitung-und-Druck",
+    $compatZipPath,
     "--title", "DOK-V01 $Tag",
     "--notes-file", $generatedNotesPath
 )

@@ -120,10 +120,13 @@ namespace PDF_umbenenen.Services
 
         internal static Bitmap CropTitleBlock(Bitmap source)
         {
-            var x = (int)Math.Round(source.Width * 0.38f);
-            var y = (int)Math.Round(source.Height * 0.44f);
+            // Breiterer Ausschnitt: Beschreibung / Oberflächenbehandlung oft weiter links.
+            // Unteren Wasserzeichen-Streifen weglassen (sonst ST-8,0mm / RAL 9003 vom letzten Lauf).
+            var x = (int)Math.Round(source.Width * 0.28f);
+            var y = (int)Math.Round(source.Height * 0.38f);
+            var footerTrim = (int)Math.Round(source.Height * 0.055f);
             var w = Math.Max(1, source.Width - x);
-            var h = Math.Max(1, source.Height - y);
+            var h = Math.Max(1, source.Height - y - footerTrim);
 
             var crop = new Bitmap(w, h);
             using (var graphics = Graphics.FromImage(crop))

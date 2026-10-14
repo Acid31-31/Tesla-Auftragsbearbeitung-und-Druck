@@ -44,6 +44,9 @@ namespace PDF_umbenenen
 
         public string MergedPdfPath => _mergedPdfPath;
 
+        /// <summary>True, wenn der Nutzer die Gesamt-PDF zum Ausdrucken extern geöffnet hat.</summary>
+        public bool WasOpenedForPrint { get; private set; }
+
         public PdfMergedPreviewWindow(
             string mergedPdfPath,
             IList<string> orderedSourceFiles,
@@ -205,7 +208,7 @@ namespace PDF_umbenenen
                 }
                 else
                 {
-                    HintTextBlock.Text = "Zur Zeichnung scrollen, dann „Wasserzeichen bearbeiten“.";
+                    HintTextBlock.Text = "Zur Zeichnung scrollen, dann „Materialstärke ändern“.";
                 }
 
                 CorrectButton.IsEnabled = true;
@@ -515,14 +518,199 @@ namespace PDF_umbenenen
             SaveButton.Visibility = Visibility.Collapsed;
             CancelEditButton.Visibility = Visibility.Collapsed;
             CorrectButton.Visibility = Visibility.Visible;
+            ChangeDateButton.Visibility = Visibility.Visible;
             EditViewBorder.Visibility = Visibility.Collapsed;
             AllPagesScroll.Visibility = Visibility.Visible;
             HintTextBlock.Text = PagesStack.Children.Count > 0
-                ? "Zur gewünschten Zeichnung scrollen, dann „Wasserzeichen bearbeiten“."
+                ? "Korrekte PDF auf die defekte Seite ziehen, um sie zu ersetzen. Oder „Materialstärke ändern“."
                 : "Lade Vorschau…";
 
             ClearOverlays();
             UpdatePageInfo();
+        }
+
+        private void Window_PreviewDragOver(object sender, DragEventArgs e)
+        {
+            if (_editMode || _isSaving || _loadingPages || !OutlookAttachmentDropService.CanAccept(e.Data))
+            {
+                e.Effects = DragDropEffects.None;
+                e.Handled = true;
+                return;
+            }
+
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+        }
+
+        private async void Window_Drop(object sender, DragEventArgs e)
+        {
+            if (_editMode || _isSaving || _loadingPages)
+                return;
+
+            e.Handled = true;
+            if (!OutlookAttachmentDropService.TryGetDroppedFiles(e.Data, out var droppedFiles, out _)
+                || droppedFiles == null
+                || droppedFiles.Count == 0)
+            {
+                return;
+            }
+
+            var pdfs = droppedFiles
+                .Where(p => !string.IsNullOrWhiteSpace(p)
+                            && File.Exists(p)
+                            && string.Equals(Path.GetExtension(p), ".pdf", StringComparison.OrdinalIgnoreCase)
+                            && !p.EndsWith(WatermarkEditorService.PreWatermarkSuffix, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (pdfs.Count == 0)
+            {
+                MessageBox.Show(this, "Bitte eine PDF-Zeichnung auf die defekte Seite ziehen.", "Zeichnung ersetzen", MessageBoxButton.OK, MessageBoxImage.Information);
+                OutlookAttachmentDropService.TryCleanupTempFiles(droppedFiles);
+                return;
+            }
+
+            try
+            {
+                foreach (var incoming in pdfs)
+                    await ReplaceDrawingFromDropAsync(incoming, e).ConfigureAwait(true);
+            }
+            finally
+            {
+                OutlookAttachmentDropService.TryCleanupTempFiles(droppedFiles);
+            }
+        }
+
+        private async Task ReplaceDrawingFromDropAsync(string incomingPdfPath, DragEventArgs e)
+        {
+            var incomingNumber = DrawingReplacementService.GuessDrawingNumber(incomingPdfPath);
+            if (string.IsNullOrWhiteSpace(incomingNumber))
+            {
+                MessageBox.Show(
+                    this,
+                    "Auf der Datei wurde keine Zeichnungsnummer erkannt.\nDie defekte Zeichnung wird nicht ersetzt.",
+                    "Zeichnung ersetzen",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            var dropEntry = ResolveDropTargetEntry(e);
+            var pagePath = dropEntry != null
+                ? ResolveWatermarkedPdfPath(dropEntry.SourcePdfPath)
+                : null;
+            var pageNumber = DrawingReplacementService.GuessDrawingNumber(pagePath);
+            var targetPath = DrawingReplacementService.FindMatchingSortedPdf(_orderedFiles, incomingPdfPath);
+
+            if (!string.IsNullOrWhiteSpace(pageNumber)
+                && !OrderVerificationDrawingKey.Equal(incomingNumber, pageNumber))
+            {
+                var text = DrawingReplacementService.FormatMismatchPageWarning(incomingNumber, pageNumber);
+                if (string.IsNullOrWhiteSpace(targetPath))
+                {
+                    text += "\n\nDie Zeichnungsnummer "
+                        + incomingNumber
+                        + " ist in der Bestellung nicht vorhanden.";
+                }
+
+                MessageBox.Show(this, text, "Zeichnung ersetzen", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(targetPath) || !File.Exists(targetPath))
+            {
+                MessageBox.Show(
+                    this,
+                    "Die Zeichnungsnummer "
+                    + incomingNumber
+                    + " ist in der Bestellung nicht vorhanden.\nDie defekte Zeichnung wird nicht ersetzt.",
+                    "Zeichnung ersetzen",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+            var ordered = _orderedFiles.ToList();
+            var savedPage = _pageMap
+                .Where(entry => string.Equals(
+                    ResolveWatermarkedPdfPath(entry.SourcePdfPath),
+                    targetPath,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.MergedPageNumber)
+                .DefaultIfEmpty(_currentMergedPage)
+                .First();
+            SetSavingState(true, "Zeichnung wird ersetzt…");
+            string error = null;
+            try
+            {
+                error = await Task.Run(() =>
+                {
+                    try
+                    {
+                        DrawingReplacementService.ReplaceKeepingWatermarks(targetPath, incomingPdfPath, ordered);
+                        return null;
+                    }
+                    catch (Exception ex)
+                    {
+                        return ex.Message;
+                    }
+                }).ConfigureAwait(true);
+            }
+            finally
+            {
+                SetSavingState(false);
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                MessageBox.Show(this, error, "Zeichnung ersetzen", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _mergedPdfStale = true;
+            await RefreshPagesAfterSaveAsync(savedPage, targetPath).ConfigureAwait(true);
+            HintTextBlock.Text = "✓ Zeichnung ersetzt: " + Path.GetFileName(targetPath);
+            MessageBox.Show(
+                this,
+                DrawingReplacementService.FormatReplacedConfirmation(incomingNumber, Path.GetFileName(targetPath)),
+                "Zeichnung ersetzen",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+
+        private MergedPdfPageEntry ResolveDropTargetEntry(DragEventArgs e)
+        {
+            if (e == null)
+                return ResolveEditableEntry();
+
+            foreach (UIElement child in PagesStack.Children)
+            {
+                if (!(child is FrameworkElement element) || !(element.Tag is int pageNumber))
+                    continue;
+
+                var pos = e.GetPosition(element);
+                if (pos.X < 0 || pos.Y < 0 || pos.X > element.ActualWidth || pos.Y > element.ActualHeight)
+                    continue;
+
+                var hit = _pageMap.FirstOrDefault(entry => entry.MergedPageNumber == pageNumber);
+                if (hit == null)
+                    return ResolveEditableEntry();
+
+                if (hit.SourcePageNumber == 1)
+                    return hit;
+
+                var sourcePath = ResolveWatermarkedPdfPath(hit.SourcePdfPath);
+                return _pageMap
+                    .Where(entry => entry.SourcePageNumber == 1
+                        && string.Equals(
+                            ResolveWatermarkedPdfPath(entry.SourcePdfPath),
+                            sourcePath,
+                            StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(entry => entry.MergedPageNumber)
+                    .FirstOrDefault()
+                    ?? hit;
+            }
+
+            return ResolveEditableEntry();
         }
 
         private MergedPdfPageEntry ResolveEditableEntry()
@@ -544,6 +732,74 @@ namespace PDF_umbenenen
                         StringComparison.OrdinalIgnoreCase))
                 .OrderBy(e => e.MergedPageNumber)
                 .FirstOrDefault();
+        }
+
+        private async void ChangeDateButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isSaving || _loadingPages || _editMode)
+                return;
+
+            if (_orderedFiles == null || _orderedFiles.Count == 0)
+            {
+                MessageBox.Show(this, "Keine sortierten Zeichnungen in dieser Vorschau.", "Termin ändern", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            UpdateCurrentPageFromScroll();
+            var entry = ResolveEditableEntry() ?? GetCurrentEntry();
+            var sourcePath = entry != null
+                ? ResolveWatermarkedPdfPath(entry.SourcePdfPath)
+                : null;
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+            {
+                MessageBox.Show(this, "Keine Zeichnung für die aktuelle Seite gefunden.", "Termin ändern", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            DeliveryDateRewriteService.TryDetectCurrent(new[] { sourcePath }, out var currentDate, out var isFt, out var mixed);
+            var dialog = new DeliveryDateChangeWindow(
+                currentDate,
+                isFt,
+                mixed,
+                Path.GetFileName(sourcePath))
+            {
+                Owner = this
+            };
+            if (dialog.ShowDialog() != true)
+                return;
+
+            SetSavingState(true, "Termin wird nur auf dieser Zeichnung geändert…");
+            try
+            {
+                var selectedDate = dialog.SelectedDate;
+                var prefixMode = dialog.PrefixMode;
+                var folder = _pdfFolder;
+                var allFiles = _orderedFiles.ToList();
+                var result = await Task.Run(() =>
+                    DeliveryDateRewriteService.Rewrite(
+                        folder,
+                        new[] { sourcePath },
+                        selectedDate,
+                        prefixMode,
+                        allFiles))
+                    .ConfigureAwait(true);
+
+                _mergedPdfPath = result.MergedPdfPath;
+                _mergedPdfStale = false;
+                _pageMap = NormalizePageMap(MergedPdfPageMapService.Build(_orderedFiles));
+                MergedPdfPageMapService.Save(_mergedPdfPath, _pageMap);
+                _totalPages = Math.Max(1, _pageMap.Count);
+                HintTextBlock.Text = "Termin nur auf dieser Zeichnung geändert: " + Path.GetFileName(sourcePath);
+                await LoadAllPagesAsync(_currentMergedPage).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Termin ändern", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                SetSavingState(false);
+            }
         }
 
         private async void CorrectButton_Click(object sender, RoutedEventArgs e)
@@ -575,12 +831,10 @@ namespace PDF_umbenenen
                 var sourcePath = entry.SourcePdfPath;
                 await Task.Run(() =>
                 {
-                    PdfRasterLayoutService.ClearCache();
-                    PdfLayoutAnalysisService.ClearCache();
                     var items = WatermarkEditorService.LoadItems(new[] { sourcePath });
                     editItem = items.FirstOrDefault();
                     if (editItem != null)
-                        placements = WatermarkEditorService.BuildPlacementsForEditor(editItem, _settings);
+                        placements = WatermarkEditorService.LoadExistingPlacements(editItem);
                 }).ConfigureAwait(true);
             }
             catch (Exception ex)
@@ -613,31 +867,97 @@ namespace PDF_umbenenen
             SaveButton.Visibility = Visibility.Visible;
             CancelEditButton.Visibility = Visibility.Visible;
             CorrectButton.Visibility = Visibility.Collapsed;
-            HintTextBlock.Text = "Korrekturmodus für: " + Path.GetFileName(_editItem.PdfPath);
+            ChangeDateButton.Visibility = Visibility.Collapsed;
+            HintTextBlock.Text = "Materialstärke ändern: " + Path.GetFileName(_editItem.PdfPath);
 
             ClearOverlays();
-            RenderEditCanvas();
+            var existingPreview = TryGetExistingPageImage(entry.MergedPageNumber);
+            if (existingPreview != null)
+            {
+                ApplyEditCanvasImage(existingPreview);
+            }
+            else
+            {
+                var prewmPath = _editItem.PreWatermarkPath;
+                System.Drawing.Bitmap bitmap = null;
+                await Task.Run(() =>
+                {
+                    bitmap = PdfRasterLayoutService.RenderPageForPreview(prewmPath, 1);
+                }).ConfigureAwait(true);
+                if (bitmap != null)
+                {
+                    try
+                    {
+                        ApplyEditCanvasImage(ConvertBitmap(bitmap));
+                    }
+                    finally
+                    {
+                        bitmap.Dispose();
+                    }
+                }
+            }
+
+            DrawEditOverlays();
             UpdateMaterialField();
             EditScrollViewer_SizeChanged(EditScrollViewer, null);
         }
 
-        private void RenderEditCanvas()
+        private BitmapSource TryGetExistingPageImage(int mergedPageNumber)
+        {
+            foreach (UIElement child in PagesStack.Children)
+            {
+                if (!(child is FrameworkElement element)
+                    || !(element.Tag is int pageNumber)
+                    || pageNumber != mergedPageNumber)
+                {
+                    continue;
+                }
+
+                var viewbox = element as Viewbox ?? FindVisualChild<Viewbox>(element);
+                var image = viewbox?.Child as Image ?? FindVisualChild<Image>(element);
+                return image?.Source as BitmapSource;
+            }
+
+            return null;
+        }
+
+        private static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null)
+                return null;
+
+            var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (var i = 0; i < count; i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is T match)
+                    return match;
+
+                var nested = FindVisualChild<T>(child);
+                if (nested != null)
+                    return nested;
+            }
+
+            return null;
+        }
+
+        private void ApplyEditCanvasImage(BitmapSource source)
+        {
+            if (_editItem == null || source == null)
+                return;
+
+            _scale = source.Width / _editItem.PageWidth;
+            PreviewCanvas.Width = source.Width;
+            PreviewCanvas.Height = source.Height;
+            PreviewImage.Width = source.Width;
+            PreviewImage.Height = source.Height;
+            PreviewImage.Source = source;
+        }
+
+        private void DrawEditOverlays()
         {
             if (_editItem == null)
                 return;
-
-            using (var bitmap = PdfRasterLayoutService.RenderPageForPreview(_editItem.PreWatermarkPath, 1))
-            {
-                if (bitmap == null)
-                    return;
-
-                _scale = bitmap.Width / _editItem.PageWidth;
-                PreviewCanvas.Width = bitmap.Width;
-                PreviewCanvas.Height = bitmap.Height;
-                PreviewImage.Width = bitmap.Width;
-                PreviewImage.Height = bitmap.Height;
-                PreviewImage.Source = ConvertBitmap(bitmap);
-            }
 
             PreviewCanvas.Children.Clear();
             PreviewCanvas.Children.Add(PreviewImage);
@@ -648,7 +968,7 @@ namespace PDF_umbenenen
                 if (string.IsNullOrWhiteSpace(placement?.Text))
                     continue;
 
-                var readOnly = SmartWatermarkLayoutService.IsLockedTopBandPlacement(placement, _editPlacements);
+                var readOnly = true;
                 PreviewCanvas.Children.Add(CreateOverlay(placement, readOnly));
             }
         }
@@ -829,20 +1149,8 @@ namespace PDF_umbenenen
 
         private void CommitOverlayPositions()
         {
-            if (_editItem == null)
-                return;
-
-            foreach (var pair in _overlayMap)
-            {
-                var left = Canvas.GetLeft(pair.Key);
-                var top = Canvas.GetTop(pair.Key);
-                WatermarkOverlayMapper.UpdatePlacementFromCanvasTopLeft(
-                    pair.Value,
-                    left,
-                    top,
-                    _editItem.PageHeight,
-                    _scale);
-            }
+            // Nur Materialstärke (Text) darf sich ändern. Overlay-Pixel zurückrechnen
+            // würde Alignment, RAL, LT, Lieferort und Auftrag jedes Mal versetzen.
         }
 
         private void EnsureMergedPdfCurrent()
@@ -869,6 +1177,7 @@ namespace PDF_umbenenen
             SaveButton.IsEnabled = !isSaving;
             CancelEditButton.IsEnabled = !isSaving;
             CorrectButton.IsEnabled = !isSaving;
+            ChangeDateButton.IsEnabled = !isSaving;
             OpenPdfButton.IsEnabled = !isSaving;
 
             if (!string.IsNullOrWhiteSpace(hint))
@@ -884,10 +1193,12 @@ namespace PDF_umbenenen
             {
                 CommitOverlayPositions();
                 PreviewImage.Source = null;
-                PdfRasterLayoutService.ClearCache();
-                PdfLayoutAnalysisService.ClearCache();
-                PdfMaterialExtractionService.ClearCache();
-                WatermarkEditorService.SaveItem(_editItem, _editPlacements, _settings, _orderedFiles);
+                WatermarkEditorService.SaveItem(
+                    _editItem,
+                    _editPlacements,
+                    _settings,
+                    _orderedFiles,
+                    keepEditorPlacements: true);
                 _mergedPdfStale = true;
                 _editDirty = false;
                 return true;
@@ -912,7 +1223,7 @@ namespace PDF_umbenenen
 
             CommitOverlayPositions();
             PreviewImage.Source = null;
-            SetSavingState(true, "Speichere Korrektur…");
+            SetSavingState(true, "Speichere Materialstärke…");
 
             string errorMessage = null;
             try
@@ -921,10 +1232,12 @@ namespace PDF_umbenenen
                 {
                     try
                     {
-                        PdfRasterLayoutService.ClearCache();
-                        PdfLayoutAnalysisService.ClearCache();
-                        PdfMaterialExtractionService.ClearCache();
-                        WatermarkEditorService.SaveItem(item, placements, settings, _orderedFiles);
+                        WatermarkEditorService.SaveItem(
+                            item,
+                            placements,
+                            settings,
+                            _orderedFiles,
+                            keepEditorPlacements: true);
                         return null;
                     }
                     catch (Exception ex)
@@ -1026,17 +1339,9 @@ namespace PDF_umbenenen
                 return;
             }
 
-            if (!PdfPrintService.TryOpenPdfExternally(_mergedPdfPath))
-            {
-                MessageBox.Show(
-                    this,
-                    "Die Gesamt-PDF konnte nicht geöffnet werden.",
-                    "PDF öffnen",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
-
+            // Öffnen übernimmt MainWindow nach dem Verschieben (Tesla-Zielordner),
+            // damit Acrobat nicht eine bereits verschobene Ablage-Datei öffnet.
+            WasOpenedForPrint = true;
             _allowClose = true;
             Close();
         }

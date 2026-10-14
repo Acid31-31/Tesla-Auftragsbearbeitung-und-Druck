@@ -68,7 +68,7 @@ Write-Host "[1/5] Icon und Build ($Configuration) starten..."
 
 $iconPath = Join-Path $root "Assets\AppIcon.ico"
 if (-not (Test-Path $iconPath)) {
-	& powershell -ExecutionPolicy Bypass -File (Join-Path $root "create-app-icon.ps1")
+	& powershell -ExecutionPolicy Bypass -File (Join-Path $root "Skripte\Build\create-app-icon.ps1")
 	if ($LASTEXITCODE -ne 0) {
 		throw "Icon-Erstellung fehlgeschlagen."
 	}
@@ -83,7 +83,7 @@ if (Test-Path $objDir) {
 
 Write-Host "[1b/5] Build ($Configuration) startet..."
 
-$ensureTesseract = Join-Path $root "ensure-tesseract-bundle.ps1"
+$ensureTesseract = Join-Path $root "Skripte\Setup\ensure-tesseract-bundle.ps1"
 if (Test-Path $ensureTesseract) {
     Write-Host "[1a/5] Tesseract-OCR-Bundle vorbereiten..."
     & powershell -ExecutionPolicy Bypass -File $ensureTesseract -ProjectRoot $root
@@ -113,7 +113,7 @@ if (-not (Test-Path $releaseExe)) {
 }
 
 Write-Host "[1c/5] Icon in EXE erzwingen..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $root "set-exe-icon.ps1") -ExePath $releaseExe -IconPath (Join-Path $root "Assets\AppIcon.ico")
+& powershell -ExecutionPolicy Bypass -File (Join-Path $root "Skripte\Build\set-exe-icon.ps1") -ExePath $releaseExe -IconPath (Join-Path $root "Assets\AppIcon.ico")
 if ($LASTEXITCODE -ne 0) {
 	throw "Icon konnte nicht in Release-EXE gesetzt werden."
 }
@@ -123,6 +123,12 @@ if ($LASTEXITCODE -ne 0) {
 $usbRoot = Join-Path $root "USB-Version"
 
 $appFolder = Join-Path $usbRoot $productFolder
+
+$zParent = 'Z:\DOK-V01'
+$zRevFolder = Join-Path $zParent $productFolder
+$zRevZip = Join-Path $zParent $buildInfo.UsbZipName
+$backupRoot = 'Z:\Programierung\DOK-V01-Absicherung'
+$backupProgram = Join-Path $backupRoot 'Programm'
 
 
 
@@ -174,38 +180,7 @@ if (-not (Test-Path $appFolder)) {
 
 Write-Host "[3/5] Dateien werden kopiert..."
 
-Get-ChildItem $releaseDir -File | Where-Object {
-
-	$_.Extension -in @('.exe', '.dll', '.config')
-
-} | ForEach-Object {
-
-	Copy-Item $_.FullName -Destination (Join-Path $appFolder $_.Name) -Force
-
-}
-
-$iconSource = Join-Path $root "Assets\AppIcon.ico"
-if (Test-Path $iconSource) {
-	$assetsFolder = Join-Path $appFolder "Assets"
-	New-Item -ItemType Directory -Path $assetsFolder -Force | Out-Null
-	Copy-Item $iconSource (Join-Path $assetsFolder "AppIcon.ico") -Force
-	Copy-Item $iconSource (Join-Path $appFolder "AppIcon.ico") -Force
-}
-
-$licenseSource = Join-Path $root "LICENSE_DE.txt"
-if (Test-Path $licenseSource) {
-	Copy-Item $licenseSource (Join-Path $appFolder "LICENSE_DE.txt") -Force
-}
-
-$nativeSource = Join-Path $releaseDir "native"
-if (Test-Path $nativeSource) {
-	Copy-Item $nativeSource (Join-Path $appFolder "native") -Recurse -Force
-}
-
-$tesseractSource = Join-Path $releaseDir "tesseract"
-if (Test-Path $tesseractSource) {
-	Copy-Item $tesseractSource (Join-Path $appFolder "tesseract") -Recurse -Force
-}
+Copy-DokProgramPayload -ReleaseDir $releaseDir -Destination $appFolder -ProjectRoot $root
 
 
 
@@ -355,17 +330,75 @@ if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($appFolder, $zipPath)
 
+Write-Host "[4b/5] Z-Hauptordner und Absicherung..."
+New-Item -ItemType Directory -Path $zParent,$backupProgram -Force | Out-Null
+
+Get-ChildItem $zParent -Force -ErrorAction SilentlyContinue | Where-Object {
+	($_.Name -like 'DOK-V01-R*' -and $_.Name -ne $productFolder) `
+	-or ($_.Name -like 'DOK-V01-R*.zip' -and $_.Name -ne $buildInfo.UsbZipName)
+} | ForEach-Object {
+	Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+& robocopy $appFolder $zRevFolder /MIR /R:2 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) {
+	throw "Z-Kopie fehlgeschlagen (robocopy exit $LASTEXITCODE)"
+}
+Copy-Item $zipPath $zRevZip -Force
+
+& robocopy $appFolder $backupProgram /MIR /R:2 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) {
+	throw "Absicherung Programm fehlgeschlagen (robocopy exit $LASTEXITCODE)"
+}
+
+$sourceZipName = "DOK-V01-Quelle-$($buildInfo.RevisionLabel).zip"
+$sourceZipDest = Join-Path $backupRoot $sourceZipName
+$stage = Join-Path $env:TEMP "DOK-V01-Quelle-$($buildInfo.RevisionLabel)"
+if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+New-Item -ItemType Directory -Path $stage | Out-Null
+
+$excludeDirNames = @('.git', '.vs', 'bin', 'obj', 'USB-Version', 'Release-Version', 'Archive', 'Backups', 'packages', 'AI_DOK-V01', 'DOK-V01-KI')
+Get-ChildItem $root -Force | Where-Object { $_.Name -notin $excludeDirNames } | ForEach-Object {
+	Copy-Item $_.FullName -Destination (Join-Path $stage $_.Name) -Recurse -Force
+}
+$tempZip = Join-Path $env:TEMP $sourceZipName
+if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $tempZip -Force
+Copy-Item $tempZip $sourceZipDest -Force
+Remove-Item $stage -Recurse -Force
+Remove-Item $tempZip -Force
+
+Get-ChildItem $backupRoot -Filter 'DOK-V01-Quelle-*.zip' |
+	Where-Object { $_.Name -ne $sourceZipName } |
+	ForEach-Object { Remove-Item $_.FullName -Force }
+
+$readmeLines = @(
+	"DOK-V01 - Absicherung $($buildInfo.RevisionLabel)"
+	"Stand: $(Get-Date -Format 'dd.MM.yyyy HH:mm')"
+	""
+	"PROGRAMM: Programm\STARTEN.bat"
+	"USB-ORDNER: $zRevFolder"
+	"REV-ZIP: $zRevZip"
+	"QUELLCODE: $sourceZipName"
+	"PROJEKT: $root"
+)
+Set-Content -Path (Join-Path $backupRoot 'README_SICHERUNG.txt') -Value $readmeLines -Encoding UTF8
+
 
 
 Write-Host "[5/5] Explorer-Icon-Cache aktualisieren..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $root "refresh-explorer-icon-cache.ps1") -RestartExplorer
+& powershell -ExecutionPolicy Bypass -File (Join-Path $root "Skripte\Build\refresh-explorer-icon-cache.ps1") -RestartExplorer
 
 Write-Host "[6/6] Fertig"
 
-Write-Host "Ordner: $appFolder"
+Write-Host "Projekt USB:  $appFolder"
+Write-Host "Projekt ZIP:  $zipPath"
+Write-Host "Z-Hauptordner: $zRevFolder"
+Write-Host "Z-ZIP:         $zRevZip"
+Write-Host "Absicherung:   $backupRoot"
 
-Write-Host "ZIP:    $zipPath"
-
+explorer.exe $zParent
+explorer.exe $backupRoot
 explorer.exe $appFolder
 
 

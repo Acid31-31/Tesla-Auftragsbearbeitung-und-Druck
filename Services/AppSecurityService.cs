@@ -63,7 +63,52 @@ namespace PDF_umbenenen.Services
                 || host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
                 || host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase)
                 || host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
-                || host.Equals("digi.bib.uni-mannheim.de", StringComparison.OrdinalIgnoreCase);
+                || host.Equals("digi.bib.uni-mannheim.de", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("ollama.com", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("www.ollama.com", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Nur Ollama-Hersteller: ollama.com und deren offizielle Windows-Datei.</summary>
+        public static bool IsTrustedOllamaManufacturerUrl(Uri uri)
+        {
+            if (uri == null || !uri.IsAbsoluteUri)
+                return false;
+
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var host = uri.Host ?? string.Empty;
+            if (host.Equals("ollama.com", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("www.ollama.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("www.github.com", StringComparison.OrdinalIgnoreCase))
+            {
+                var path = uri.AbsolutePath ?? string.Empty;
+                return path.IndexOf("/ollama/ollama/", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+
+            return host.Equals("release-assets.githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Nur Ollama-Registry zum Prüfen des Vision-Moduls (HTTPS, library-Manifests).</summary>
+        public static bool IsTrustedOllamaRegistryUrl(Uri uri)
+        {
+            if (uri == null || !uri.IsAbsoluteUri)
+                return false;
+
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var host = uri.Host ?? string.Empty;
+            if (!host.Equals("registry.ollama.ai", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var path = uri.AbsolutePath ?? string.Empty;
+            return path.StartsWith("/v2/library/", StringComparison.OrdinalIgnoreCase);
         }
 
         public static string SanitizeFileName(string fileName)
@@ -181,6 +226,7 @@ namespace PDF_umbenenen.Services
             return TryVerifyFileSignature(filePath, out message, null);
         }
 
+        /// <summary>Prüft nur die Haupt-EXE; Paketintegrität zusätzlich per SHA256 beim Download.</summary>
         public static bool TryVerifyApplicationPackage(string packageRoot, out string message, string trustCerDirectory = null)
         {
             message = string.Empty;
@@ -201,95 +247,9 @@ namespace PDF_umbenenen.Services
             if (!TryVerifyFileSignature(mainExe, out message, cerDirectory))
                 return false;
 
-            foreach (var executablePath in Directory.GetFiles(packageRoot, "*.exe", SearchOption.AllDirectories))
-            {
-                if (string.Equals(executablePath, mainExe, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var relativePath = GetRelativePathSafe(packageRoot, executablePath);
-                if (IsThirdPartyBundledExecutable(relativePath))
-                {
-                    TryVerifyFileSignature(executablePath, out _, cerDirectory);
-                    continue;
-                }
-
-                if (!TryVerifyFileSignature(executablePath, out message, cerDirectory))
-                {
-                    message = (string.IsNullOrWhiteSpace(relativePath)
-                        ? Path.GetFileName(executablePath)
-                        : relativePath) + ": " + message;
-                    return false;
-                }
-            }
-
+            // Integrität des Pakets: SHA256 beim Download + Signatur der Haupt-EXE.
+            // Tesseract/OCR-Hilfsprogramme (ambiguous_words.exe usw.) sind Drittanbieter-Bundle.
             return true;
-        }
-
-        public static bool IsTrustedUpdateStagingDirectory(string stagedRoot)
-        {
-            if (string.IsNullOrWhiteSpace(stagedRoot))
-                return false;
-
-            try
-            {
-                var fullPath = Path.GetFullPath(stagedRoot);
-                var updatesRoot = Path.GetFullPath(Path.Combine(AppInfo.UserDataDirectory, "Updates"));
-                if (!IsPathInsideDirectory(fullPath, updatesRoot))
-                    return false;
-
-                var folderName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                return folderName.StartsWith("staging-", StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        public static bool TryVerifyFileSha256(string filePath, string expectedHex, out string message)
-        {
-            message = string.Empty;
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-            {
-                message = "Datei nicht gefunden.";
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(expectedHex))
-            {
-                message = "Erwartete Prüfsumme fehlt.";
-                return false;
-            }
-
-            var actual = ComputeSha256Hex(filePath);
-            if (!string.Equals(actual, expectedHex.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                message = "SHA256-Prüfsumme stimmt nicht überein.";
-                return false;
-            }
-
-            return true;
-        }
-
-        public static string ComputeSha256Hex(string filePath)
-        {
-            using (var stream = File.OpenRead(filePath))
-            using (var sha = System.Security.Cryptography.SHA256.Create())
-            {
-                return string.Concat(sha.ComputeHash(stream).Select(b => b.ToString("x2")));
-            }
-        }
-
-        private static bool IsThirdPartyBundledExecutable(string relativePath)
-        {
-            if (string.IsNullOrWhiteSpace(relativePath))
-                return false;
-
-            var normalized = relativePath.Replace('/', Path.DirectorySeparatorChar);
-            return normalized.StartsWith("tesseract" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                || normalized.IndexOf(
-                    Path.DirectorySeparatorChar + "tesseract" + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static string GetRelativePathSafe(string root, string fullPath)
@@ -447,8 +407,7 @@ namespace PDF_umbenenen.Services
             foreach (var file in Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
             {
                 var relative = file.Substring(sourceRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var extension = Path.GetExtension(file);
-                if (!IsApplicationFileExtension(extension))
+                if (ShouldSkipWhenCopyingInstallTree(relative))
                     continue;
 
                 var destination = Path.Combine(targetRoot, relative);
@@ -460,14 +419,35 @@ namespace PDF_umbenenen.Services
             }
         }
 
-        private static bool IsApplicationFileExtension(string extension)
+        internal static bool ShouldSkipWhenCopyingInstallTree(string relativePath)
         {
-            return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".config", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".cer", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".ico", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".token", StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(relativePath))
+                return true;
+
+            var fileName = Path.GetFileName(relativePath);
+            if (fileName.Equals(AppInfo.UsbLauncherFileName, StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals(AppInfo.UsbUninstallerFileName, StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals(AppInfo.InstallManifestFileName, StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals("paths.xml", StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals("ai-settings.xml", StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals("watermark-settings.xml", StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals("demo.xml", StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals("github.token", StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals("STARTEN.bat", StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals("DEINSTALLIEREN.bat", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var firstSep = relativePath.IndexOfAny(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar });
+            var rootSegment = firstSep < 0 ? relativePath : relativePath.Substring(0, firstSep);
+            return rootSegment.Equals("Ablage", StringComparison.OrdinalIgnoreCase)
+                || rootSegment.Equals("Updates", StringComparison.OrdinalIgnoreCase)
+                || rootSegment.Equals("Learning", StringComparison.OrdinalIgnoreCase)
+                || rootSegment.Equals("Customers", StringComparison.OrdinalIgnoreCase)
+                || rootSegment.Equals("Logs", StringComparison.OrdinalIgnoreCase)
+                || rootSegment.Equals("Data", StringComparison.OrdinalIgnoreCase)
+                || rootSegment.Equals("Backups", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

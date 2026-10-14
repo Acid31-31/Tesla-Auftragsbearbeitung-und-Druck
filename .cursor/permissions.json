@@ -1,0 +1,38 @@
+{
+  "autoRun": {
+    "allow_instructions": [
+      "Allow all MSBuild, Debug/Release builds, and starting DOK-V01.exe from bin\\Debug for preview.",
+      "Allow git status, git diff, git log, git add, git commit, and gh release/view commands for this project.",
+      "Allow PowerShell file copy/robocopy within Z:\\Programierung\\DOK-V01-Optimierung and E:\\Programierung\\PDF Sortieren.",
+      "Allow reading and comparing project source folders to restore Tesla sorting logic.",
+      "Allow publish-github-release.ps1, create-usb-version.ps1, sign-app.ps1 and related release scripts.",
+      "Allow Stop-Process for DOK-V01 and Start-Process for the Debug EXE.",
+      "Allow explorer.exe to open Release-Version and USB-Version folders under the project."
+    ],
+    "block_instructions": [
+      "Still ask before deleting or modifying anything on the user Desktop.",
+      "Still ask before git push --force, git reset --hard, or changing git config."
+    ]
+  },
+  "terminalAllowlist": [
+    "git",
+    "gh",
+    "powershell",
+    "pwsh",
+    "MSBuild",
+    "msbuild",
+    "dotnet",
+    "explorer",
+    "robocopy",
+    "Copy-Item",
+    "Get-Process",
+    "Stop-Process",
+    "Start-Process",
+    "Select-String",
+    "Get-ChildItem",
+    "Get-Content",
+    "Set-Content",
+    "Test-Path",
+    "Tee-Object"
+  ]
+}

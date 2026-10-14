@@ -1,0 +1,11 @@
+---
+description: Desktop und Festinstallation nur auf ausdrückliche Anweisung
+alwaysApply: true
+---
+
+# Desktop / Festinstallation – strikt
+
+- **Desktop des Nutzers nicht anfassen**, außer der Nutzer sagt es ausdrücklich.
+- Verboten ohne Auftrag: Desktop-Ordner lesen/ändern/löschen, Verknüpfungen umbiegen, `install-location.txt` ändern, Festinstallation kopieren/überschreiben/updaten.
+- **Vorschau** immer nur: Debug-Build → `bin\Debug\DOK-V01.exe` starten.
+- Festinstallation (z. B. Desktop-Ordner) und Debug-Vorschau strikt trennen.

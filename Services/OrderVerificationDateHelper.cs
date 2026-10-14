@@ -150,12 +150,29 @@ namespace PDF_umbenenen.Services
 
         public static bool AreEqual(string a, string b)
         {
-            var normA = NormalizeToEu(a);
-            var normB = NormalizeToEu(b);
+            var normA = StripTerminPrefix(NormalizeToEu(a));
+            var normB = StripTerminPrefix(NormalizeToEu(b));
             if (string.IsNullOrWhiteSpace(normA) || string.IsNullOrWhiteSpace(normB))
                 return true;
 
             return string.Equals(normA, normB, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string StripTerminPrefix(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var text = value.Trim();
+            if (text.StartsWith(ManufacturingTerminPrefix, StringComparison.OrdinalIgnoreCase))
+                return text.Substring(ManufacturingTerminPrefix.Length).TrimStart();
+            if (text.StartsWith(DeliveryTerminPrefix, StringComparison.OrdinalIgnoreCase))
+                return text.Substring(DeliveryTerminPrefix.Length).TrimStart();
+            if (text.StartsWith("FT:", StringComparison.OrdinalIgnoreCase)
+                || text.StartsWith("LT:", StringComparison.OrdinalIgnoreCase))
+                return text.Substring(3).TrimStart();
+
+            return text;
         }
     }
 }

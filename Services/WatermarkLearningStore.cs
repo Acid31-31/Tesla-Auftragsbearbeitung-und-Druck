@@ -22,14 +22,30 @@ namespace PDF_umbenenen.Services
 
         public static bool ShouldSuppressAutoMaterial(string drawingNumber)
         {
-            var learned = TryGet(drawingNumber);
-            if (learned == null)
-                return false;
-
-            var marker = (learned.MaterialOverride ?? string.Empty).Trim();
+            var marker = (TryGet(drawingNumber)?.MaterialOverride ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(marker))
                 return false;
 
+            return IsMaterialSuppressMarker(marker);
+        }
+
+        /// <summary>
+        /// Manuell korrigierter Material-/Stärke-Text je Zeichnungsnummer (aus Wasserzeichen-Editor).
+        /// Hat Vorrang vor OCR/Regel-Erkennung beim nächsten Sortieren.
+        /// </summary>
+        public static bool TryGetMaterialOverrideText(string drawingNumber, out string materialText)
+        {
+            materialText = null;
+            var marker = (TryGet(drawingNumber)?.MaterialOverride ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(marker) || IsMaterialSuppressMarker(marker))
+                return false;
+
+            materialText = marker;
+            return true;
+        }
+
+        private static bool IsMaterialSuppressMarker(string marker)
+        {
             return string.Equals(marker, "-", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(marker, "none", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(marker, "off", StringComparison.OrdinalIgnoreCase)
@@ -132,6 +148,9 @@ namespace PDF_umbenenen.Services
 
                 if (string.Equals(learnedPlacement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(learnedPlacement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "Brushed", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(learnedPlacement.Category, "Material", StringComparison.OrdinalIgnoreCase))
                     continue;
 
@@ -243,7 +262,10 @@ namespace PDF_umbenenen.Services
                     continue;
 
                 if (string.Equals(learnedPlacement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(learnedPlacement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(learnedPlacement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(learnedPlacement.Category, "Brushed", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var target = placements.FirstOrDefault(p =>
@@ -315,7 +337,10 @@ namespace PDF_umbenenen.Services
                     continue;
 
                 if (string.Equals(categoryDefault.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(categoryDefault.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(categoryDefault.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(categoryDefault.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(categoryDefault.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(categoryDefault.Category, "Brushed", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 if (!applyLayoutCategories && IsLayoutOnlyCategory(categoryDefault.Category))
@@ -542,7 +567,10 @@ namespace PDF_umbenenen.Services
             // Material: feste Unterkante wie Seitenzahl – keine gelernten Y-Koordinaten,
             // wenn der Nutzer „Unten links“ gewählt hat (wird separat erzwungen).
             if (string.Equals(category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(category, "Brushed", StringComparison.OrdinalIgnoreCase))
                 return true;
 
             if (includeLayoutCategories)
@@ -555,7 +583,10 @@ namespace PDF_umbenenen.Services
         {
             return string.Equals(category, "Material", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase);
+                   || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Brushed", StringComparison.OrdinalIgnoreCase);
         }
 
         public static void PurgeNonLearnableCategoryDefaults()

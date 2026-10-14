@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using PDF_umbenenen.Services;
 
 namespace PDF_umbenenen
 {
@@ -14,8 +16,8 @@ namespace PDF_umbenenen
         public const string IconFileName = "AppIcon.ico";
 
         public const string VersionLabel = "1.1";
-        public const string RevisionLabel = "R62";
-        public const string BuildDate = "29.08.2026";
+        public const string RevisionLabel = "R87";
+        public const string BuildDate = "14.10.2026";
 
 #if ENTERPRISE
         public const bool IsDemoEdition = false;
@@ -23,9 +25,15 @@ namespace PDF_umbenenen
         public const bool IsDemoEdition = true;
 #endif
 
-        public const int DemoPeriodDays = 90;
+        public const int DemoPeriodDays = 180;
 
-        public const int VersionBuild = 62;
+        /// <summary>
+        /// Einmaliger Demo-Neustart mit dieser Revision (auch abgelaufene Installationen).
+        /// Spätere Revisionen ändern den Schlüssel nicht, sonst würde die Frist jedes Update neu starten.
+        /// </summary>
+        public const string DemoTrialResetKey = "R82";
+
+        public const int VersionBuild = 87;
 
 #if DEBUG
         public const bool RequireCodeSignature = false;
@@ -165,6 +173,56 @@ namespace PDF_umbenenen
                 && File.Exists(Path.Combine(directory, ExeFileName));
         }
 
+        /// <summary>
+        /// Zielordner für Auto-Updates: aktuelle Installation oder registrierter Pointer (Desktop-Ordner).
+        /// </summary>
+        public static string TryResolveUpdateTargetDirectory()
+        {
+            var current = GetApplicationDirectory();
+            if (IsRegisteredInstallDirectory(current))
+                return Path.GetFullPath(current);
+
+            try
+            {
+                if (File.Exists(InstallPointerPath))
+                {
+                    var pointerPath = File.ReadAllText(InstallPointerPath).Trim();
+                    if (!string.IsNullOrWhiteSpace(pointerPath))
+                    {
+                        pointerPath = Path.GetFullPath(pointerPath);
+                        if (File.Exists(Path.Combine(pointerPath, ExeFileName)))
+                        {
+                            EnsureInstallManifest(pointerPath);
+                            if (IsRegisteredInstallDirectory(pointerPath))
+                                return pointerPath;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            var legacyProgramFiles = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                ProductName);
+            if (IsRegisteredInstallDirectory(legacyProgramFiles))
+                return Path.GetFullPath(legacyProgramFiles);
+
+            return null;
+        }
+
+        private static void EnsureInstallManifest(string installDirectory)
+        {
+            if (IsRegisteredInstallDirectory(installDirectory))
+                return;
+
+            if (!File.Exists(Path.Combine(installDirectory, ExeFileName)))
+                return;
+
+            InstallRegistrationService.RegisterSuccessfulInstall(installDirectory);
+        }
+
         public static string GetInstalledExePath()
         {
             var registered = TryReadRegisteredInstallDirectory();
@@ -175,10 +233,41 @@ namespace PDF_umbenenen
                     return registeredExe;
             }
 
+            // Auch ohne install.manifest: gespeicherten Installationspointer bevorzugen
+            // (sonst überschreibt Debug-Start die Desktop-Verknüpfung mit bin\Debug).
+            try
+            {
+                if (File.Exists(InstallPointerPath))
+                {
+                    var pointerPath = File.ReadAllText(InstallPointerPath).Trim();
+                    if (!string.IsNullOrWhiteSpace(pointerPath))
+                    {
+                        var pointerExe = Path.Combine(Path.GetFullPath(pointerPath), ExeFileName);
+                        if (File.Exists(pointerExe) && !IsDevelopmentBuildPath(pointerExe))
+                            return pointerExe;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
             var current = Assembly.GetExecutingAssembly().Location;
             return string.IsNullOrWhiteSpace(current)
                 ? Path.Combine(DefaultInstallDirectory, ExeFileName)
                 : current;
+        }
+
+        public static bool IsDevelopmentBuildPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            var full = Path.GetFullPath(path);
+            return full.IndexOf("\\bin\\Debug\\", StringComparison.OrdinalIgnoreCase) >= 0
+                   || full.IndexOf("\\bin\\Release\\", StringComparison.OrdinalIgnoreCase) >= 0
+                   || full.IndexOf("/bin/Debug/", StringComparison.OrdinalIgnoreCase) >= 0
+                   || full.IndexOf("/bin/Release/", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         public static bool IsProtectedInstallDirectory(string directory)
@@ -212,6 +301,148 @@ namespace PDF_umbenenen
 
         public static string WindowTitleSuffix => " v" + DisplayVersion;
 
+        /// <summary>Externer KI-Ordner (Ollama), nie im Update-ZIP – neben dem DOK-Programmordner.</summary>
+        public const string KiFolderName = "AI_DOK-V01";
+
+        /// <summary>Standardpfad: Geschwisterordner zur EXE (z. B. …\DOK-V01-R68\ + …\AI_DOK-V01\).</summary>
+        public static string GetDefaultPortableKiDirectory()
+        {
+            var found = TryFindPortableAiDirectory();
+            if (!string.IsNullOrWhiteSpace(found))
+                return found;
+
+            var appDir = GetApplicationDirectory();
+            if (string.IsNullOrWhiteSpace(appDir))
+                return Path.Combine(Environment.CurrentDirectory, KiFolderName);
+
+            var anchor = ResolvePortableKiAnchorDirectory(appDir);
+            var dokRoot = @"Z:\DOK-V01";
+            if (Directory.Exists(Path.Combine(dokRoot, KiFolderName)))
+                return Path.Combine(dokRoot, KiFolderName);
+
+            var parent = Directory.GetParent(anchor);
+            if (parent != null)
+                return Path.Combine(parent.FullName, KiFolderName);
+
+            return Path.Combine(anchor, KiFolderName);
+        }
+
+        public static string TryFindPortableAiDirectory()
+        {
+            foreach (var candidate in EnumeratePortableKiCandidates())
+            {
+                if (HasPortableAiLayout(candidate))
+                    return Path.GetFullPath(candidate);
+            }
+
+            return null;
+        }
+
+        public static bool HasPortableAiLayout(string directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+                return false;
+
+            try
+            {
+                var root = Path.GetFullPath(directory);
+                return File.Exists(Path.Combine(root, "ollama.exe"))
+                       || File.Exists(Path.Combine(root, "ollama", "ollama.exe"));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static string NormalizePortableKiPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            try
+            {
+                return Path.GetFullPath(path.Trim());
+            }
+            catch
+            {
+                return path.Trim();
+            }
+        }
+
+        private static string ResolvePortableKiAnchorDirectory(string appDirectory)
+        {
+            var full = Path.GetFullPath(appDirectory);
+            var leaf = Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.Equals(leaf, "Debug", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(leaf, "Release", StringComparison.OrdinalIgnoreCase))
+            {
+                var bin = Directory.GetParent(full);
+                var project = bin?.Parent;
+                if (project != null)
+                    return project.FullName;
+            }
+
+            return full;
+        }
+
+        private static IEnumerable<string> EnumeratePortableKiCandidates()
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var list = new List<string>();
+            void Offer(string path)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    return;
+                try
+                {
+                    var full = Path.GetFullPath(path);
+                    if (seen.Add(full))
+                        list.Add(full);
+                }
+                catch
+                {
+                }
+            }
+
+            var appDir = GetApplicationDirectory();
+            if (!string.IsNullOrWhiteSpace(appDir))
+            {
+                var anchor = ResolvePortableKiAnchorDirectory(appDir);
+                Offer(Path.Combine(anchor, KiFolderName));
+                var parent = Directory.GetParent(anchor);
+                if (parent != null)
+                    Offer(Path.Combine(parent.FullName, KiFolderName));
+
+                // …\DOK-V01\DOK-V01-Rxx\ → …\DOK-V01\AI_DOK-V01
+                var walk = new DirectoryInfo(appDir);
+                for (var i = 0; i < 6 && walk != null; i++)
+                {
+                    Offer(Path.Combine(walk.FullName, KiFolderName));
+                    Offer(Path.Combine(walk.FullName, "DOK-V01", KiFolderName));
+                    if (walk.Parent != null)
+                    {
+                        Offer(Path.Combine(walk.Parent.FullName, KiFolderName));
+                        Offer(Path.Combine(walk.Parent.FullName, "DOK-V01", KiFolderName));
+                    }
+                    walk = walk.Parent;
+                }
+            }
+
+            Offer(@"Z:\DOK-V01\" + KiFolderName);
+
+            var installDir = TryReadRegisteredInstallDirectory();
+            if (!string.IsNullOrWhiteSpace(installDir))
+            {
+                Offer(Path.Combine(installDir, KiFolderName));
+                var installParent = Directory.GetParent(installDir);
+                if (installParent != null)
+                    Offer(Path.Combine(installParent.FullName, KiFolderName));
+            }
+
+            return list;
+        }
+
         public static string GetIconPath()
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -231,6 +462,7 @@ namespace PDF_umbenenen
         }
     }
 }
+
 
 
 

@@ -9,7 +9,7 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ([string]::IsNullOrWhiteSpace($SourceInstall)) {
     . (Join-Path $root "Get-DokBuildRevision.ps1")
     $buildInfo = Get-DokRevisionFromAssembly -Root $root
-    $SourceInstall = Join-Path $root ("USB-Version\" + $buildInfo.ProductFolder)
+    $SourceInstall = Join-Path "Z:\DOK-V01" $buildInfo.ProductFolder
 }
 
 $testRoot = Join-Path $env:TEMP "DOK-V01-UpdateTest"

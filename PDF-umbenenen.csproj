@@ -77,6 +77,8 @@
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
+    <Reference Include="ReachFramework" />
+    <Reference Include="System.Printing" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml">
@@ -118,7 +120,16 @@
     <Page Include="PDF-umbenenen\OrderVerificationReportWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="PDF-umbenenen\GeoSettingsWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PDF-umbenenen\GeoCollectWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="PDF-umbenenen\NewCustomerWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PDF-umbenenen\CustomerSortPreviewWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PDF-umbenenen\ManageCustomersWindow.xaml">
@@ -140,6 +151,18 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PDF-umbenenen\UpdateAvailableWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PDF-umbenenen\TesseractUpdateWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PDF-umbenenen\OllamaUpdateWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PDF-umbenenen\DrawingVisionUpdateWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PDF-umbenenen\DeliveryDateChangeWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PDF-umbenenen\UpdateApplyProgressWindow.xaml">
@@ -214,6 +237,9 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Compile Include="Services\UserSettingsPath.cs" />
+    <Compile Include="Services\GeoSettingsStore.cs" />
+    <Compile Include="Services\FolderPickerService.cs" />
+    <Compile Include="Services\GeoFileSearchService.cs" />
     <Compile Include="Services\Cli\TesseractCliService.cs" />
     <Compile Include="Platform\Modules\Cli\LocalCliModules.cs" />
     <Compile Include="Services\PlatformDocumentService.cs" />
@@ -221,6 +247,8 @@
     <Compile Include="Services\MaterialThicknessHybridResolver.cs" />
     <Compile Include="Services\ThicknessCandidateResolver.cs" />
     <Compile Include="Services\PdfThreeViewThicknessService.cs" />
+    <Compile Include="Services\DrawingThicknessRecognitionService.cs" />
+    <Compile Include="Services\DrawingVisionRecognitionService.cs" />
     <Compile Include="Services\MaterialAlloyClassifier.cs" />
     <Compile Include="Services\PdfSurfaceTreatmentExtractionService.cs" />
     <Compile Include="Services\PdfMaterialExtractionService.cs" />
@@ -233,6 +261,9 @@
     <Compile Include="Services\WatermarkMetadataStore.cs" />
     <Compile Include="Services\WatermarkLearningStore.cs" />
     <Compile Include="Services\WatermarkEditorService.cs" />
+    <Compile Include="Services\DeliveryDateRewriteService.cs" />
+    <Compile Include="Services\DrawingReplacementService.cs" />
+    <Compile Include="Services\OutlookAttachmentDropService.cs" />
     <Compile Include="Services\PdfPrintService.cs" />
     <Compile Include="Services\WatermarkOverlayMapper.cs" />
     <Compile Include="Services\WatermarkPageScale.cs" />
@@ -252,6 +283,9 @@
     <Compile Include="Services\NativeDependencyService.cs" />
     <Compile Include="Services\MaterialExtractionDiagnostics.cs" />
     <Compile Include="Services\TesseractInstallService.cs" />
+    <Compile Include="Services\TesseractUpdateCheckService.cs" />
+    <Compile Include="Services\OllamaUpdateCheckService.cs" />
+    <Compile Include="Services\DrawingVisionUpdateCheckService.cs" />
     <Compile Include="Services\TesseractBootstrapService.cs" />
     <Compile Include="Services\InstallRegistrationService.cs" />
     <Compile Include="Services\AppSecurityService.cs" />
@@ -270,11 +304,15 @@
     <Compile Include="Models\MergedPdfPageEntry.cs" />
     <Compile Include="Models\WatermarkLearningModels.cs" />
     <Compile Include="Models\CustomerProfile.cs" />
+    <Compile Include="Models\CustomerSortPreviewLine.cs" />
     <Compile Include="Services\CustomerProfileStore.cs" />
     <Compile Include="Services\CustomerProfileSettingsStore.cs" />
     <Compile Include="Services\CustomerProfilePatternBuilder.cs" />
     <Compile Include="Services\CustomerProfileDetectionService.cs" />
     <Compile Include="Services\CustomerProfileLearningService.cs" />
+    <Compile Include="Services\CustomerProfileDrawingMatcher.cs" />
+    <Compile Include="Services\CustomerProfileDescriptionParser.cs" />
+    <Compile Include="Services\CustomerOnboardingStagingService.cs" />
     <Compile Include="Services\CustomerOrderListParser.cs" />
     <Compile Include="Models\AiChatMessage.cs" />
     <Compile Include="Models\AiExcelRowInfo.cs" />
@@ -297,6 +335,8 @@
     <Compile Include="Services\DataBackupService.cs" />
     <Compile Include="Services\DemoLicenseService.cs" />
     <Compile Include="Services\LicenseActivationService.cs" />
+    <Compile Include="Services\OrderPdfPrintTrimService.cs" />
+    <Compile Include="Services\ExcelPrintExportService.cs" />
     <Compile Include="Services\OrderVerificationPdfParser.cs" />
     <Compile Include="Services\OrderExcelVerificationService.cs" />
     <Compile Include="Services\OrderVerificationFileHelper.cs" />
@@ -313,7 +353,16 @@
     <Compile Include="Services\Ai\AiSettingsStore.cs" />
     <Compile Include="Services\Ai\AiTextHelper.cs" />
     <Compile Include="Services\Ai\IAiBackend.cs" />
+    <Compile Include="Services\Ai\OllamaUrlHelper.cs" />
+    <Compile Include="Services\Ai\LocalLlmUrlHelper.cs" />
+    <Compile Include="Services\Ai\OllamaAiBackend.cs" />
+    <Compile Include="Services\Ai\OpenAiCompatibleBackend.cs" />
+    <Compile Include="Services\OllamaPortableService.cs" />
     <Compile Include="Services\Ai\OfflineAiOrchestrator.cs" />
+    <Compile Include="Services\CustomerProfileEditorChatService.cs" />
+    <Compile Include="Services\CustomerAiAgentService.cs" />
+    <Compile Include="Services\CustomerProfileLlmService.cs" />
+    <Compile Include="Services\CustomerProfileChatService.cs" />
     <Compile Include="Services\Ai\PdfTextExtractionService.cs" />
     <Compile Include="Services\Ai\RuleBasedFallback.cs" />
     <Compile Include="Services\Ai\SimpleJsonHelper.cs" />
@@ -338,8 +387,17 @@
     <Compile Include="PDF-umbenenen\OrderVerificationReportWindow.xaml.cs">
       <DependentUpon>OrderVerificationReportWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="PDF-umbenenen\GeoSettingsWindow.xaml.cs">
+      <DependentUpon>GeoSettingsWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\GeoCollectWindow.xaml.cs">
+      <DependentUpon>GeoCollectWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="PDF-umbenenen\NewCustomerWindow.xaml.cs">
       <DependentUpon>NewCustomerWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\CustomerSortPreviewWindow.xaml.cs">
+      <DependentUpon>CustomerSortPreviewWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="PDF-umbenenen\ManageCustomersWindow.xaml.cs">
       <DependentUpon>ManageCustomersWindow.xaml</DependentUpon>
@@ -361,6 +419,18 @@
     </Compile>
     <Compile Include="PDF-umbenenen\UpdateAvailableWindow.xaml.cs">
       <DependentUpon>UpdateAvailableWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\TesseractUpdateWindow.xaml.cs">
+      <DependentUpon>TesseractUpdateWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\OllamaUpdateWindow.xaml.cs">
+      <DependentUpon>OllamaUpdateWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\DrawingVisionUpdateWindow.xaml.cs">
+      <DependentUpon>DrawingVisionUpdateWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PDF-umbenenen\DeliveryDateChangeWindow.xaml.cs">
+      <DependentUpon>DeliveryDateChangeWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="PDF-umbenenen\UpdateApplyProgressWindow.xaml.cs">
       <DependentUpon>UpdateApplyProgressWindow.xaml</DependentUpon>
@@ -389,15 +459,15 @@
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
-    <None Include="BEDIENUNGSANLEITUNG.md" />
-    <None Include="create-selfsigned-cert.ps1" />
+    <None Include="Dokumentation\Handbuch\BEDIENUNGSANLEITUNG.md" />
+    <None Include="Skripte\Setup\create-selfsigned-cert.ps1" />
     <None Include="create-usb-version.ps1" />
     <None Include="sign-app.ps1" />
-    <None Include="sign-app-commercial.ps1" />
+    <None Include="Skripte\Release\sign-app-commercial.ps1" />
     <None Include="publish-github-release.ps1" />
-    <None Include="install-docnet.ps1" />
-    <None Include="install-itextsharp.ps1" />
-    <None Include="install-trusted-cert.ps1" />
+    <None Include="Skripte\Setup\install-docnet.ps1" />
+    <None Include="Skripte\Setup\install-itextsharp.ps1" />
+    <None Include="Skripte\Setup\install-trusted-cert.ps1" />
     <Content Include="CodeSigning.cer" Condition="Exists('CodeSigning.cer')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

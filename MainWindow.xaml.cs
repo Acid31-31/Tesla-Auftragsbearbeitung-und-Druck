@@ -34,6 +34,9 @@ namespace PDF_umbenenen
         private System.Windows.Controls.TextBox OrderVerificationPdfPathBox => FindName("OrderVerificationPdfPathTextBox") as System.Windows.Controls.TextBox;
         private System.Windows.Controls.CheckBox WatermarkEnabledCheckBoxBox => FindName("WatermarkEnabledCheckBox") as System.Windows.Controls.CheckBox;
         private string _orderVerificationPdfPath = string.Empty;
+        /// <summary>Optionaler Originalname der Bestelldatei beim Zurücklegen (Tesla-Bestellordner).</summary>
+        private string _orderReturnFileName = string.Empty;
+        private CustomerProfile _detectedCustomerProfile;
         private IList<OrderVerificationLine> _cachedOrderVerificationLines;
         private OrderVerificationReport _cachedOrderVerificationReport;
         private IList<OrderExcelRow> _cachedOrderVerificationExcelRows;
@@ -69,8 +72,21 @@ namespace PDF_umbenenen
         private string _lastMergedPdfPath;
         private List<ExcelRowCandidate> _cachedVerificationExcelRows;
         private string _cachedVerificationExcelPath;
+        private string _cachedVerificationExcelProfileId;
         private readonly Dictionary<string, string> _manualDeliveryDateOverrides =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private bool _skipNextOrderVerification;
+        private bool _openEditPreviewAfterSuccessfulSort;
+        private bool _pendingGeoSearchAfterPrint;
+        private IList<OrderExcelRow> _geoSearchExcelRows;
+        private string _geoSearchOrderNumber = string.Empty;
+        private string _geoSearchPdfFolder = string.Empty;
+        private bool _lastVerificationProceeded;
+        private bool _skipRemainingUpdates;
+        private bool _updateOfferedThisPass;
+        private bool _updateCheckHadError;
+
+        internal OfflineAiOrchestrator AiOrchestrator => _aiOrchestrator;
 
         public MainWindow()
         {
@@ -121,8 +137,11 @@ namespace PDF_umbenenen
             UpdateStopwatchDisplay();
         }
 
-        private async Task CheckForUpdatesAsync(bool showIfCurrent)
+        private async Task CheckForUpdatesAsync(bool showIfCurrent, bool suppressUpToDateMessage = false)
         {
+            if (_skipRemainingUpdates)
+                return;
+
             try
             {
                 if (showIfCurrent)
@@ -134,6 +153,7 @@ namespace PDF_umbenenen
 
                 if (!string.IsNullOrWhiteSpace(update.ErrorMessage))
                 {
+                    _updateCheckHadError = true;
                     if (showIfCurrent)
                     {
                         AppendStatus("ℹ Update-Prüfung: " + update.ErrorMessage);
@@ -157,10 +177,11 @@ namespace PDF_umbenenen
                     };
                     ThemeWindowService.Attach(dialog);
                     dialog.ShowDialog();
+                    RememberUpdateDialogClosed(dialog.Postponed);
                     return;
                 }
 
-                if (showIfCurrent)
+                if (showIfCurrent && !suppressUpToDateMessage)
                 {
                     var installed = AppInfo.DisplayVersion + " (Build " + AppInfo.ApplicationVersion.Build + ")";
                     var remote = string.IsNullOrWhiteSpace(update.ReleaseTag)
@@ -187,6 +208,7 @@ namespace PDF_umbenenen
             }
             catch (Exception ex)
             {
+                _updateCheckHadError = true;
                 if (showIfCurrent)
                 {
                     AppendStatus("ℹ Update-Prüfung fehlgeschlagen: " + ex.Message);
@@ -205,6 +227,144 @@ namespace PDF_umbenenen
             }
         }
 
+        private async Task CheckForTesseractUpdatesAsync(bool showIfCurrent)
+        {
+            if (_skipRemainingUpdates)
+                return;
+
+            try
+            {
+                var info = await TesseractUpdateCheckService.CheckAsync().ConfigureAwait(true);
+                if (info == null)
+                    return;
+
+                if (info.NewerAvailable)
+                {
+                    AppendStatus("⬆ Tesseract-Update verfügbar: " + info.LatestVersion);
+                    var dialog = new TesseractUpdateWindow(info)
+                    {
+                        Owner = this,
+                        WindowStartupLocation = WindowStartupLocation.CenterOwner
+                    };
+                    ThemeWindowService.Attach(dialog);
+                    dialog.ShowDialog();
+                    RememberUpdateDialogClosed(dialog.Postponed);
+                    if (dialog.Updated)
+                        AppendStatus("✓ Tesseract aktualisiert auf " + info.LatestVersion);
+                    return;
+                }
+
+                if (showIfCurrent)
+                {
+                    var installed = string.IsNullOrWhiteSpace(info.InstalledVersion)
+                        ? "nicht gefunden"
+                        : info.InstalledVersion;
+                    var latest = string.IsNullOrWhiteSpace(info.LatestVersion)
+                        ? "unbekannt"
+                        : info.LatestVersion;
+                    AppendStatus("✓ Tesseract-Prüfung: " + installed + " (neueste: " + latest + ")");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (showIfCurrent)
+                    AppendStatus("ℹ Tesseract-Prüfung fehlgeschlagen: " + ex.Message);
+            }
+        }
+
+        private async Task CheckForDrawingVisionUpdatesAsync(bool showIfCurrent)
+        {
+            if (_skipRemainingUpdates)
+                return;
+
+            try
+            {
+                var info = await DrawingVisionUpdateCheckService.CheckAsync().ConfigureAwait(true);
+                if (info == null)
+                    return;
+
+                if (info.NewerAvailable)
+                {
+                    AppendStatus("⬆ Zeichnungs-Vision-Update verfügbar: " + info.ModuleDisplayName);
+                    var dialog = new DrawingVisionUpdateWindow(info)
+                    {
+                        Owner = this,
+                        WindowStartupLocation = WindowStartupLocation.CenterOwner
+                    };
+                    ThemeWindowService.Attach(dialog);
+                    dialog.ShowDialog();
+                    RememberUpdateDialogClosed(dialog.Postponed);
+                    if (dialog.Updated)
+                        AppendStatus("✓ Zeichnungs-Vision aktualisiert (" + info.ModuleDisplayName + ")");
+                    return;
+                }
+
+                if (showIfCurrent)
+                {
+                    var installed = string.IsNullOrWhiteSpace(info.InstalledVersion)
+                        ? "nicht gefunden"
+                        : info.InstalledVersion;
+                    var latest = string.IsNullOrWhiteSpace(info.LatestVersion)
+                        ? "unbekannt"
+                        : info.LatestVersion;
+                    AppendStatus("✓ Zeichnungs-Vision-Prüfung: " + installed + " (neueste: " + latest + ")");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (showIfCurrent)
+                    AppendStatus("ℹ Zeichnungs-Vision-Prüfung fehlgeschlagen: " + ex.Message);
+            }
+        }
+
+        private async Task CheckForOllamaUpdatesAsync(bool showIfCurrent)
+        {
+            if (_skipRemainingUpdates)
+                return;
+
+            try
+            {
+                if (!OllamaUpdateCheckService.ShouldOfferRuntimeUpdate())
+                    return;
+
+                var info = await OllamaUpdateCheckService.CheckAsync().ConfigureAwait(true);
+                if (info == null)
+                    return;
+
+                if (info.NewerAvailable)
+                {
+                    AppendStatus("⬆ KI-Update verfügbar: Ollama " + info.LatestVersion);
+                    var dialog = new OllamaUpdateWindow(info)
+                    {
+                        Owner = this,
+                        WindowStartupLocation = WindowStartupLocation.CenterOwner
+                    };
+                    ThemeWindowService.Attach(dialog);
+                    dialog.ShowDialog();
+                    RememberUpdateDialogClosed(dialog.Postponed);
+                    if (dialog.Updated)
+                        AppendStatus("✓ Ollama aktualisiert auf " + info.LatestVersion);
+                    return;
+                }
+
+                if (showIfCurrent && info.FolderFound)
+                {
+                    var installed = string.IsNullOrWhiteSpace(info.InstalledVersion)
+                        ? "unbekannt"
+                        : info.InstalledVersion;
+                    var latest = string.IsNullOrWhiteSpace(info.LatestVersion)
+                        ? "unbekannt"
+                        : info.LatestVersion;
+                    AppendStatus("✓ KI-Prüfung: Ollama " + installed + " (neueste: " + latest + ")");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (showIfCurrent)
+                    AppendStatus("ℹ KI-Prüfung fehlgeschlagen: " + ex.Message);
+            }
+        }
+
         private async void CheckForUpdatesMenu_Click(object sender, RoutedEventArgs e)
         {
             await CheckForUpdatesFromUiAsync();
@@ -215,11 +375,35 @@ namespace PDF_umbenenen
             await CheckForUpdatesFromUiAsync();
         }
 
+        private void RememberUpdateDialogClosed(bool postponed)
+        {
+            _updateOfferedThisPass = true;
+            if (postponed)
+                _skipRemainingUpdates = true;
+        }
+
         private async Task CheckForUpdatesFromUiAsync()
         {
-            AppendStatus("Prüfe GitHub auf Updates…");
+            _skipRemainingUpdates = false;
+            _updateOfferedThisPass = false;
+            _updateCheckHadError = false;
+            AppendStatus("Prüfe Updates (DOK, Tesseract, Zeichnungs-Vision, große KI)…");
             GitHubUpdateService.EnsureUpdateTokenFromInstallFolder();
-            await CheckForUpdatesAsync(showIfCurrent: true);
+            await CheckForUpdatesAsync(showIfCurrent: true, suppressUpToDateMessage: true);
+            if (!_skipRemainingUpdates)
+                await CheckForTesseractUpdatesAsync(showIfCurrent: true);
+            if (!_skipRemainingUpdates)
+                await CheckForDrawingVisionUpdatesAsync(showIfCurrent: true);
+            if (!_skipRemainingUpdates)
+                await CheckForOllamaUpdatesAsync(showIfCurrent: true);
+
+            if (_updateOfferedThisPass || _updateCheckHadError || _skipRemainingUpdates)
+                return;
+
+            var message = "Keine neueren Updates gefunden.\n\n"
+                + "Geprüft: DOK (GitHub), Tesseract, Zeichnungs-Vision und große KI.";
+            AppendStatus("✓ Update-Prüfung: keine neueren Updates.");
+            MessageBox.Show(this, message, "Update-Prüfung", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -245,8 +429,17 @@ namespace PDF_umbenenen
             }
 
             await Task.Delay(TimeSpan.FromSeconds(12)).ConfigureAwait(true);
+            _skipRemainingUpdates = false;
+            _updateOfferedThisPass = false;
+            _updateCheckHadError = false;
             if (IsLoaded)
                 await CheckForUpdatesAsync(showIfCurrent: false);
+            if (IsLoaded && !_skipRemainingUpdates)
+                await CheckForTesseractUpdatesAsync(showIfCurrent: false);
+            if (IsLoaded && !_skipRemainingUpdates)
+                await CheckForDrawingVisionUpdatesAsync(showIfCurrent: false);
+            if (IsLoaded && !_skipRemainingUpdates)
+                await CheckForOllamaUpdatesAsync(showIfCurrent: false);
         }
 
         private void InitializeAiServices()
@@ -329,10 +522,19 @@ namespace PDF_umbenenen
             _aiOrchestrator.Settings.TesseractPath = dlg.Settings.TesseractPath;
             _aiOrchestrator.Settings.OcrLanguages = dlg.Settings.OcrLanguages;
             _aiOrchestrator.Settings.LocalVisionEnabled = dlg.Settings.LocalVisionEnabled;
+            _aiOrchestrator.Settings.DrawingVisionEnabled = dlg.Settings.DrawingVisionEnabled;
+            _aiOrchestrator.Settings.LocalLlmBaseUrl = dlg.Settings.LocalLlmBaseUrl;
+            _aiOrchestrator.Settings.LocalLlmModel = dlg.Settings.LocalLlmModel;
+            _aiOrchestrator.Settings.LocalLlmApiKey = dlg.Settings.LocalLlmApiKey;
+            _aiOrchestrator.Settings.OllamaEnabled = dlg.Settings.OllamaEnabled;
+            _aiOrchestrator.Settings.OllamaBaseUrl = dlg.Settings.OllamaBaseUrl;
+            _aiOrchestrator.Settings.OllamaModel = dlg.Settings.OllamaModel;
+            _aiOrchestrator.Settings.OllamaUsePortableFolder = dlg.Settings.OllamaUsePortableFolder;
+            _aiOrchestrator.Settings.OllamaPortableDirectory = dlg.Settings.OllamaPortableDirectory;
             _aiOrchestrator.SaveSettings();
             RefreshAiMenuToggle();
             await RefreshAiStatusAsync();
-            AppendStatus("KI-Einstellungen gespeichert.");
+            AppendStatus("KI-Einstellungen gespeichert. " + _aiOrchestrator.GetStatusText());
         }
 
         private void WatermarkSettingsMenu_Click(object sender, RoutedEventArgs e)
@@ -351,7 +553,7 @@ namespace PDF_umbenenen
                 return;
 
             _watermarkSettings.WatermarksEnabled = dlg.Settings.WatermarksEnabled;
-            _watermarkSettings.UseSmartPlacement = dlg.Settings.UseSmartPlacement;
+            _watermarkSettings.UseSmartPlacement = true;
             _watermarkSettings.ExtractMaterialType = dlg.Settings.ExtractMaterialType;
             _watermarkSettings.ExtractMaterialThickness = dlg.Settings.ExtractMaterialThickness;
             _watermarkSettings.MaterialThicknessPlacement = MaterialThicknessPlacement.BottomLeftFixed;
@@ -392,8 +594,21 @@ namespace PDF_umbenenen
                 ? SearchOption.AllDirectories
                 : SearchOption.TopDirectoryOnly;
 
-            var orderedFiles = GetMergeCandidateFiles(pdfFolder, searchOption);
-            if (orderedFiles.Count == 0)
+            string orderTrimStatus;
+            var orderedFiles = BuildMergeFileListWithOrderPdf(
+                pdfFolder,
+                searchOption,
+                out orderTrimStatus,
+                ExcelPathBox?.Text?.Trim());
+            if (!string.IsNullOrWhiteSpace(orderTrimStatus))
+                AppendStatus("ℹ " + orderTrimStatus);
+            if (orderedFiles.Count == 0
+                || !orderedFiles.Any(f =>
+                {
+                    var n = Path.GetFileName(f);
+                    return !n.StartsWith("_BESTELLUNG_", StringComparison.OrdinalIgnoreCase)
+                           && !n.StartsWith("_EXCEL_", StringComparison.OrdinalIgnoreCase);
+                }))
             {
                 MessageBox.Show(
                     this,
@@ -451,11 +666,297 @@ namespace PDF_umbenenen
             var dlg = new NewCustomerWindow
             {
                 Owner = this,
+                HostMainWindow = this,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner
             };
             ThemeWindowService.Attach(dlg);
             if (dlg.ShowDialog() == true)
                 AppendStatus("ℹ Neues Kundenprofil gespeichert. Beim Sortieren wird der Kunde automatisch erkannt.");
+        }
+
+        internal string GetCurrentExcelPathForPreview(string pdfFolder = null)
+        {
+            var folder = string.IsNullOrWhiteSpace(pdfFolder)
+                ? PathStore.Load().PdfFolder
+                : pdfFolder;
+            return ResolvePreviewExcelPath(folder, ExcelPathBox?.Text?.Trim());
+        }
+
+        internal string GetCurrentOrderPdfPathForPreview(string pdfFolder = null)
+        {
+            var folder = string.IsNullOrWhiteSpace(pdfFolder)
+                ? PathStore.Load().PdfFolder
+                : pdfFolder;
+            return ResolvePreviewOrderPdfPath(folder);
+        }
+
+        private string ResolvePreviewExcelPath(string pdfFolder, string preferred)
+        {
+            if (!string.IsNullOrWhiteSpace(preferred) && File.Exists(preferred))
+                return preferred;
+
+            if (!string.IsNullOrWhiteSpace(pdfFolder) && Directory.Exists(pdfFolder))
+            {
+                var resolved = ExcelDeliveryDateMergeService.ResolvePrimaryExcelPath(pdfFolder);
+                if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved))
+                    return resolved;
+            }
+
+            var fromStore = PathStore.Load().ExcelPath;
+            if (!string.IsNullOrWhiteSpace(fromStore) && File.Exists(fromStore))
+                return fromStore;
+
+            return string.Empty;
+        }
+
+        private string ResolvePreviewOrderPdfPath(string pdfFolder)
+        {
+            if (!string.IsNullOrWhiteSpace(_orderVerificationPdfPath) && File.Exists(_orderVerificationPdfPath))
+                return _orderVerificationPdfPath;
+
+            var fromStore = PathStore.Load().OrderVerificationPdfPath;
+            if (!string.IsNullOrWhiteSpace(fromStore) && File.Exists(fromStore))
+                return fromStore;
+
+            return ResolveOrderVerificationPdfPath(pdfFolder);
+        }
+
+        internal IReadOnlyList<CustomerSortPreviewLine> BuildCustomerSortPreview(
+            CustomerProfile profile,
+            string pdfFolder,
+            string excelPath,
+            string orderPdfPath = null)
+        {
+            var lines = new List<CustomerSortPreviewLine>();
+            if (profile == null)
+                return lines;
+
+            if (string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
+            {
+                lines.Add(new CustomerSortPreviewLine { Status = "PDF-Ordner fehlt oder ungültig." });
+                return lines;
+            }
+
+            List<ExcelRowCandidate> excelRows;
+            string sortSourceLabel;
+
+            if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
+                excelPath = ResolvePreviewExcelPath(pdfFolder, null);
+
+            if (profile.ShouldSortFromExcel(!string.IsNullOrWhiteSpace(excelPath) && File.Exists(excelPath)))
+            {
+                if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
+                {
+                    lines.Add(new CustomerSortPreviewLine
+                    {
+                        Status = "Excel fehlt im Ordner «" + pdfFolder + "». "
+                                  + "Excel mit den Musterdateien ablegen oder «Excel wählen…»."
+                    });
+                    return lines;
+                }
+
+                try
+                {
+                    excelRows = ReadExcelRows(excelPath, profile).ToList();
+                }
+                catch (Exception ex)
+                {
+                    lines.Add(new CustomerSortPreviewLine { Status = "Excel lesen fehlgeschlagen: " + ex.Message });
+                    return lines;
+                }
+
+                sortSourceLabel = "Excel";
+            }
+            else
+            {
+                var orderPdf = orderPdfPath;
+                if (string.IsNullOrWhiteSpace(orderPdf) || !File.Exists(orderPdf))
+                    orderPdf = ResolvePreviewOrderPdfPath(pdfFolder);
+
+                if (string.IsNullOrWhiteSpace(orderPdf) || !File.Exists(orderPdf))
+                    orderPdf = OrderVerificationFileHelper.FindOrderListInFolder(pdfFolder);
+
+                if (string.IsNullOrWhiteSpace(orderPdf) || !File.Exists(orderPdf))
+                {
+                    lines.Add(new CustomerSortPreviewLine
+                    {
+                        Status = "Kunde «" + profile.DisplayName + "» ohne Excel: Bestellung (PDF/Text) fehlt."
+                    });
+                    return lines;
+                }
+
+                var orderLines = CustomerOrderListParser.Parse(orderPdf, profile, _pdfTextService);
+                if (orderLines == null || orderLines.Count == 0)
+                {
+                    lines.Add(new CustomerSortPreviewLine
+                    {
+                        Status = "In der Bestellung wurden keine Zeichnungszeilen erkannt: " + Path.GetFileName(orderPdf)
+                    });
+                    return lines;
+                }
+
+                excelRows = BuildExcelRowsFromOrderLines(orderLines, profile);
+                sortSourceLabel = OrderVerificationFileHelper.IsOrderTextExtension(orderPdf)
+                    ? "Text-Bestellung"
+                    : "Bestell-PDF";
+            }
+
+            if (excelRows.Count == 0)
+            {
+                lines.Add(new CustomerSortPreviewLine
+                {
+                    Status = "Keine Zeichnungsnummern in " + sortSourceLabel + " gefunden."
+                });
+                return lines;
+            }
+
+            var pdfCandidates = LoadPdfCandidates(pdfFolder, SearchOption.TopDirectoryOnly, orderPdfPath).ToList();
+            var matched = new List<(PdfCandidate Pdf, string SearchKey, ExcelRowCandidate Row)>();
+            var unmatched = new List<(PdfCandidate Pdf, string SearchKey)>();
+
+            foreach (var pdf in pdfCandidates)
+            {
+                var searchKey = CustomerProfileDrawingMatcher.NormalizeKey(
+                    StripRevSuffix(pdf.OriginalName), profile);
+                if (string.IsNullOrWhiteSpace(searchKey))
+                    searchKey = pdf.SearchKey;
+
+                var matchingRows = excelRows
+                    .Where(row => CustomerProfileDrawingMatcher.RowMatchesPdf(
+                        searchKey, row.RawDrawingNumber, row.NormalizedCells, profile))
+                    .OrderByDescending(row => DrawingKeysEqualForSort(
+                        searchKey, row.RawDrawingNumber, row.NormalizedCells, profile))
+                    .ThenByDescending(row => (row.RawDrawingNumber ?? string.Empty).Length)
+                    .ThenBy(row => row.RowIndex)
+                    .ToList();
+
+                if (matchingRows.Count == 0)
+                    unmatched.Add((pdf, searchKey));
+                else
+                    matched.Add((pdf, searchKey, matchingRows[0]));
+            }
+
+            matched = matched
+                .OrderBy(m => m.Row.RowIndex)
+                .ThenBy(m => m.Pdf.Order)
+                .ToList();
+
+            var width = Math.Max(2, matched.Count.ToString(CultureInfo.InvariantCulture).Length);
+            for (var i = 0; i < matched.Count; i++)
+            {
+                var item = matched[i];
+                var baseName = SanitizeFileName(StripSequencePrefixes(Path.GetFileNameWithoutExtension(item.Pdf.FullPath)));
+                var proposed = string.Format(CultureInfo.InvariantCulture, "{0:D" + width + "}_{1}.pdf", i + 1, baseName);
+                var article = item.Row.DetectedArticleNumbers != null && item.Row.DetectedArticleNumbers.Count > 0
+                    ? item.Row.DetectedArticleNumbers[0]
+                    : string.Empty;
+
+                lines.Add(new CustomerSortPreviewLine
+                {
+                    SortIndex = i + 1,
+                    PdfFileName = item.Pdf.DisplayName,
+                    PdfFullPath = item.Pdf.FullPath,
+                    PdfSearchKey = item.SearchKey,
+                    ExcelRow = item.Row.RowIndex,
+                    ExcelDrawing = item.Row.RawDrawingNumber ?? string.Empty,
+                    ExcelArticle = article,
+                    ParentArticle = item.Row.ParentArticleNumber ?? string.Empty,
+                    ProposedFileName = proposed,
+                    RequestedAmount = item.Row.RequestedAmount ?? string.Empty,
+                    RequestedDeliveryDate = item.Row.RequestedDeliveryDate ?? string.Empty,
+                    RequestedDeliveryLocation = item.Row.RequestedDeliveryLocation ?? string.Empty,
+                    Status = string.IsNullOrWhiteSpace(item.Row.ParentArticleNumber)
+                        ? "OK (" + sortSourceLabel + ")"
+                        : "OK (BG-Unterteil, " + sortSourceLabel + ")"
+                });
+            }
+
+            foreach (var item in unmatched.OrderBy(p => p.Pdf.Order))
+            {
+                lines.Add(new CustomerSortPreviewLine
+                {
+                    SortIndex = 0,
+                    PdfFileName = item.Pdf.DisplayName,
+                    PdfFullPath = item.Pdf.FullPath,
+                    PdfSearchKey = item.SearchKey,
+                    Status = "Kein Treffer in " + sortSourceLabel
+                });
+            }
+
+            return lines;
+        }
+
+        internal string TryCreateWatermarkedPreviewPdf(
+            CustomerSortPreviewLine line,
+            CustomerProfile profile,
+            string tempFolder)
+        {
+            if (line == null || string.IsNullOrWhiteSpace(line.PdfFullPath) || !File.Exists(line.PdfFullPath))
+                return line?.PdfFullPath;
+
+            if (string.IsNullOrWhiteSpace(tempFolder))
+                return line.PdfFullPath;
+
+            var settings = _watermarkSettings ?? WatermarkSettingsStore.Load();
+            if (settings == null || !settings.WatermarksEnabled)
+                return line.PdfFullPath;
+
+            try
+            {
+                Directory.CreateDirectory(tempFolder);
+                var prefix = line.SortIndex > 0
+                    ? line.SortIndex.ToString("D3", CultureInfo.InvariantCulture) + "_"
+                    : string.Empty;
+                var safeName = AppSecurityService.SanitizeFileName(prefix + Path.GetFileName(line.PdfFullPath));
+                var dest = Path.Combine(tempFolder, safeName);
+                File.Copy(line.PdfFullPath, dest, true);
+
+                var previousProfile = WatermarkProcessingContext.CurrentCustomerProfileId;
+                var previousKey = WatermarkProcessingContext.CurrentDrawingKey;
+                var previousBatch = WatermarkProcessingContext.BatchMode;
+                try
+                {
+                    WatermarkProcessingContext.BatchMode = true;
+                    WatermarkProcessingContext.CurrentCustomerProfileId = profile?.Id ?? string.Empty;
+                    var drawingHint = !string.IsNullOrWhiteSpace(line.ExcelDrawing)
+                        ? line.ExcelDrawing
+                        : Path.GetFileNameWithoutExtension(line.PdfFileName);
+                    WatermarkProcessingContext.CurrentDrawingKey = OrderVerificationDrawingKey.Normalize(
+                        string.IsNullOrWhiteSpace(line.PdfSearchKey) ? drawingHint : line.PdfSearchKey);
+
+                    var encoded = EncodeWatermarkEntries(new List<WatermarkEntry>
+                    {
+                        new WatermarkEntry
+                        {
+                            RequestedAmount = line.RequestedAmount,
+                            RequestedDeliveryDate = line.RequestedDeliveryDate,
+                            RequestedDeliveryLocation = line.RequestedDeliveryLocation,
+                            OrderNumber = line.OrderNumber
+                        }
+                    });
+
+                    PdfWatermarkService.AddWatermark(
+                        dest,
+                        encoded,
+                        string.Empty,
+                        string.Empty,
+                        drawingHint,
+                        settings,
+                        null);
+                }
+                finally
+                {
+                    WatermarkProcessingContext.CurrentCustomerProfileId = previousProfile;
+                    WatermarkProcessingContext.CurrentDrawingKey = previousKey;
+                    WatermarkProcessingContext.BatchMode = previousBatch;
+                }
+
+                return dest;
+            }
+            catch
+            {
+                return line.PdfFullPath;
+            }
         }
 
         private void ManageCustomersMenu_Click(object sender, RoutedEventArgs e)
@@ -469,11 +970,22 @@ namespace PDF_umbenenen
             dlg.ShowDialog();
         }
 
-        private static List<ExcelRowCandidate> BuildExcelRowsFromOrderLines(IList<OrderVerificationLine> lines)
+        private List<ExcelRowCandidate> BuildExcelRowsFromOrderLines(
+            IList<OrderVerificationLine> lines,
+            CustomerProfile profile = null)
         {
             var rows = new List<ExcelRowCandidate>();
             if (lines == null || lines.Count == 0)
                 return rows;
+
+            var fixedLocation = profile?.FixedDeliveryLocation?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(fixedLocation)
+                && profile != null
+                && profile.WorkflowKind == CustomerWorkflowKind.PdfOrderListPrimary
+                && !string.IsNullOrWhiteSpace(profile.DisplayName))
+            {
+                fixedLocation = profile.DisplayName.Trim();
+            }
 
             for (var i = 0; i < lines.Count; i++)
             {
@@ -493,6 +1005,7 @@ namespace PDF_umbenenen
                     RawDrawingNumber = drawing,
                     RequestedAmount = line.Amount,
                     RequestedDeliveryDate = line.DeliveryDate,
+                    RequestedDeliveryLocation = fixedLocation,
                     DetectedArticleNumbers = string.IsNullOrWhiteSpace(line.ArticleNumber)
                         ? new List<string>()
                         : new List<string> { line.ArticleNumber }
@@ -768,6 +1281,8 @@ namespace PDF_umbenenen
                 _cachedOrderVerificationLines = null;
             }
 
+            _orderReturnFileName = saved.OrderReturnFileName ?? string.Empty;
+
             UpdateOrderVerificationPdfDisplay();
 
             // PDF-Ordner ist fest auf den Ablage-Ordner gesetzt
@@ -784,27 +1299,32 @@ namespace PDF_umbenenen
         {
             try
             {
-                var exePath = Assembly.GetExecutingAssembly().Location;
-                if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
-                {
-                    AppendStatus("⚠ Desktop-Verknüpfung: Programmdatei nicht gefunden.");
+                // Debug-/Vorschau-Start: Desktop und Festinstallation niemals anfassen.
+                var runningExe = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                if (AppInfo.IsDevelopmentBuildPath(runningExe))
                     return;
-                }
 
                 var targetExe = AppInfo.GetInstalledExePath();
-                var baseDir = Path.GetDirectoryName(targetExe);
-
-                if (DesktopShortcutService.TryCreate(targetExe, out var message))
-                {
-                    AppendStatus("✓ Desktop-Verknüpfung erstellt: " + AppInfo.ShortcutFileName);
+                if (string.IsNullOrWhiteSpace(targetExe) || !File.Exists(targetExe))
                     return;
+
+                if (AppInfo.IsDevelopmentBuildPath(targetExe))
+                    return;
+
+                // Bestehende Verknüpfung nicht überschreiben (Icon/Ziel der Festinstallation schützen).
+                var desktop = DesktopShortcutService.ResolveDesktopPath();
+                if (!string.IsNullOrWhiteSpace(desktop))
+                {
+                    var existing = Path.Combine(desktop, AppInfo.ShortcutFileName);
+                    if (File.Exists(existing))
+                        return;
                 }
 
-                AppendStatus("⚠ Desktop-Verknüpfung konnte nicht erstellt werden: " + message);
+                DesktopShortcutService.TryCreate(targetExe, out _);
             }
-            catch (Exception ex)
+            catch
             {
-                AppendStatus("⚠ Desktop-Verknüpfung konnte nicht erstellt werden: " + ex.Message);
+                // Desktop-Verknüpfung ist optional – Fehler hier nie blockierend.
             }
         }
 
@@ -870,24 +1390,22 @@ namespace PDF_umbenenen
 
             var dialog = new OpenFileDialog
             {
-                Filter = "PDF-Dateien (*.pdf)|*.pdf|Alle Dateien (*.*)|*.*",
-                Title = "Bestell-PDF auswählen",
+                Filter = "Bestellung (*.pdf;*.txt;*.csv)|*.pdf;*.txt;*.csv|PDF (*.pdf)|*.pdf|Text (*.txt;*.csv)|*.txt;*.csv|Alle Dateien (*.*)|*.*",
+                Title = "Bestellung auswählen (PDF oder Text)",
                 InitialDirectory = initialDirectory
             };
 
             if (dialog.ShowDialog() != true)
                 return;
 
-            _orderVerificationPdfPath = dialog.FileName;
-            UpdateOrderVerificationPdfDisplay();
-            PathStore.SaveOrderVerificationPdf(dialog.FileName);
+            LoadOrderVerificationPdfFromSource(dialog.FileName);
         }
 
         private void OpenOrderPdf_Click(object sender, RoutedEventArgs e)
         {
             if (!HasOrderVerificationPdfLoaded())
             {
-                MessageBox.Show(this, "Keine Bestell-PDF geladen.", "DOK-V01", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, "Keine Bestellung (PDF/Text) geladen.", "DOK-V01", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -912,6 +1430,12 @@ namespace PDF_umbenenen
             _watermarkSettings.WatermarksEnabled = WatermarkEnabledCheckBoxBox.IsChecked == true;
             WatermarkSettingsStore.Save(_watermarkSettings);
             RefreshDroppedFilesDisplay();
+        }
+
+        internal void ReloadWatermarkSettingsFromStore()
+        {
+            _watermarkSettings = WatermarkSettingsStore.Load();
+            SyncWatermarkToggleFromSettings();
         }
 
         private void SyncWatermarkToggleFromSettings()
@@ -956,6 +1480,11 @@ namespace PDF_umbenenen
             ManageCustomersMenu_Click(this, new RoutedEventArgs());
         }
 
+        internal void OpenWorkspaceFolderFromUi()
+        {
+            OpenWorkspaceFolder_Click(this, new RoutedEventArgs());
+        }
+
         internal void ToggleThemeFromSettings()
         {
             _isDarkTheme = !_isDarkTheme;
@@ -969,7 +1498,6 @@ namespace PDF_umbenenen
 
         private void NavLog_Click(object sender, RoutedEventArgs e)
         {
-            SetActiveSidebarNav(FindName("NavLogButton") as System.Windows.Controls.Button);
             OpenProtocolDialog();
         }
 
@@ -977,6 +1505,21 @@ namespace PDF_umbenenen
         {
             var excelPath = ExcelPathBox.Text.Trim();
             var pdfFolder = PdfFolderBox.Text.Trim();
+
+            if (!string.IsNullOrWhiteSpace(pdfFolder) && Directory.Exists(pdfFolder)
+                && _detectedCustomerProfile == null)
+            {
+                RefreshDetectedCustomerFromWorkspace(pdfFolder);
+            }
+
+            var protocolExcel = excelPath;
+            var protocolHasExcel = TryResolveExcelPath(ref protocolExcel, null);
+            if (_detectedCustomerProfile != null
+                && !_detectedCustomerProfile.ShouldSortFromExcel(protocolHasExcel))
+            {
+                OpenPdfOrderProtocolDialog(_detectedCustomerProfile, pdfFolder);
+                return;
+            }
 
             if (!TryResolveExcelPath(ref excelPath, AppendStatus))
             {
@@ -1042,6 +1585,8 @@ namespace PDF_umbenenen
 
             Action<string> openDrawingPdf = drawingNumber =>
                 OpenDrawingPdfFromProtocol(drawingNumber, pdfFolder, searchOption, orderPdfPath);
+            Func<string, string> resolveDrawingPdf = drawingNumber =>
+                ResolveDrawingPdfFromProtocol(drawingNumber, pdfFolder, orderPdfPath);
 
             var dialogResult = OrderVerificationReportWindow.ShowDialog(
                 this,
@@ -1053,19 +1598,132 @@ namespace PDF_umbenenen
                 orderPdfPath,
                 offerContinueOnIssues: false,
                 persistDeliveryDate: persistDeliveryDate,
-                openDrawingPdf: openDrawingPdf);
+                openDrawingPdf: openDrawingPdf,
+                resolveDrawingPdf: resolveDrawingPdf);
 
             SyncDeliveryDatesAfterVerificationDialog(excelRows, dialogResult);
+
+            if (dialogResult.Proceed)
+                StartSortAfterProtocolChoice();
+        }
+
+        private void OpenPdfOrderProtocolDialog(CustomerProfile profile, string pdfFolder)
+        {
+            if (string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
+            {
+                MessageBox.Show(this,
+                    "Die Ablage ist leer oder nicht verfügbar.\r\n\r\n"
+                    + "Bitte zuerst Bestell-PDF und Zeichnungen laden.",
+                    "Protokoll",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                SetActiveSidebarNav(FindName("NavOverviewButton") as System.Windows.Controls.Button);
+                return;
+            }
+
+            var orderPdfPath = ResolveOrderVerificationPdfPath(pdfFolder);
+            if (string.IsNullOrWhiteSpace(orderPdfPath) || !File.Exists(orderPdfPath))
+            {
+                MessageBox.Show(this,
+                    "Für das Protokoll wird die Bestell-PDF benötigt.\r\n\r\n"
+                    + "Bitte die Bestell-PDF bei „Prüf-PDF“ ablegen.",
+                    "Protokoll",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                SetActiveSidebarNav(FindName("NavOverviewButton") as System.Windows.Controls.Button);
+                return;
+            }
+
+            var orderLines = CustomerOrderListParser.Parse(orderPdfPath, profile, _pdfTextService);
+            if (orderLines == null || orderLines.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "In der Bestell-PDF wurden keine Zeichnungszeilen für "
+                    + profile.DisplayName + " gefunden.",
+                    "Protokoll",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                SetActiveSidebarNav(FindName("NavOverviewButton") as System.Windows.Controls.Button);
+                return;
+            }
+
+            var excelRows = BuildExcelRowsFromOrderLines(orderLines, profile);
+            ApplyManualDeliveryDateOverrides(excelRows);
+            if (excelRows.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "In der Bestell-PDF wurden keine Zeichnungszeilen gefunden.",
+                    "Protokoll",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                SetActiveSidebarNav(FindName("NavOverviewButton") as System.Windows.Controls.Button);
+                return;
+            }
+
+            var searchOption = IncludeSubfoldersBox.IsChecked == true
+                ? SearchOption.AllDirectories
+                : SearchOption.TopDirectoryOnly;
+
+            var report = RunOrderVerificationReport(
+                string.Empty,
+                orderPdfPath,
+                excelRows,
+                pdfFolder,
+                searchOption,
+                orderLines);
+            var orderRows = excelRows.Select(ToOrderExcelRow).ToList();
+
+            Action<int, string, string> persistDeliveryDate = (rowIndex, drawingNumber, date) =>
+            {
+                PersistDeliveryDateOverride(excelRows, rowIndex, drawingNumber, date);
+            };
+
+            Action<string> openDrawingPdf = drawingNumber =>
+                OpenDrawingPdfFromProtocol(drawingNumber, pdfFolder, searchOption, orderPdfPath);
+            Func<string, string> resolveDrawingPdf = drawingNumber =>
+                ResolveDrawingPdfFromProtocol(drawingNumber, pdfFolder, orderPdfPath);
+
+            var dialogResult = OrderVerificationReportWindow.ShowDialog(
+                this,
+                report,
+                orderRows,
+                Path.GetFileName(orderPdfPath),
+                Path.GetFileName(orderPdfPath),
+                string.Empty,
+                orderPdfPath,
+                offerContinueOnIssues: false,
+                persistDeliveryDate: persistDeliveryDate,
+                openDrawingPdf: openDrawingPdf,
+                resolveDrawingPdf: resolveDrawingPdf,
+                pdfOrderListMode: true);
+
+            SyncDeliveryDatesAfterVerificationDialog(excelRows, dialogResult);
+
+            if (dialogResult.Proceed)
+                StartSortAfterProtocolChoice();
+        }
+
+        private void StartSortAfterProtocolChoice()
+        {
+            _skipNextOrderVerification = true;
+            _openEditPreviewAfterSuccessfulSort = true;
+            Dispatcher.BeginInvoke(new Action(() =>
+                Process_Click(this, new RoutedEventArgs())));
         }
 
         private void SetActiveSidebarNav(System.Windows.Controls.Button activeButton)
         {
             var overview = FindName("NavOverviewButton") as System.Windows.Controls.Button;
-            var log = FindName("NavLogButton") as System.Windows.Controls.Button;
             if (overview != null)
                 overview.Style = (Style)FindResource(activeButton == overview ? "SidebarBtnActive" : "SidebarBtn");
-            if (log != null)
-                log.Style = (Style)FindResource(activeButton == log ? "SidebarBtnActive" : "SidebarBtn");
+
+            var dateButton = FindName("ChangeDeliveryDateButton") as System.Windows.Controls.Button;
+            if (dateButton != null)
+                dateButton.Style = (Style)FindResource(activeButton == dateButton ? "SidebarBtnActive" : "SidebarBtn");
+
+            var geoButton = FindName("GeoSearchSidebarButton") as System.Windows.Controls.Button;
+            if (geoButton != null)
+                geoButton.Style = (Style)FindResource(activeButton == geoButton ? "SidebarBtnActive" : "SidebarBtn");
         }
 
         private void Window_PreviewDragEnter(object sender, DragEventArgs e)
@@ -1101,7 +1759,7 @@ namespace PDF_umbenenen
 
         private static void SetFileDropEffects(DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (OutlookAttachmentDropService.CanAccept(e.Data))
             {
                 e.Effects = DragDropEffects.Copy;
             }
@@ -1128,23 +1786,457 @@ namespace PDF_umbenenen
             return !string.IsNullOrWhiteSpace(_orderVerificationPdfPath) && File.Exists(_orderVerificationPdfPath);
         }
 
+        private string ResolveDropTargetFolder()
+        {
+            var uiFolder = PdfFolderBox?.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(uiFolder) && Directory.Exists(uiFolder))
+                return uiFolder;
+
+            var saved = PathStore.Load().PdfFolder;
+            if (!string.IsNullOrWhiteSpace(saved) && Directory.Exists(saved))
+                return saved;
+
+            return PathStore.GetOrCreateDefaultWorkspaceFolder();
+        }
+
+        private bool IsWorkspaceOrAblageFolder(string folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder))
+                return true;
+
+            try
+            {
+                var full = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                foreach (var known in PathStore.GetAllKnownWorkspaceFolders())
+                {
+                    var knownFull = Path.GetFullPath(known).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (string.Equals(full, knownFull, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+
+                var current = PdfFolderBox?.Text?.Trim();
+                if (!string.IsNullOrWhiteSpace(current) && Directory.Exists(current))
+                {
+                    var currentFull = Path.GetFullPath(current).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (string.Equals(full, currentFull, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Original-Dateiname der Bestellung merken (für Tesla-Bestellordner; nie „Bestellung.pdf“).</summary>
+        private void RememberOrderReturnFileNameFromSource(string sourcePath)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                return;
+
+            try
+            {
+                var ext = Path.GetExtension(sourcePath) ?? string.Empty;
+                if (!OrderVerificationFileHelper.IsOrderListExtension(ext))
+                    return;
+
+                var fileName = AppSecurityService.SanitizeFileName(Path.GetFileName(sourcePath));
+                if (string.IsNullOrWhiteSpace(fileName) || fileName.StartsWith("_", StringComparison.Ordinal))
+                    return;
+
+                // Ablage-Kanonname darf den Originalnamen (z. B. 5101426055.pdf) nicht überschreiben
+                if (IsCanonicalOrderListFileName(fileName))
+                    return;
+
+                _orderReturnFileName = fileName;
+                PathStore.SaveOrderReturnLocation(string.Empty, _orderReturnFileName);
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool IsCanonicalOrderListFileName(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+                return false;
+            var name = Path.GetFileName(fileName);
+            return string.Equals(name, OrderVerificationFileHelper.CanonicalFileName, StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(name, OrderVerificationFileHelper.CanonicalTextFileName, StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(name, "Bestellung.csv", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Dateiname für Tesla-Bestellordner: ZIP-Original (z. B. 5101570928.pdf)
+        /// oder aus PO/Auftragsnummer im PDF – nie „Bestellung.pdf“.
+        /// </summary>
+        private string ResolveOriginalOrderReturnFileName(string sourcePath = null)
+        {
+            var candidates = new[]
+            {
+                _orderReturnFileName,
+                string.IsNullOrWhiteSpace(sourcePath) ? null : Path.GetFileName(sourcePath)
+            };
+
+            foreach (var raw in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    continue;
+                var name = AppSecurityService.SanitizeFileName(Path.GetFileName(raw));
+                if (string.IsNullOrWhiteSpace(name) || name.StartsWith("_", StringComparison.Ordinal))
+                    continue;
+                if (IsCanonicalOrderListFileName(name))
+                    continue;
+                return name;
+            }
+
+            var fromLabel = TryBuildOrderFileNameFromOrderNumberLabel(OrderNumberBox?.Text);
+            if (!string.IsNullOrWhiteSpace(fromLabel))
+                return fromLabel;
+
+            if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+            {
+                EnsureOrderReturnFileNameFromContent(sourcePath);
+                if (!string.IsNullOrWhiteSpace(_orderReturnFileName)
+                    && !IsCanonicalOrderListFileName(_orderReturnFileName))
+                {
+                    return AppSecurityService.SanitizeFileName(_orderReturnFileName);
+                }
+
+                fromLabel = TryBuildOrderFileNameFromOrderNumberLabel(OrderNumberBox?.Text);
+                if (!string.IsNullOrWhiteSpace(fromLabel))
+                    return fromLabel;
+            }
+
+            return null;
+        }
+
+        /// <summary>PO:5101570928 / Bestellung 123 → 5101570928.pdf</summary>
+        private static string TryBuildOrderFileNameFromOrderNumberLabel(string orderLabel)
+        {
+            if (string.IsNullOrWhiteSpace(orderLabel))
+                return null;
+
+            var match = Regex.Match(orderLabel.Trim(), @"(\d{5,})", RegexOptions.CultureInvariant);
+            if (!match.Success)
+                return null;
+
+            var digits = match.Groups[1].Value;
+            if (digits.Length < 5)
+                return null;
+
+            return AppSecurityService.SanitizeFileName(digits + ".pdf");
+        }
+
+        private void RememberOrderReturnFileNameFromPoLabel(string orderLabel)
+        {
+            var fileName = TryBuildOrderFileNameFromOrderNumberLabel(orderLabel);
+            if (string.IsNullOrWhiteSpace(fileName))
+                return;
+
+            if (!string.IsNullOrWhiteSpace(_orderReturnFileName)
+                && !IsCanonicalOrderListFileName(_orderReturnFileName))
+                return;
+
+            _orderReturnFileName = fileName;
+            PathStore.SaveOrderReturnLocation(string.Empty, _orderReturnFileName);
+        }
+
+        private void EnsureOrderReturnFileNameFromContent(string orderPdfPath)
+        {
+            if (string.IsNullOrWhiteSpace(orderPdfPath) || !File.Exists(orderPdfPath))
+                return;
+
+            if (!string.IsNullOrWhiteSpace(_orderReturnFileName)
+                && !IsCanonicalOrderListFileName(_orderReturnFileName))
+                return;
+
+            var fromLabel = TryBuildOrderFileNameFromOrderNumberLabel(OrderNumberBox?.Text);
+            if (!string.IsNullOrWhiteSpace(fromLabel))
+            {
+                _orderReturnFileName = fromLabel;
+                PathStore.SaveOrderReturnLocation(string.Empty, _orderReturnFileName);
+                return;
+            }
+
+            TryExtractPoNumberFromOrderPdf(orderPdfPath, _detectedCustomerProfile, overwriteAutoFilled: true);
+        }
+
+        private static CustomerFolderSettings LoadTeslaFolderSettings()
+        {
+            return CustomerProfileSettingsStore.LoadFolders(CustomerProfile.TeslaId);
+        }
+
+        private bool ShouldUseTeslaExportFolders()
+        {
+            // Nur wenn aktiver/erkannter Kunde Tesla ist und Ordner konfiguriert sind
+            if (_detectedCustomerProfile == null
+                || !CustomerProfile.IsBuiltInTeslaId(_detectedCustomerProfile.Id))
+                return false;
+
+            return LoadTeslaFolderSettings().HasAnyFolder;
+        }
+
+        private static bool IsSameFolderPath(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+                return false;
+            try
+            {
+                var fa = Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var fb = Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.Equals(fa, fb, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// App-generierte Dateien gehören nicht in Tesla-Originalordner
+        /// (keine Gesamt-/Druck-PDFs, keine 01_…-Sortierkopien, keine Sidecars).
+        /// </summary>
+        private static bool IsAppGeneratedWorkspaceFileName(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+                return false;
+
+            var name = Path.GetFileName(fileName);
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            if (name.StartsWith("_GESAMT_", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("_DRUCK_", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("_EXCEL_", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("_BESTELLUNG_", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // Sortierte Zeichnungen: 01_TSL-….pdf
+            if (Regex.IsMatch(name, @"^\d{1,3}_.+\.pdf$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                return true;
+
+            if (name.EndsWith(".dok-meta.xml", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(".map.xml", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(".pdf.map", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(WatermarkEditorService.PreWatermarkSuffix, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // Ablage-Kanonische Excel-Namen (nicht Original aus ZIP)
+            if (string.Equals(name, "Daten.xlsx", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Daten.xls", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Daten_Angebot.xlsx", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Daten_Angebot.xls", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return false;
+        }
+
+        private static void CleanupAppGeneratedFilesFromFolder(string folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                return;
+
+            try
+            {
+                foreach (var file in Directory.GetFiles(folder, "*.*", SearchOption.TopDirectoryOnly))
+                {
+                    var name = Path.GetFileName(file);
+                    if (!IsAppGeneratedWorkspaceFileName(name)
+                        && !string.Equals(Path.GetExtension(file), ".zip", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    try { File.Delete(file); } catch { }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool IsOriginalOrderListFile(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return false;
+
+            var name = Path.GetFileName(path) ?? string.Empty;
+            if (name.StartsWith("_", StringComparison.Ordinal))
+                return false;
+
+            return OrderVerificationFileHelper.IsOrderListExtension(path)
+                   && OrderVerificationFileHelper.IsOrderVerificationFileName(name);
+        }
+
+        /// <summary>
+        /// Nur Tesla: nach Sortierung/Ausdruck die originale Prüf-/Bestell-PDF in den Bestell-Ordner
+        /// legen. Zeichnungsordner bleibt bei ZIP-Originalen – keine Gesamt-/Sortier-/Druckdateien.
+        /// Rückgabe immer null (Gesamt-PDF bleibt in der Ablage zum Öffnen).
+        /// </summary>
+        private string TryMoveOrderDataToReturnFolder()
+        {
+            try
+            {
+                if (!ShouldUseTeslaExportFolders())
+                    return null;
+
+                var folders = LoadTeslaFolderSettings();
+                var orderFolder = (folders.OrderDestinationFolder ?? string.Empty).Trim();
+                var unpackFolder = (folders.UnpackDestinationFolder ?? string.Empty).Trim();
+
+                if (!string.IsNullOrWhiteSpace(orderFolder))
+                {
+                    try { Directory.CreateDirectory(orderFolder); }
+                    catch { orderFolder = string.Empty; }
+                }
+
+                if (!string.IsNullOrWhiteSpace(unpackFolder))
+                {
+                    try { Directory.CreateDirectory(unpackFolder); }
+                    catch { unpackFolder = string.Empty; }
+                }
+
+                // Falsch abgelegte App-Dateien aus Tesla-Ordnern entfernen
+                CleanupAppGeneratedFilesFromFolder(orderFolder);
+                CleanupAppGeneratedFilesFromFolder(unpackFolder);
+                TryDeleteAllZipsInFolder(orderFolder);
+                TryDeleteAllZipsInFolder(unpackFolder);
+
+                if (string.IsNullOrWhiteSpace(orderFolder) || IsWorkspaceOrAblageFolder(orderFolder))
+                {
+                    if (string.IsNullOrWhiteSpace(orderFolder))
+                        AppendStatus("ℹ Tesla-Bestellordner nicht gesetzt – unter Kunden → Tesla festlegen.");
+                    return null;
+                }
+
+                var ablage = ResolveDropTargetFolder();
+                if (string.IsNullOrWhiteSpace(ablage) || !Directory.Exists(ablage))
+                    return null;
+
+                var source = ResolveOrderVerificationPdfPath(ablage);
+                if (!IsOriginalOrderListFile(source))
+                {
+                    // Bereits im Bestellordner – ggf. Bestellung.pdf → PO-Nummer umbenennen
+                    var existing = OrderVerificationFileHelper.FindOrderListInFolder(orderFolder);
+                    if (!string.IsNullOrWhiteSpace(existing) && File.Exists(existing))
+                    {
+                        source = existing;
+                    }
+                    else
+                    {
+                        return null;
+                    }
+                }
+
+                var destName = ResolveOriginalOrderReturnFileName(source);
+                if (string.IsNullOrWhiteSpace(destName))
+                {
+                    AppendStatus("⚠ Tesla: Bestellnummer (z. B. 5101570928) nicht ermittelt – PDF nicht als «Bestellung.pdf» ablegen.");
+                    return null;
+                }
+
+                var dest = Path.Combine(orderFolder, destName);
+                var sourceDir = Path.GetDirectoryName(source) ?? string.Empty;
+                if (IsSameFolderPath(sourceDir, orderFolder)
+                    && string.Equals(Path.GetFileName(source), destName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _orderVerificationPdfPath = source;
+                    PathStore.SaveOrderVerificationPdf(source);
+                    UpdateOrderVerificationPdfDisplay();
+                    AppendStatus("✓ Tesla: Bestellung «" + destName + "» liegt bereits im Zielordner.");
+                    return null;
+                }
+
+                File.Copy(source, dest, true);
+
+                try
+                {
+                    if (!string.Equals(
+                        Path.GetFullPath(source),
+                        Path.GetFullPath(dest),
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Delete(source);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendStatus("⚠ Bestellung kopiert, in Ablage noch gesperrt: " + ex.Message);
+                }
+
+                // Falsch benannte Kanon-Datei entfernen; andere Tages-Bestellungen behalten
+                try
+                {
+                    foreach (var canon in new[]
+                             {
+                                 OrderVerificationFileHelper.CanonicalFileName,
+                                 OrderVerificationFileHelper.CanonicalTextFileName,
+                                 "Bestellung.csv"
+                             })
+                    {
+                        var wrong = Path.Combine(orderFolder, canon);
+                        if (!File.Exists(wrong))
+                            continue;
+                        if (string.Equals(Path.GetFullPath(wrong), Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        try { File.Delete(wrong); } catch { }
+                    }
+                }
+                catch
+                {
+                }
+
+                _orderReturnFileName = destName;
+                PathStore.SaveOrderReturnLocation(string.Empty, destName);
+                _orderVerificationPdfPath = dest;
+                PathStore.SaveOrderVerificationPdf(dest);
+                UpdateOrderVerificationPdfDisplay();
+                RefreshDroppedFilesDisplay();
+
+                AppendStatus("✓ Tesla: Bestellung als «" + destName + "» → «" + orderFolder + "».");
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = orderFolder,
+                        UseShellExecute = true
+                    });
+                }
+                catch
+                {
+                }
+
+                // Gesamt-PDF bleibt in der Ablage
+                return null;
+            }
+            catch (Exception ex)
+            {
+                AppendStatus("⚠ Bestellung konnte nicht verschoben werden: " + ex.Message);
+                return null;
+            }
+        }
+
         private void LoadOrderVerificationPdfFromSource(string sourceFile)
         {
             if (string.IsNullOrWhiteSpace(sourceFile) || !File.Exists(sourceFile))
             {
-                AppendStatus("⚠ Prüf-PDF-Datei nicht gefunden.");
+                AppendStatus("⚠ Bestelldatei nicht gefunden.");
                 return;
             }
 
-            if (!string.Equals(Path.GetExtension(sourceFile), ".pdf", StringComparison.OrdinalIgnoreCase))
+            if (!OrderVerificationFileHelper.IsOrderListExtension(sourceFile))
             {
-                AppendStatus("⚠ Für Prüf-PDF wird eine PDF-Datei benötigt.");
+                AppendStatus("⚠ Bestellung muss PDF, TXT oder CSV sein.");
                 return;
             }
 
-            var workspaceFolder = PathStore.GetOrCreateDefaultWorkspaceFolder();
+            RememberOrderReturnFileNameFromSource(sourceFile);
+
+            var workspaceFolder = ResolveDropTargetFolder();
             Directory.CreateDirectory(workspaceFolder);
-            var targetPath = OrderVerificationFileHelper.GetCanonicalPath(workspaceFolder);
+            var targetPath = OrderVerificationFileHelper.GetCanonicalPathForSource(workspaceFolder, sourceFile);
             File.Copy(sourceFile, targetPath, true);
 
             _orderVerificationPdfPath = targetPath;
@@ -1152,7 +2244,9 @@ namespace PDF_umbenenen
             PathStore.SaveOrderVerificationPdf(targetPath);
             PdfFolderBox.Text = workspaceFolder;
             PathStore.SaveFolder(workspaceFolder);
-            AppendStatus("✓ Bestell-PDF geladen: " + Path.GetFileName(targetPath));
+            var kind = OrderVerificationFileHelper.IsOrderTextExtension(sourceFile) ? "Text-Bestellung" : "Bestell-PDF";
+            AppendStatus("✓ " + kind + " geladen: " + Path.GetFileName(targetPath));
+            TryExtractPoNumberFromOrderPdf(targetPath, _detectedCustomerProfile, overwriteAutoFilled: true);
             RefreshDroppedFilesDisplay();
         }
 
@@ -1204,7 +2298,10 @@ namespace PDF_umbenenen
             _cachedOrderVerificationExcelRows = null;
             _cachedOrderVerificationExcelPath = string.Empty;
             _cachedOrderVerificationOrderPdfPath = string.Empty;
+            // Zielordner (manuell) bleibt erhalten
             PathStore.SaveOrderVerificationPdf(string.Empty);
+            if (IsAutoExtractedOrderNumber(OrderNumberBox?.Text))
+                OrderNumberBox.Text = string.Empty;
             UpdateOrderVerificationPdfDisplay();
         }
 
@@ -1213,23 +2310,94 @@ namespace PDF_umbenenen
             if (e.Handled)
                 return;
 
-            if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (!OutlookAttachmentDropService.TryGetDroppedFiles(e.Data, out var droppedFiles, out var dropSourceHint)
+                || droppedFiles == null
+                || droppedFiles.Count == 0)
             {
                 AppendStatus("⚠ Drop erkannt, aber keine Dateien enthalten.");
+                if (!string.IsNullOrWhiteSpace(dropSourceHint))
+                    AppendStatus("ℹ " + dropSourceHint);
                 return;
             }
 
-            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
-            if (files == null || files.Length == 0)
-            {
-                AppendStatus("⚠ Keine Dateipfade im Drop erhalten.");
-                return;
-            }
-
+            var files = droppedFiles.ToArray();
             e.Handled = true;
 
-            var targetFolder = PathStore.GetOrCreateDefaultWorkspaceFolder();
+            var targetFolder = ResolveDropTargetFolder();
             Directory.CreateDirectory(targetFolder);
+
+            var remainingFiles = new List<string>();
+            var replacedCount = 0;
+            var blockedMessages = new List<string>();
+            var replacedMessages = new List<string>();
+
+            var orderDrawings = DrawingReplacementService.ListOrderDrawingPdfs(targetFolder);
+            foreach (var sourcePath in files)
+            {
+                if (!string.Equals(Path.GetExtension(sourcePath), ".pdf", StringComparison.OrdinalIgnoreCase)
+                    || !File.Exists(sourcePath)
+                    || sourcePath.EndsWith(WatermarkEditorService.PreWatermarkSuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    remainingFiles.Add(sourcePath);
+                    continue;
+                }
+
+                if (orderDrawings.Count == 0)
+                {
+                    remainingFiles.Add(sourcePath);
+                    continue;
+                }
+
+                var replaced = DrawingReplacementService.TryReplaceByDrawingNumber(targetFolder, sourcePath);
+                if (replaced.Replaced)
+                {
+                    replacedCount++;
+                    replacedMessages.Add(
+                        DrawingReplacementService.FormatReplacedConfirmation(
+                            replaced.IncomingDrawingNumber,
+                            replaced.Message));
+                    AppendStatus("✓ Zeichnung ersetzt: " + replaced.Message);
+                    continue;
+                }
+
+                if (replaced.Status == DrawingReplacementStatus.NoSortedDrawings)
+                {
+                    remainingFiles.Add(sourcePath);
+                    continue;
+                }
+
+                blockedMessages.Add(replaced.Message);
+            }
+
+            if (blockedMessages.Count > 0)
+            {
+                MessageBox.Show(
+                    this,
+                    string.Join("\n\n", blockedMessages.Distinct()),
+                    "Zeichnung ersetzen",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+
+            if (replacedMessages.Count > 0)
+            {
+                MessageBox.Show(
+                    this,
+                    string.Join("\n", replacedMessages.Distinct()),
+                    "Zeichnung ersetzen",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+
+            files = remainingFiles.ToArray();
+            if (files.Length == 0 && (replacedCount > 0 || blockedMessages.Count > 0))
+            {
+                OutlookAttachmentDropService.TryCleanupTempFiles(droppedFiles);
+                if (replacedCount > 0)
+                    AppendStatus("Zeichnung(en) in der Ablage ersetzt, ohne neu zu sortieren.");
+                RefreshDroppedFilesDisplay();
+                return;
+            }
 
             var copiedCount = 0;
             var ignoredCount = 0;
@@ -1245,8 +2413,18 @@ namespace PDF_umbenenen
                 {
                     if (Directory.Exists(sourcePath))
                     {
-                        foreach (var file in Directory.GetFiles(sourcePath, "*.*", searchOption))
+                        // Zuerst alle ZIPs entpacken (Inhalt), ZIP-Datei selbst wird nie kopiert
+                        var folderFiles = Directory.GetFiles(sourcePath, "*.*", searchOption);
+                        foreach (var file in folderFiles)
                         {
+                            if (string.Equals(Path.GetExtension(file), ".zip", StringComparison.OrdinalIgnoreCase))
+                                copiedCount += CopySupportedFileToWorkspace(file, targetFolder, ref excelCopied, ref orderPdfCopied, ref ignoredCount);
+                        }
+
+                        foreach (var file in folderFiles)
+                        {
+                            if (string.Equals(Path.GetExtension(file), ".zip", StringComparison.OrdinalIgnoreCase))
+                                continue; // ZIP nie als Datei ablegen
                             copiedCount += CopySupportedFileToWorkspace(file, targetFolder, ref excelCopied, ref orderPdfCopied, ref ignoredCount);
                         }
 
@@ -1286,12 +2464,14 @@ namespace PDF_umbenenen
                     PathStore.SaveOrderVerificationPdf(orderPath);
                     UpdateOrderVerificationPdfDisplay();
                     AppendStatus("✓ Prüf-PDF automatisch erkannt: " + Path.GetFileName(orderPath));
+                    TryExtractPoNumberFromOrderPdf(orderPath, _detectedCustomerProfile, overwriteAutoFilled: true);
                 }
             }
 
             if (copiedCount == 0)
             {
-                AppendStatus("⚠ Keine unterstützten Dateien erkannt. Erlaubt: PDF, Excel (.xlsx/.xls), ZIP, Ordner mit diesen Dateien.");
+                OutlookAttachmentDropService.TryCleanupTempFiles(files);
+                AppendStatus("⚠ Keine unterstützten Dateien erkannt. Erlaubt: PDF, Excel (.xlsx/.xls), Text-Bestellung (.txt/.csv), ZIP, Outlook-Anhänge, Ordner mit diesen Dateien.");
                 if (ignoredCount > 0)
                 {
                     AppendStatus($"ℹ {ignoredCount} nicht unterstützte Datei(en) übersprungen.");
@@ -1301,7 +2481,11 @@ namespace PDF_umbenenen
                 return;
             }
 
-            AppendStatus($"📥 Drag & Drop: {copiedCount} Datei(en) kopiert, {ignoredCount} übersprungen.");
+            var dropLabel = string.IsNullOrWhiteSpace(dropSourceHint)
+                ? "Drag & Drop"
+                : "Drag & Drop (" + dropSourceHint + ")";
+            AppendStatus($"📥 {dropLabel}: {copiedCount} Datei(en) kopiert, {ignoredCount} übersprungen.");
+            OutlookAttachmentDropService.TryCleanupTempFiles(files);
             if (excelCopied)
             {
                 var loaded = ExcelPathBox.Text.Trim();
@@ -1368,13 +2552,138 @@ namespace PDF_umbenenen
             }
 
             var pdfCount = Directory.GetFiles(folder, "*.pdf", SearchOption.TopDirectoryOnly)
-                .Count(f => !Path.GetFileName(f).StartsWith("_", StringComparison.OrdinalIgnoreCase)
-                            && !OrderVerificationFileHelper.IsOrderVerificationFileName(f)
-                            && !string.Equals(Path.GetFileName(f), OrderVerificationFileHelper.CanonicalFileName, StringComparison.OrdinalIgnoreCase));
+                .Count(DrawingReplacementService.IsWorkspaceDrawingPdf);
 
             UpdateWorkflowStatus(excelPath, pdfCount);
             UpdateFooterStatus(excelPath, pdfCount, files.Length);
             RefreshLoadedDataOverview(folder, excelPath);
+            RefreshDetectedCustomerFromWorkspace(folder);
+        }
+
+        /// <summary>
+        /// Ermittelt nach dem Import den Kunden (Tesla/EcoMark/…) und zeigt ihn in der Titelleiste.
+        /// </summary>
+        private void RefreshDetectedCustomerFromWorkspace(string folder)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                {
+                    SetActiveCustomerBadge(null, "Keine Unterlagen");
+                    _detectedCustomerProfile = null;
+                    return;
+                }
+
+                var orderPdf = _orderVerificationPdfPath;
+                if (string.IsNullOrWhiteSpace(orderPdf) || !File.Exists(orderPdf))
+                {
+                    var canonical = OrderVerificationFileHelper.GetCanonicalPath(folder);
+                    if (File.Exists(canonical))
+                        orderPdf = canonical;
+                }
+
+                var drawingNames = Directory.GetFiles(folder, "*.pdf", SearchOption.TopDirectoryOnly)
+                    .Where(DrawingReplacementService.IsWorkspaceDrawingPdf)
+                    .Select(f => Path.GetFileNameWithoutExtension(f))
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .ToList();
+
+                // Zusätzlich: Zeichnungsnummern aus Bestell-PDF (EcoMark: Nummern stehen in der Bestellung)
+                if (!string.IsNullOrWhiteSpace(orderPdf) && File.Exists(orderPdf))
+                {
+                    try
+                    {
+                        var orderText = _pdfTextService.ExtractText(orderPdf, 3);
+                        foreach (var token in OrderVerificationDrawingKey.ExtractAllFromText(orderText ?? string.Empty))
+                            drawingNames.Add(token);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                var detection = CustomerProfileDetectionService.Detect(drawingNames, CustomerProfileStore.LoadAll());
+                _detectedCustomerProfile = detection.Profile;
+                WatermarkProcessingContext.CurrentCustomerProfileId = detection.Profile?.Id ?? string.Empty;
+
+                if (detection.Profile != null)
+                {
+                    SetActiveCustomerBadge(detection.Profile.DisplayName, null);
+                    if (CustomerProfileSettingsStore.TryApplyToGlobal(detection.Profile.Id))
+                    {
+                        _watermarkSettings = WatermarkSettingsStore.Load();
+                        if (_aiOrchestrator != null)
+                        {
+                            _aiOrchestrator.ReloadSettings();
+                            PlatformHost.Facade?.SyncSettings();
+                        }
+                    }
+
+                    AppendStatus("ℹ Erkannter Kunde: " + detection.Profile.DisplayName
+                                 + " – Sortierlogik für diesen Kunden.");
+                }
+                else if (drawingNames.Count == 0)
+                {
+                    SetActiveCustomerBadge(null, "Warte auf Unterlagen");
+                }
+                else
+                {
+                    SetActiveCustomerBadge(null, "Kunde unklar – bitte prüfen");
+                    AppendStatus("⚠ Kunde nicht eindeutig (Tesla/EcoMark/…). Bitte Unterlagen prüfen oder Kundenprofil anlegen.");
+                }
+
+                // Auftragsnummer kundenspezifisch neu lesen (altes EcoMark/Tesla nicht stehen lassen)
+                if (!string.IsNullOrWhiteSpace(orderPdf) && File.Exists(orderPdf))
+                {
+                    TryExtractPoNumberFromOrderPdf(orderPdf, detection.Profile, overwriteAutoFilled: true);
+                }
+                else if (IsAutoExtractedOrderNumber(OrderNumberBox?.Text))
+                {
+                    // Ablage geleert / keine Bestell-PDF mehr → alte PO/Bestellung entfernen
+                    OrderNumberBox.Text = string.Empty;
+                }
+
+                var excelPath = ExcelPathBox?.Text?.Trim() ?? string.Empty;
+                var pdfCount = Directory.GetFiles(folder, "*.pdf", SearchOption.TopDirectoryOnly)
+                    .Count(DrawingReplacementService.IsWorkspaceDrawingPdf);
+                UpdateWorkflowStatus(excelPath, pdfCount);
+            }
+            catch (Exception ex)
+            {
+                SetActiveCustomerBadge(null, "Kunde ?");
+                AppendStatus("ℹ Kundenerkennung: " + ex.Message);
+            }
+        }
+
+        private void SetActiveCustomerBadge(string customerName, string unclearHint)
+        {
+            var label = FindName("ActiveCustomerBadgeLabel") as System.Windows.Controls.TextBlock;
+            var border = FindName("ActiveCustomerBadgeBorder") as System.Windows.Controls.Border;
+            var text = FindName("ActiveCustomerBadgeText") as System.Windows.Controls.TextBlock;
+            if (label == null || border == null || text == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(customerName))
+            {
+                label.Visibility = Visibility.Visible;
+                border.Visibility = Visibility.Visible;
+                text.Text = customerName.Trim();
+                text.Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush");
+                border.BorderBrush = (System.Windows.Media.Brush)FindResource("AccentBrush");
+                border.ToolTip = "Sortierlogik für diesen Kunden (nach Import erkannt)";
+            }
+            else
+            {
+                var hint = string.IsNullOrWhiteSpace(unclearHint) ? "—" : unclearHint.Trim();
+                var show = !string.Equals(hint, "Keine Unterlagen", StringComparison.OrdinalIgnoreCase)
+                           && !string.Equals(hint, "Warte auf Unterlagen", StringComparison.OrdinalIgnoreCase);
+                label.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+                border.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+                text.Text = hint;
+                text.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
+                border.BorderBrush = (System.Windows.Media.Brush)FindResource("GroupBorder");
+                border.ToolTip = "Welcher Kunde / welche Sortierlogik aktiv ist";
+            }
         }
 
         private void UpdateFooterStatus(string excelPath, int pdfCount, int totalFiles)
@@ -1428,8 +2737,7 @@ namespace PDF_umbenenen
 
                 var drawingPdfs = (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
                     ? Directory.GetFiles(folder, "*.pdf", SearchOption.TopDirectoryOnly)
-                        .Where(f => !Path.GetFileName(f).StartsWith("_", StringComparison.OrdinalIgnoreCase)
-                                    && !OrderVerificationFileHelper.IsOrderVerificationFileName(f))
+                        .Where(DrawingReplacementService.IsWorkspaceDrawingPdf)
                         .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
                         .ToList()
                     : new List<string>();
@@ -1504,10 +2812,39 @@ namespace PDF_umbenenen
 
             var hasExcel = !string.IsNullOrWhiteSpace(excelPath) && File.Exists(excelPath);
             var wm = _watermarkSettings?.WatermarksEnabled ?? WatermarkSettingsStore.Load().WatermarksEnabled;
+            var wmLabel = wm ? "Wasserzeichen: an" : "Wasserzeichen: aus";
+            var pdfLabel = "PDFs: " + pdfCount;
+            var pdfFolder = PdfFolderBox?.Text?.Trim() ?? string.Empty;
+            var hasOrderPdf = false;
+            if (!string.IsNullOrWhiteSpace(pdfFolder) && Directory.Exists(pdfFolder))
+            {
+                var orderPdf = ResolveOrderVerificationPdfPath(pdfFolder);
+                hasOrderPdf = !string.IsNullOrWhiteSpace(orderPdf) && File.Exists(orderPdf);
+            }
+
+            var profile = _detectedCustomerProfile;
+            if (profile != null && !profile.ShouldSortFromExcel(hasExcel))
+            {
+                var orderLabel = hasOrderPdf ? "Bestell-PDF ✓" : "Bestell-PDF fehlt ✗";
+                if (hasOrderPdf && pdfCount > 0)
+                {
+                    workflow.Text = orderLabel + "  ·  " + pdfLabel + "  ·  " + wmLabel
+                        + Environment.NewLine + "▶ Jetzt „Sortieren & umbenennen“ klicken";
+                    workflow.Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush");
+                }
+                else
+                {
+                    workflow.Text = orderLabel + "  ·  " + pdfLabel + "  ·  " + wmLabel;
+                    workflow.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
+                }
+                return;
+            }
 
             if (!hasExcel && pdfCount == 0)
             {
-                workflow.Text = "Excel + PDF-Zeichnungen hier ablegen, dann ▶ Sortieren & umbenennen";
+                workflow.Text = hasOrderPdf
+                    ? "Bestell-PDF und Zeichnungen ablegen, dann ▶ Sortieren & umbenennen"
+                    : "Excel + PDF-Zeichnungen hier ablegen, dann ▶ Sortieren & umbenennen";
                 workflow.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
                 return;
             }
@@ -1515,8 +2852,6 @@ namespace PDF_umbenenen
             var excelLabel = hasExcel
                 ? "Excel: " + Path.GetFileName(excelPath) + " ✓"
                 : "Excel: fehlt ✗";
-            var pdfLabel = "PDFs: " + pdfCount;
-            var wmLabel = wm ? "Wasserzeichen: an" : "Wasserzeichen: aus";
 
             if (hasExcel && pdfCount > 0)
             {
@@ -1579,12 +2914,23 @@ namespace PDF_umbenenen
         private void UpdateDragDropPreview(DragEventArgs e)
         {
             var block = DroppedExtensionsBlock;
-            if (block == null || !e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (block == null)
                 return;
+
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                if (OutlookAttachmentDropService.CanAccept(e.Data))
+                    block.Text = "Wird eingefügt: Outlook-Anhänge (PDF · Excel · ZIP)";
+                return;
+            }
 
             var files = e.Data.GetData(DataFormats.FileDrop) as string[];
             if (files == null || files.Length == 0)
+            {
+                if (OutlookAttachmentDropService.CanAccept(e.Data))
+                    block.Text = "Wird eingefügt: Outlook-Anhänge (PDF · Excel · ZIP)";
                 return;
+            }
 
             var includeSubfolders = IncludeSubfoldersBox?.IsChecked == true;
             var extensions = CollectExtensionsFromPaths(files, includeSubfolders);
@@ -1689,10 +3035,11 @@ namespace PDF_umbenenen
                 return 1;
             }
 
-            if (ext == ".pdf")
-            {
+                if (ext == ".pdf")
+                {
                 if (OrderVerificationFileHelper.IsOrderVerificationFileName(sourceFile))
                 {
+                    RememberOrderReturnFileNameFromSource(sourceFile);
                     var orderTarget = OrderVerificationFileHelper.GetCanonicalPath(targetFolder);
                     File.Copy(sourceFile, orderTarget, true);
                     orderPdfCopied = true;
@@ -1701,14 +3048,22 @@ namespace PDF_umbenenen
 
                 var safeName = AppSecurityService.SanitizeFileName(Path.GetFileName(sourceFile));
                 var targetPath = AppSecurityService.ResolveSafeTargetPath(targetFolder, safeName);
-                targetPath = GetAvailableFilePath(targetPath);
-                File.Copy(sourceFile, targetPath, false);
+                File.Copy(sourceFile, targetPath, true);
+                return 1;
+            }
+
+            if (OrderVerificationFileHelper.IsOrderTextExtension(ext))
+            {
+                RememberOrderReturnFileNameFromSource(sourceFile);
+                var orderTarget = OrderVerificationFileHelper.GetCanonicalPathForSource(targetFolder, sourceFile);
+                File.Copy(sourceFile, orderTarget, true);
+                orderPdfCopied = true;
                 return 1;
             }
 
             if (ext == ".zip")
             {
-                return ExtractSupportedFilesFromZipToWorkspace(sourceFile, targetFolder, ref excelCopied, ref orderPdfCopied, ref ignoredCount);
+                return ExtractSupportedFilesFromZip(sourceFile, targetFolder, ref excelCopied, ref orderPdfCopied, ref ignoredCount);
             }
 
             ignoredCount++;
@@ -1720,79 +3075,553 @@ namespace PDF_umbenenen
             if (string.IsNullOrWhiteSpace(targetFolder) || !Directory.Exists(targetFolder))
                 return false;
 
-            var canonical = OrderVerificationFileHelper.GetCanonicalPath(targetFolder);
-            if (File.Exists(canonical))
-                return true;
-
-            var candidate = Directory.GetFiles(targetFolder, "*.pdf", SearchOption.TopDirectoryOnly)
-                .FirstOrDefault(f => OrderVerificationFileHelper.IsOrderVerificationFileName(f));
-            if (string.IsNullOrWhiteSpace(candidate))
+            var found = OrderVerificationFileHelper.FindOrderListInFolder(targetFolder);
+            if (string.IsNullOrWhiteSpace(found) || !File.Exists(found))
                 return false;
 
-            File.Copy(candidate, canonical, true);
-            try
+            var canonical = OrderVerificationFileHelper.GetCanonicalPathForSource(targetFolder, found);
+            if (!string.Equals(Path.GetFullPath(found), Path.GetFullPath(canonical), StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.Equals(Path.GetFullPath(candidate), Path.GetFullPath(canonical), StringComparison.OrdinalIgnoreCase))
-                    File.Delete(candidate);
-            }
-            catch
-            {
-                // Original kann bleiben, kanonische Bestellung.pdf ist gesetzt.
+                File.Copy(found, canonical, true);
+                try
+                {
+                    File.Delete(found);
+                }
+                catch
+                {
+                    // Original kann bleiben, kanonische Bestellung.* ist gesetzt.
+                }
             }
 
             return File.Exists(canonical);
         }
 
-        private int ExtractSupportedFilesFromZipToWorkspace(string zipFile, string targetFolder, ref bool excelCopied, ref bool orderPdfCopied, ref int ignoredCount)
+        /// <summary>
+        /// Liest die erste Seite der Bestell-PDF und übernimmt die Auftragsnummer
+        /// (Tesla: PO #…, EcoMark: Bestellung 4342 / Unser Auftrag).
+        /// </summary>
+        private void TryExtractPoNumberFromOrderPdf(
+            string orderPdfPath,
+            CustomerProfile profile = null,
+            bool overwriteAutoFilled = false)
         {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(orderPdfPath) || !File.Exists(orderPdfPath))
+                    return;
+
+                var current = OrderNumberBox?.Text?.Trim() ?? string.Empty;
+                var currentIsAuto = IsAutoExtractedOrderNumber(current);
+                if (!string.IsNullOrWhiteSpace(current)
+                    && !(overwriteAutoFilled && currentIsAuto))
+                {
+                    // Manuelle Eingabe nicht überschreiben
+                    return;
+                }
+
+                // Cache der PDF-Texterkennung leeren – gleiche Datei Bestellung.pdf, neuer Inhalt
+                try { _pdfTextService?.ClearCache(); } catch { /* ignore */ }
+
+                var text = _pdfTextService.ExtractText(orderPdfPath, 3);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    if (overwriteAutoFilled && currentIsAuto)
+                        OrderNumberBox.Text = string.Empty;
+                    return;
+                }
+
+                var orderLabel = ExtractOrderNumberLabelForCustomer(text, profile);
+                if (string.IsNullOrWhiteSpace(orderLabel))
+                {
+                    // Kunde gewechselt, aber alte Nummer passt nicht mehr → Feld leeren
+                    if (overwriteAutoFilled && currentIsAuto)
+                        OrderNumberBox.Text = string.Empty;
+                    return;
+                }
+
+                RememberOrderReturnFileNameFromPoLabel(orderLabel);
+
+                if (string.Equals(current, orderLabel, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                OrderNumberBox.Text = orderLabel;
+                AppendStatus("✓ Auftragsnummer aus Bestell-PDF übernommen: " + orderLabel);
+            }
+            catch (Exception ex)
+            {
+                AppendStatus("ℹ Auftragsnummer konnte nicht aus PDF gelesen werden: " + ex.Message);
+            }
+        }
+
+        private static bool IsAutoExtractedOrderNumber(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return true;
+
+            return Regex.IsMatch(
+                text.Trim(),
+                @"^(?:Bestellung\s+\d+|PO:\d+)$",
+                RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>
+        /// Tesla → nur PO; EcoMark → nur Bestellung (kein PO-Fallback!).
+        /// Unbekannt → Bestellung und PO, Bestellung zuerst wenn beide da.
+        /// </summary>
+        private static string ExtractOrderNumberLabelForCustomer(string text, CustomerProfile profile)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            var preferTeslaPo = profile != null
+                                && (CustomerProfile.IsBuiltInTeslaId(profile.Id)
+                                    || (profile.WorkflowKind == CustomerWorkflowKind.ExcelPrimary
+                                        && !CustomerProfile.IsBuiltInEcoMarkId(profile.Id)));
+            var preferEcoMark = profile != null
+                                && (CustomerProfile.IsBuiltInEcoMarkId(profile.Id)
+                                    || profile.WorkflowKind == CustomerWorkflowKind.PdfOrderListPrimary);
+
+            string TryPo()
+            {
+                var po = Regex.Match(
+                    text,
+                    @"PO\s*#?\s*:\s*(\d{5,})",
+                    RegexOptions.IgnoreCase);
+                return po.Success ? "PO:" + po.Groups[1].Value.Trim() : null;
+            }
+
+            string TryBestellung()
+            {
+                var bestellung = Regex.Match(
+                    text,
+                    @"Bestellung\s+(\d{3,})",
+                    RegexOptions.IgnoreCase);
+                if (bestellung.Success)
+                    return "Bestellung " + bestellung.Groups[1].Value.Trim();
+
+                var unserAuftrag = Regex.Match(
+                    text,
+                    @"Unser\s+Auftrag\s*:?\s*(\d{3,})",
+                    RegexOptions.IgnoreCase);
+                return unserAuftrag.Success
+                    ? "Bestellung " + unserAuftrag.Groups[1].Value.Trim()
+                    : null;
+            }
+
+            if (preferTeslaPo)
+                return TryPo(); // kein Bestellung-Fallback – sonst bleibt EcoMark-Logik kleben
+
+            if (preferEcoMark)
+                return TryBestellung(); // kein PO-Fallback – sonst bleibt Tesla-PO kleben
+
+            // Unklar: beide versuchen, Bestellung und PO getrennt
+            return TryBestellung() ?? TryPo();
+        }
+
+        private static bool IsZipWorkspaceSortFile(string extension)
+        {
+            var ext = (extension ?? string.Empty).ToLowerInvariant();
+            return ext == ".xlsx" || ext == ".xls" || ext == ".pdf"
+                   || OrderVerificationFileHelper.IsOrderTextExtension(ext);
+        }
+
+        /// <summary>
+        /// ZIP eintrag darf nicht als .zip in Zielordner landen (Doppelte mit Inhalt).
+        /// </summary>
+        private static bool IsForbiddenZipPayloadExtension(string extension)
+        {
+            return string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Nach dem Entpacken: ZIP-Datei aus Zielordnern entfernen (kein ZIP neben den Dateien).
+        /// </summary>
+        private static void TryDeleteZipFileNamedLikeSource(string folder, string zipSourcePath)
+        {
+            if (string.IsNullOrWhiteSpace(folder) || string.IsNullOrWhiteSpace(zipSourcePath))
+                return;
+            if (!Directory.Exists(folder))
+                return;
+
+            try
+            {
+                var zipName = Path.GetFileName(zipSourcePath);
+                if (string.IsNullOrWhiteSpace(zipName))
+                    return;
+
+                var candidate = Path.Combine(folder, zipName);
+                if (!File.Exists(candidate))
+                    return;
+
+                // Quelle selbst nicht löschen, wenn sie noch gelesen wird – Aufruf erst nach Close des Archives
+                File.Delete(candidate);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryDeleteAllZipsInFolder(string folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                return;
+
+            try
+            {
+                foreach (var zip in Directory.GetFiles(folder, "*.zip", SearchOption.TopDirectoryOnly))
+                {
+                    try { File.Delete(zip); } catch { }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
+        /// ZIP entpacken: Inhalt in Ablage (nur Sortier-Dateien) und Tesla-Ordner (alle Dateien außer .zip).
+        /// Die ZIP-Datei selbst wird nicht in Zielordner kopiert und dort ggf. entfernt.
+        /// </summary>
+        private int ExtractSupportedFilesFromZip(
+            string zipFile,
+            string workspaceFolder,
+            ref bool excelCopied,
+            ref bool orderPdfCopied,
+            ref int ignoredCount)
+        {
+            if (string.IsNullOrWhiteSpace(zipFile) || !File.Exists(zipFile))
+                return 0;
+
+            if (string.IsNullOrWhiteSpace(workspaceFolder))
+                return 0;
+
+            Directory.CreateDirectory(workspaceFolder);
+            var workspaceFull = Path.GetFullPath(workspaceFolder);
+
+            // Tesla-Ordner nur wenn Kunde Tesla ist (oder noch nicht erkannt) und Ordner gesetzt
+            var teslaFolders = LoadTeslaFolderSettings();
+            var allowTeslaFolders = teslaFolders.HasAnyFolder
+                && (_detectedCustomerProfile == null
+                    || CustomerProfile.IsBuiltInTeslaId(_detectedCustomerProfile.Id));
+            var unpackFolder = allowTeslaFolders
+                ? (teslaFolders.UnpackDestinationFolder ?? string.Empty).Trim()
+                : string.Empty;
+            var orderFolder = allowTeslaFolders
+                ? (teslaFolders.OrderDestinationFolder ?? string.Empty).Trim()
+                : string.Empty;
+            string unpackFull = null;
+            string orderFull = null;
+
+            if (!string.IsNullOrWhiteSpace(unpackFolder) && !IsWorkspaceOrAblageFolder(unpackFolder))
+            {
+                try
+                {
+                    Directory.CreateDirectory(unpackFolder);
+                    unpackFull = Path.GetFullPath(unpackFolder);
+                }
+                catch
+                {
+                    unpackFull = null;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(orderFolder) && !IsWorkspaceOrAblageFolder(orderFolder))
+            {
+                try
+                {
+                    Directory.CreateDirectory(orderFolder);
+                    orderFull = Path.GetFullPath(orderFolder);
+                }
+                catch
+                {
+                    orderFull = null;
+                }
+            }
+
             var copiedCount = 0;
+            var ignoredLocal = 0;
 
             using (var archive = ZipFile.OpenRead(zipFile))
             {
                 foreach (var entry in archive.Entries)
                 {
                     if (string.IsNullOrWhiteSpace(entry.Name))
-                    {
                         continue;
-                    }
 
                     var ext = Path.GetExtension(entry.Name)?.ToLowerInvariant() ?? string.Empty;
-                    if (ext == ".xlsx" || ext == ".xls")
+
+                    // Verschachtelte ZIP oder ZIP-Einträge nie entpacken/ablegen
+                    if (IsForbiddenZipPayloadExtension(ext))
                     {
-                        var targetName = ExcelDeliveryDateMergeService.IsAngebotExcelFile(entry.Name)
-                            ? (ext == ".xls" ? "Daten_Angebot.xls" : "Daten_Angebot.xlsx")
-                            : (ext == ".xls" ? "Daten.xls" : "Daten.xlsx");
-                        var excelTarget = AppSecurityService.ResolveSafeTargetPath(targetFolder, targetName);
-                        entry.ExtractToFile(excelTarget, true);
-                        excelCopied = true;
-                        copiedCount++;
+                        ignoredLocal++;
                         continue;
                     }
 
-                    if (ext == ".pdf")
+                    var isSortFile = IsZipWorkspaceSortFile(ext);
+                    var isOrderEntry = isSortFile
+                                       && (ext == ".pdf" || OrderVerificationFileHelper.IsOrderTextExtension(ext))
+                                       && OrderVerificationFileHelper.IsOrderVerificationFileName(entry.Name);
+
+                    var wroteAny = false;
+
+                    // Ablage: nur Dateien die zum Sortieren nötig sind
+                    if (isSortFile)
                     {
-                        if (OrderVerificationFileHelper.IsOrderVerificationFileName(entry.Name))
+                        if (TryExtractZipEntryToFolder(entry, workspaceFull, canonicalizeNames: true,
+                            ref excelCopied, ref orderPdfCopied))
+                            wroteAny = true;
+                    }
+
+                    if (isOrderEntry)
+                    {
+                        var orderDest = orderFull ?? unpackFull;
+                        if (!string.IsNullOrWhiteSpace(orderDest)
+                            && !string.Equals(orderDest, workspaceFull, StringComparison.OrdinalIgnoreCase))
                         {
-                            var orderTarget = OrderVerificationFileHelper.GetCanonicalPath(targetFolder);
-                            entry.ExtractToFile(orderTarget, true);
-                            orderPdfCopied = true;
-                            copiedCount++;
-                            continue;
-                        }
+                            // PO-Nummer aus bereits entpackter Ablage-Bestellung lesen
+                            var ablageOrder = OrderVerificationFileHelper.GetCanonicalPath(workspaceFull);
+                            if (File.Exists(ablageOrder))
+                                EnsureOrderReturnFileNameFromContent(ablageOrder);
 
-                        var safeName = AppSecurityService.SanitizeFileName(Path.GetFileName(entry.Name));
-                        var targetPath = AppSecurityService.ResolveSafeTargetPath(targetFolder, safeName);
-                        targetPath = GetAvailableFilePath(targetPath);
-                        entry.ExtractToFile(targetPath, false);
-                        copiedCount++;
-                        continue;
+                            if (TryExtractZipEntryToFolder(entry, orderDest, canonicalizeNames: false,
+                                ref excelCopied, ref orderPdfCopied))
+                                wroteAny = true;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(unpackFull)
+                             && !string.Equals(unpackFull, workspaceFull, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Alle Nicht-ZIP-Dateien in «Entpackte Daten»
+                        if (TryExtractZipEntryToFolder(entry, unpackFull, canonicalizeNames: false,
+                            ref excelCopied, ref orderPdfCopied))
+                            wroteAny = true;
                     }
 
-                    ignoredCount++;
+                    if (wroteAny)
+                        copiedCount++;
+                    else if (!isSortFile && string.IsNullOrWhiteSpace(unpackFull))
+                        ignoredLocal++;
+                }
+            }
+
+            ignoredCount += ignoredLocal;
+
+            // ZIP darf nicht in den Zielordnern liegen (Doppelte)
+            TryDeleteZipFileNamedLikeSource(unpackFull, zipFile);
+            TryDeleteZipFileNamedLikeSource(orderFull, zipFile);
+            TryDeleteZipFileNamedLikeSource(workspaceFull, zipFile);
+            if (!string.IsNullOrWhiteSpace(unpackFull))
+                TryDeleteAllZipsInFolder(unpackFull);
+
+            // Bestell-PDF im Tesla-Ordner unter PO-Nummer ablegen (nie „Bestellung.pdf“)
+            TryPlaceOrderPdfInTeslaOrderFolder(workspaceFull, orderFull);
+
+            if (copiedCount > 0)
+            {
+                if (!string.IsNullOrWhiteSpace(unpackFull))
+                {
+                    AppendStatus(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "✓ ZIP entpackt (ohne ZIP-Datei): {0} Datei(en) → Ablage + «{1}».",
+                        copiedCount,
+                        unpackFull));
+                }
+                else
+                {
+                    AppendStatus(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "✓ ZIP entpackt: {0} Datei(en) → Ablage.",
+                        copiedCount));
                 }
             }
 
             return copiedCount;
+        }
+
+        /// <summary>
+        /// Kopiert die Ablage-Bestellung als &lt;PO-Nummer&gt;.pdf in den Tesla-Bestellordner.
+        /// </summary>
+        private void TryPlaceOrderPdfInTeslaOrderFolder(string workspaceFolder, string orderFolder)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(workspaceFolder) || string.IsNullOrWhiteSpace(orderFolder))
+                    return;
+                if (IsSameFolderPath(workspaceFolder, orderFolder) || IsWorkspaceOrAblageFolder(orderFolder))
+                    return;
+
+                var source = OrderVerificationFileHelper.GetCanonicalPath(workspaceFolder);
+                if (!File.Exists(source))
+                    source = OrderVerificationFileHelper.FindOrderListInFolder(workspaceFolder);
+                if (string.IsNullOrWhiteSpace(source) || !File.Exists(source))
+                    return;
+
+                EnsureOrderReturnFileNameFromContent(source);
+                var destName = ResolveOriginalOrderReturnFileName(source);
+                if (string.IsNullOrWhiteSpace(destName) || IsCanonicalOrderListFileName(destName))
+                    return;
+
+                Directory.CreateDirectory(orderFolder);
+                var dest = Path.Combine(orderFolder, destName);
+                File.Copy(source, dest, true);
+
+                foreach (var canon in new[]
+                         {
+                             OrderVerificationFileHelper.CanonicalFileName,
+                             OrderVerificationFileHelper.CanonicalTextFileName,
+                             "Bestellung.csv"
+                         })
+                {
+                    var wrong = Path.Combine(orderFolder, canon);
+                    if (!File.Exists(wrong))
+                        continue;
+                    if (string.Equals(Path.GetFullPath(wrong), Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    try { File.Delete(wrong); } catch { }
+                }
+
+                _orderReturnFileName = destName;
+                PathStore.SaveOrderReturnLocation(string.Empty, destName);
+                AppendStatus("✓ Tesla-Bestellung als «" + destName + "» → «" + orderFolder + "».");
+            }
+            catch (Exception ex)
+            {
+                AppendStatus("⚠ Bestellung konnte nicht unter PO-Nummer abgelegt werden: " + ex.Message);
+            }
+        }
+
+        private bool TryExtractZipEntryToFolder(
+            ZipArchiveEntry entry,
+            string destFolder,
+            bool canonicalizeNames,
+            ref bool excelCopied,
+            ref bool orderPdfCopied)
+        {
+            try
+            {
+                var ext = Path.GetExtension(entry.Name)?.ToLowerInvariant() ?? string.Empty;
+                Directory.CreateDirectory(destFolder);
+
+                if (ext == ".xlsx" || ext == ".xls")
+                {
+                    string targetName;
+                    if (canonicalizeNames)
+                    {
+                        targetName = ExcelDeliveryDateMergeService.IsAngebotExcelFile(entry.Name)
+                            ? (ext == ".xls" ? "Daten_Angebot.xls" : "Daten_Angebot.xlsx")
+                            : (ext == ".xls" ? "Daten.xls" : "Daten.xlsx");
+                    }
+                    else
+                    {
+                        targetName = AppSecurityService.SanitizeFileName(Path.GetFileName(entry.Name));
+                    }
+
+                    var excelTarget = AppSecurityService.ResolveSafeTargetPath(destFolder, targetName);
+                    entry.ExtractToFile(excelTarget, true);
+                    excelCopied = true;
+                    return true;
+                }
+
+                if (ext == ".pdf")
+                {
+                    if (OrderVerificationFileHelper.IsOrderVerificationFileName(entry.Name))
+                    {
+                        var originalName = AppSecurityService.SanitizeFileName(Path.GetFileName(entry.Name));
+                        if (!string.IsNullOrWhiteSpace(originalName)
+                            && !IsCanonicalOrderListFileName(originalName)
+                            && !originalName.StartsWith("_", StringComparison.Ordinal))
+                        {
+                            _orderReturnFileName = originalName;
+                            PathStore.SaveOrderReturnLocation(string.Empty, _orderReturnFileName);
+                        }
+
+                        string orderTarget;
+                        if (canonicalizeNames)
+                        {
+                            // Ablage intern immer Bestellung.pdf – Originalname bleibt in _orderReturnFileName
+                            orderTarget = OrderVerificationFileHelper.GetCanonicalPath(destFolder);
+                        }
+                        else
+                        {
+                            // Tesla-Bestellordner: immer Originalnummer/-name aus dem ZIP
+                            var orderName = !string.IsNullOrWhiteSpace(originalName) && !IsCanonicalOrderListFileName(originalName)
+                                ? originalName
+                                : ResolveOriginalOrderReturnFileName();
+                            if (string.IsNullOrWhiteSpace(orderName))
+                                orderName = originalName;
+                            if (string.IsNullOrWhiteSpace(orderName) || IsCanonicalOrderListFileName(orderName))
+                            {
+                                AppendStatus("⚠ Bestell-PDF ohne Originalname – Eintrag übersprungen: " + entry.Name);
+                                return false;
+                            }
+
+                            orderTarget = AppSecurityService.ResolveSafeTargetPath(destFolder, orderName);
+                        }
+
+                        entry.ExtractToFile(orderTarget, true);
+                        orderPdfCopied = true;
+                        return true;
+                    }
+
+                    var safeName = AppSecurityService.SanitizeFileName(Path.GetFileName(entry.Name));
+                    var targetPath = AppSecurityService.ResolveSafeTargetPath(destFolder, safeName);
+                    entry.ExtractToFile(targetPath, true);
+                    return true;
+                }
+
+                if (OrderVerificationFileHelper.IsOrderTextExtension(ext)
+                    && OrderVerificationFileHelper.IsOrderVerificationFileName(entry.Name))
+                {
+                    var originalName = AppSecurityService.SanitizeFileName(Path.GetFileName(entry.Name));
+                    if (!string.IsNullOrWhiteSpace(originalName)
+                        && !IsCanonicalOrderListFileName(originalName)
+                        && !originalName.StartsWith("_", StringComparison.Ordinal))
+                    {
+                        _orderReturnFileName = originalName;
+                        PathStore.SaveOrderReturnLocation(string.Empty, _orderReturnFileName);
+                    }
+
+                    string orderTarget;
+                    if (canonicalizeNames)
+                    {
+                        orderTarget = OrderVerificationFileHelper.GetCanonicalPathForSource(destFolder, entry.Name);
+                    }
+                    else
+                    {
+                        var orderName = !string.IsNullOrWhiteSpace(originalName) && !IsCanonicalOrderListFileName(originalName)
+                            ? originalName
+                            : ResolveOriginalOrderReturnFileName();
+                        if (string.IsNullOrWhiteSpace(orderName) || IsCanonicalOrderListFileName(orderName))
+                        {
+                            AppendStatus("⚠ Bestelldatei ohne Originalname – Eintrag übersprungen: " + entry.Name);
+                            return false;
+                        }
+
+                        orderTarget = AppSecurityService.ResolveSafeTargetPath(destFolder, orderName);
+                    }
+
+                    entry.ExtractToFile(orderTarget, true);
+                    orderPdfCopied = true;
+                    return true;
+                }
+
+                // Sonstige Dateien nur in Zielordner (nicht kanonisch in Ablage)
+                if (!canonicalizeNames && !IsForbiddenZipPayloadExtension(ext))
+                {
+                    var safeName = AppSecurityService.SanitizeFileName(Path.GetFileName(entry.Name));
+                    if (string.IsNullOrWhiteSpace(safeName))
+                        return false;
+                    var targetPath = AppSecurityService.ResolveSafeTargetPath(destFolder, safeName);
+                    entry.ExtractToFile(targetPath, true);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendStatus("⚠ ZIP-Eintrag nicht entpackt («" + entry.Name + "»): " + ex.Message);
+            }
+
+            return false;
         }
 
         private CancellationTokenSource _processingCancellationSource;
@@ -1800,37 +3629,64 @@ namespace PDF_umbenenen
         private readonly DispatcherTimer _stopwatchTimer;
         private TimeSpan? _lastRunElapsed;
 
+        private async void ChangeDeliveryDate_Click(object sender, RoutedEventArgs e)
+        {
+            SetActiveSidebarNav(FindName("ChangeDeliveryDateButton") as System.Windows.Controls.Button);
+            await OpenSortedPreviewAsync().ConfigureAwait(true);
+        }
+
         private async void MergeAndPrint_Click(object sender, RoutedEventArgs e)
+        {
+            await OpenSortedPreviewAsync().ConfigureAwait(true);
+        }
+
+        private async Task OpenSortedPreviewAsync()
         {
             var pdfFolder = PdfFolderBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
             {
-                AppendStatus("Bitte einen gültigen PDF-Ordner auswählen.");
+                AppendStatus("Bitte zuerst Zeichnungen sortieren, danach den Termin in der Vorschau ändern.");
                 return;
             }
 
             if (!PdfWatermarkService.IsAvailable())
             {
-                AppendStatus("❌ Zusammenführen nicht möglich: iTextSharp fehlt im App-Ordner.");
+                AppendStatus("❌ Vorschau nicht möglich: iTextSharp fehlt im App-Ordner.");
                 AppendStatus("ℹ Benötigt: itextsharp.dll und BouncyCastle.Cryptography.dll neben der EXE.");
                 return;
             }
 
-            var searchOption = IncludeSubfoldersBox.IsChecked == true ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var searchOption = IncludeSubfoldersBox.IsChecked == true
+                ? SearchOption.AllDirectories
+                : SearchOption.TopDirectoryOnly;
 
             try
             {
                 SetProcessingState(true, trackProcessingTime: false);
-                AppendStatus("Zusammenführen gestartet...");
+                AppendStatus("Sortierte Vorschau wird geöffnet…");
 
+                var excelPathHint = ExcelPathBox?.Text?.Trim() ?? string.Empty;
+                string orderTrimStatus = null;
                 var mergeResult = await Task.Run(() =>
                 {
-                    var orderedFiles = GetMergeCandidateFiles(pdfFolder, searchOption);
-                    if (orderedFiles.Count == 0)
+                    string trimStatus;
+                    var orderedFiles = BuildMergeFileListWithOrderPdf(
+                        pdfFolder,
+                        searchOption,
+                        out trimStatus,
+                        excelPathHint);
+                    orderTrimStatus = trimStatus;
+                    if (orderedFiles.Count == 0
+                        || !orderedFiles.Any(f =>
+                        {
+                            var n = Path.GetFileName(f);
+                            return !n.StartsWith("_BESTELLUNG_", StringComparison.OrdinalIgnoreCase)
+                                   && !n.StartsWith("_EXCEL_", StringComparison.OrdinalIgnoreCase);
+                        }))
                     {
                         throw new InvalidOperationException(
-                            "Keine bearbeiteten PDF-Dateien gefunden (z. B. 01_..., 02_...). " +
-                            "Bitte zuerst 'Sortieren & umbenennen' ausführen.");
+                            "Keine sortierten Zeichnungen gefunden (z. B. 01_..., 02_...). " +
+                            "Bitte zuerst über das Protokoll sortieren.");
                     }
 
                     var outputPath = Path.Combine(
@@ -1843,14 +3699,16 @@ namespace PDF_umbenenen
                     return new { OutputPath = outputPath, OrderedFiles = orderedFiles, PageMap = pageMap };
                 }).ConfigureAwait(true);
 
+                if (!string.IsNullOrWhiteSpace(orderTrimStatus))
+                    AppendStatus("ℹ " + orderTrimStatus);
                 _lastMergedPdfPath = mergeResult.OutputPath;
-                AppendStatus("✓ Zusammengeführt: " + Path.GetFileName(mergeResult.OutputPath));
-                AppendStatus("👁 Gesamt-PDF Vorschau — „Gesamt-PDF öffnen“ zum Drucken im PDF-Reader.");
+                AppendStatus("✓ Vorschau: " + Path.GetFileName(mergeResult.OutputPath));
+                AppendStatus("ℹ Termin einer Zeichnung: Seite anzeigen, dann „Termin ändern“.");
                 OpenMergedPdfPreview(mergeResult.OutputPath, mergeResult.OrderedFiles, pdfFolder, mergeResult.PageMap);
             }
             catch (Exception ex)
             {
-                AppendStatus("Fehler beim Zusammenführen/Vorschau: " + ex.Message);
+                AppendStatus("Fehler beim Öffnen der Vorschau: " + ex.Message);
             }
             finally
             {
@@ -1886,10 +3744,169 @@ namespace PDF_umbenenen
             if (name.StartsWith("_GESAMT_", StringComparison.OrdinalIgnoreCase))
                 return false;
 
+            if (name.StartsWith("_BESTELLUNG_", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (name.StartsWith("_EXCEL_", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (name.StartsWith("_DRUCK_", StringComparison.OrdinalIgnoreCase))
+                return false;
+
             if (name.EndsWith(WatermarkEditorService.PreWatermarkSuffix, StringComparison.OrdinalIgnoreCase))
                 return false;
 
             return true;
+        }
+
+        /// <summary>
+        /// Bestell-PDF (gekürzt) + Excel (lesbar) + Zeichnungen für Gesamt-Druck.
+        /// Zusätzlich: _DRUCK_AUFTRAG.pdf (beidseitig) und _DRUCK_ZEICHNUNGEN.pdf (einseitig).
+        /// </summary>
+        private List<string> BuildMergeFileListWithOrderPdf(
+            string pdfFolder,
+            SearchOption searchOption,
+            out string orderTrimStatus,
+            string excelPathHint = null)
+        {
+            orderTrimStatus = string.Empty;
+            var drawings = GetMergeCandidateFiles(pdfFolder, searchOption);
+            var mergeList = new List<string>();
+            var bestellungParts = new List<string>();
+            var statusParts = new List<string>();
+
+            var orderPdf = ResolveOrderVerificationPdfPath(pdfFolder);
+            if (!string.IsNullOrWhiteSpace(orderPdf)
+                && File.Exists(orderPdf)
+                && string.Equals(Path.GetExtension(orderPdf), ".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                drawings = drawings
+                    .Where(p => !string.Equals(p, orderPdf, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                string trimStatus;
+                var trimmed = OrderPdfPrintTrimService.TryPrepareTrimmedPrintPdf(
+                    orderPdf,
+                    pdfFolder,
+                    out trimStatus);
+                if (!string.IsNullOrWhiteSpace(trimStatus))
+                    statusParts.Add(trimStatus);
+
+                if (!string.IsNullOrWhiteSpace(trimmed) && File.Exists(trimmed))
+                {
+                    mergeList.Add(trimmed);
+                    bestellungParts.Add(trimmed);
+                }
+            }
+
+            var excelPath = excelPathHint ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(excelPath) || !File.Exists(excelPath))
+                excelPath = ExcelDeliveryDateMergeService.ResolvePrimaryExcelPath(pdfFolder) ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(excelPath) && File.Exists(excelPath))
+            {
+                string excelStatus;
+                var excelPdf = ExcelPrintExportService.TryExportForPrint(excelPath, pdfFolder, out excelStatus);
+                if (!string.IsNullOrWhiteSpace(excelStatus))
+                    statusParts.Add(excelStatus);
+                if (!string.IsNullOrWhiteSpace(excelPdf) && File.Exists(excelPdf))
+                    mergeList.Add(excelPdf);
+            }
+
+            // Auftrag/Angebot allein (Hochformat, Duplex) — Excel bleibt Querformat separat in der Gesamt-PDF
+            TryWriteSplitPrintPdfs(pdfFolder, bestellungParts, drawings, statusParts);
+
+            orderTrimStatus = string.Join(" · ", statusParts);
+            mergeList.AddRange(drawings);
+            return mergeList;
+        }
+
+        private static void TryWriteSplitPrintPdfs(
+            string pdfFolder,
+            IList<string> auftragParts,
+            IList<string> drawings,
+            IList<string> statusParts)
+        {
+            try
+            {
+                var auftragPath = Path.Combine(pdfFolder, "_DRUCK_AUFTRAG.pdf");
+                var drawingsPath = Path.Combine(pdfFolder, "_DRUCK_ZEICHNUNGEN.pdf");
+
+                if (auftragParts != null && auftragParts.Count > 0)
+                {
+                    PdfWatermarkService.MergePdfFiles(auftragParts.ToList(), auftragPath);
+                    EnsureEvenPageCountForDuplex(auftragPath);
+                    statusParts.Add("Druck Angebot/Auftrag: Hochformat, beidseitig (_DRUCK_AUFTRAG.pdf).");
+                }
+
+                if (drawings != null && drawings.Count > 0)
+                {
+                    PdfWatermarkService.MergePdfFiles(drawings.ToList(), drawingsPath);
+                    statusParts.Add("Druck Zeichnungen: einseitig (_DRUCK_ZEICHNUNGEN.pdf).");
+                }
+            }
+            catch (Exception ex)
+            {
+                statusParts.Add("Druck-PDFs aufteilen fehlgeschlagen: " + ex.Message);
+            }
+        }
+
+        /// <summary>Leere Seite anhängen, damit Duplex die letzte Auftragsseite nicht mit Zeichnungen mischt.</summary>
+        private static void EnsureEvenPageCountForDuplex(string pdfPath)
+        {
+            if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
+                return;
+
+            var pages = PdfWatermarkService.GetPageCount(pdfPath);
+            if (pages <= 0 || pages % 2 == 0)
+                return;
+
+            try
+            {
+                var blank = Path.Combine(Path.GetTempPath(), "DOK-V01-blank-" + Guid.NewGuid().ToString("N") + ".pdf");
+                CreateBlankA4Pdf(blank);
+                var padded = pdfPath + ".pad.pdf";
+                PdfWatermarkService.MergePdfFiles(new[] { pdfPath, blank }, padded);
+                File.Copy(padded, pdfPath, overwrite: true);
+                try { File.Delete(padded); } catch { }
+                try { File.Delete(blank); } catch { }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void CreateBlankA4Pdf(string outputPath)
+        {
+            // Über iTextSharp: leere A4-Seite
+            var assembly = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(a => string.Equals(a.GetName().Name, "iTextSharp", StringComparison.OrdinalIgnoreCase));
+            if (assembly == null)
+                throw new InvalidOperationException("iTextSharp fehlt.");
+
+            var documentType = assembly.GetType("iTextSharp.text.Document");
+            var pageSizeType = assembly.GetType("iTextSharp.text.PageSize");
+            var pdfWriterType = assembly.GetType("iTextSharp.text.pdf.PdfWriter");
+            if (documentType == null || pageSizeType == null || pdfWriterType == null)
+                throw new InvalidOperationException("iTextSharp-Typen fehlen.");
+
+            var a4 = pageSizeType.GetField("A4")?.GetValue(null);
+            var doc = Activator.CreateInstance(documentType, new[] { a4 });
+            FileStream stream = null;
+            object writer = null;
+            try
+            {
+                stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                var getInstance = pdfWriterType.GetMethod("GetInstance", new[] { documentType, typeof(Stream) });
+                writer = getInstance?.Invoke(null, new object[] { doc, stream });
+                documentType.GetMethod("Open", Type.EmptyTypes)?.Invoke(doc, null);
+                documentType.GetMethod("NewPage", Type.EmptyTypes)?.Invoke(doc, null);
+            }
+            finally
+            {
+                documentType.GetMethod("Close", Type.EmptyTypes)?.Invoke(doc, null);
+                stream?.Dispose();
+            }
         }
 
         private static int GetLeadingNumber(string fileNameWithoutExtension)
@@ -1926,6 +3943,35 @@ namespace PDF_umbenenen
             {
                 if (!string.IsNullOrWhiteSpace(preview.MergedPdfPath))
                     _lastMergedPdfPath = preview.MergedPdfPath;
+
+                // Nach „Gesamt-PDF öffnen“: nur Original-Bestellung in Tesla-Ordner;
+                // Gesamt bleibt in der Ablage und wird von dort geöffnet.
+                if (preview.WasOpenedForPrint)
+                {
+                    var pendingOpenPath = preview.MergedPdfPath;
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        TryMoveOrderDataToReturnFolder();
+
+                        var openPath = pendingOpenPath;
+                        if (string.IsNullOrWhiteSpace(openPath) || !File.Exists(openPath))
+                            openPath = _lastMergedPdfPath;
+
+                        if (!string.IsNullOrWhiteSpace(openPath) && File.Exists(openPath))
+                        {
+                            if (!PdfPrintService.TryOpenPdfExternally(openPath))
+                                AppendStatus("⚠ Gesamt-PDF konnte nicht geöffnet werden: " + openPath);
+                            else
+                                _lastMergedPdfPath = openPath;
+                        }
+                        else
+                        {
+                            AppendStatus("⚠ Gesamt-PDF nicht gefunden (sollte in der Ablage liegen).");
+                        }
+
+                        TryStartPendingGeoSearch();
+                    }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                }
             };
             preview.Show();
         }
@@ -2017,20 +4063,6 @@ namespace PDF_umbenenen
         {
             var excelPath = ExcelPathBox.Text.Trim();
             var pdfFolder = PdfFolderBox.Text.Trim();
-            var orderNumber = OrderNumberBox.Text.Trim();
-
-            if (string.IsNullOrWhiteSpace(orderNumber))
-            {
-                AppendStatus("Bitte zuerst eine Auftragsnummer eingeben – Sortierung ohne Auftragsnummer ist nicht möglich.");
-                MessageBox.Show(
-                    this,
-                    "Bitte geben Sie eine Auftragsnummer ein.\r\n\r\nOhne Auftragsnummer kann die Sortierung nicht starten.",
-                    "Auftragsnummer fehlt",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                OrderNumberBox?.Focus();
-                return;
-            }
 
             if (string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
             {
@@ -2045,6 +4077,19 @@ namespace PDF_umbenenen
             var pdfKeys = LoadPdfCandidates(pdfFolder, searchOption, orderPdfPath)
                 .Select(p => p.SearchKey)
                 .ToList();
+
+            if (hasOrderPdf)
+            {
+                try
+                {
+                    var orderText = _pdfTextService.ExtractText(orderPdfPath, 3);
+                    foreach (var token in OrderVerificationDrawingKey.ExtractAllFromText(orderText ?? string.Empty))
+                        pdfKeys.Add(token);
+                }
+                catch
+                {
+                }
+            }
 
             var profiles = CustomerProfileStore.LoadAll();
             if (profiles.Count == 0)
@@ -2065,6 +4110,15 @@ namespace PDF_umbenenen
 
             var detection = CustomerProfileDetectionService.Detect(pdfKeys, profiles);
             var activeCustomer = detection.Profile;
+            if (activeCustomer == null
+                && _detectedCustomerProfile != null
+                && profiles.Any(p => string.Equals(p.Id, _detectedCustomerProfile.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                activeCustomer = profiles.First(p =>
+                    string.Equals(p.Id, _detectedCustomerProfile.Id, StringComparison.OrdinalIgnoreCase));
+                AppendStatus("ℹ Kunde aus Titelleiste (Import): " + activeCustomer.DisplayName);
+            }
+
             if (activeCustomer == null)
             {
                 var selectDlg = new CustomerSelectWindow(profiles)
@@ -2082,7 +4136,7 @@ namespace PDF_umbenenen
                 activeCustomer = selectDlg.SelectedProfile;
                 AppendStatus("ℹ Kunde manuell gewählt: " + activeCustomer.DisplayName);
             }
-            else
+            else if (detection.Profile != null)
             {
                 AppendStatus(string.Format(CultureInfo.InvariantCulture,
                     "ℹ Kunde erkannt: {0} ({1}% Übereinstimmung)",
@@ -2090,15 +4144,44 @@ namespace PDF_umbenenen
                     detection.ConfidencePercent));
             }
 
+            _detectedCustomerProfile = activeCustomer;
+            WatermarkProcessingContext.CurrentCustomerProfileId = activeCustomer?.Id ?? string.Empty;
+            SetActiveCustomerBadge(activeCustomer.DisplayName, null);
+
             if (CustomerProfileSettingsStore.TryApplyToGlobal(activeCustomer.Id))
             {
+                _watermarkSettings = WatermarkSettingsStore.Load();
                 AppendStatus("ℹ Gespeicherte Einstellungen für " + activeCustomer.DisplayName + " geladen.");
+            }
+
+            if (hasOrderPdf)
+                TryExtractPoNumberFromOrderPdf(orderPdfPath, activeCustomer, overwriteAutoFilled: true);
+
+            var excelProbe = excelPath;
+            var excelAvailable = TryResolveExcelPath(ref excelProbe, null);
+            if (excelAvailable)
+                excelPath = excelProbe;
+
+            var orderNumber = OrderNumberBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(orderNumber))
+            {
+                AppendStatus("Bitte zuerst eine Auftragsnummer eingeben – Sortierung ohne Auftragsnummer ist nicht möglich.");
+                MessageBox.Show(
+                    this,
+                    activeCustomer.ShouldSortFromExcel(excelAvailable)
+                        ? "Bitte geben Sie eine Auftragsnummer ein.\r\n\r\nOhne Auftragsnummer kann die Sortierung nicht starten."
+                        : "In der Bestell-PDF wurde keine Auftragsnummer gefunden (z. B. „Bestellung 4342“).\r\n\r\nBitte die Nummer oben eintragen oder die Bestell-PDF prüfen.",
+                    "Auftragsnummer fehlt",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                OrderNumberBox?.Focus();
+                return;
             }
 
             IList<OrderVerificationLine> orderVerificationLines = Array.Empty<OrderVerificationLine>();
             List<ExcelRowCandidate> excelRows;
 
-            if (activeCustomer.RequiresExcel)
+            if (activeCustomer.ShouldSortFromExcel(excelAvailable))
             {
                 if (!TryResolveExcelPath(ref excelPath, AppendStatus))
                 {
@@ -2107,7 +4190,7 @@ namespace PDF_umbenenen
                     return;
                 }
 
-                excelRows = LoadExcelRowsForVerification(excelPath);
+                excelRows = LoadExcelRowsForVerification(excelPath, activeCustomer);
                 ApplyAngebotDeliveryDates(excelPath, excelRows, AppendStatus);
                 ApplyManualDeliveryDateOverrides(excelRows);
                 if (excelRows.Count == 0)
@@ -2118,35 +4201,51 @@ namespace PDF_umbenenen
 
                 if (hasOrderPdf)
                 {
-                    if (!TryRunOrderVerification(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption, blockOnIssues: true))
+                    if (_skipNextOrderVerification)
+                    {
+                        _skipNextOrderVerification = false;
+                        _openEditPreviewAfterSuccessfulSort = true;
+                    }
+                    else if (!TryRunOrderVerification(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption, blockOnIssues: true))
+                    {
                         return;
+                    }
+                    else
+                    {
+                        _openEditPreviewAfterSuccessfulSort = true;
+                    }
 
                     orderVerificationLines = _cachedOrderVerificationLines ?? Array.Empty<OrderVerificationLine>();
                 }
                 else
                 {
+                    _skipNextOrderVerification = false;
+                    _openEditPreviewAfterSuccessfulSort = false;
                     orderPdfPath = string.Empty;
                     AppendStatus("ℹ Keine Prüf-PDF – Sortierung ohne Bestell-PDF-Abgleich.");
                 }
             }
             else
             {
+                _skipNextOrderVerification = false;
                 excelPath = string.Empty;
                 if (!hasOrderPdf)
                 {
-                    AppendStatus("Für " + activeCustomer.DisplayName + " wird die Bestell-PDF im Bereich „Prüf-PDF“ benötigt.");
+                    AppendStatus("Für " + activeCustomer.DisplayName + " wird eine Bestellung (PDF oder Text .txt/.csv) in der Ablage benötigt.");
                     return;
                 }
 
                 orderVerificationLines = CustomerOrderListParser.Parse(orderPdfPath, activeCustomer, _pdfTextService);
                 if (orderVerificationLines.Count == 0)
                 {
-                    AppendStatus("In der Bestell-PDF wurden keine Zeichnungszeilen für " + activeCustomer.DisplayName + " gefunden.");
+                    AppendStatus("In der Bestellung wurden keine Zeichnungszeilen für " + activeCustomer.DisplayName + " gefunden: "
+                                 + Path.GetFileName(orderPdfPath));
                     return;
                 }
 
-                excelRows = BuildExcelRowsFromOrderLines(orderVerificationLines);
-                AppendStatus("ℹ Auftrag aus Bestell-PDF: " + excelRows.Count + " Position(en).");
+                excelRows = BuildExcelRowsFromOrderLines(orderVerificationLines, activeCustomer);
+                var orderKind = OrderVerificationFileHelper.IsOrderTextExtension(orderPdfPath) ? "Text-Bestellung" : "Bestell-PDF";
+                AppendStatus("ℹ Auftrag aus " + orderKind + ": " + excelRows.Count + " Position(en).");
             }
 
             // WICHTIG: manuelle Terminänderungen NACH Prüf-Dialog nochmals anwenden
@@ -2159,6 +4258,7 @@ namespace PDF_umbenenen
             var addWatermarks = _watermarkSettings.WatermarksEnabled;
             var excelRowsForThread = excelRows;
             var customerForThread = activeCustomer;
+            var sortCompleted = false;
 
             try
             {
@@ -2177,6 +4277,7 @@ namespace PDF_umbenenen
                     orderNumber,
                     excelRowsForThread,
                     customerForThread), _processingCancellationSource.Token);
+                sortCompleted = true;
             }
             catch (OperationCanceledException)
             {
@@ -2191,6 +4292,189 @@ namespace PDF_umbenenen
                 _processingCancellationSource?.Dispose();
                 _processingCancellationSource = null;
                 SetProcessingState(false);
+            }
+
+            if (sortCompleted && _openEditPreviewAfterSuccessfulSort)
+            {
+                _openEditPreviewAfterSuccessfulSort = false;
+                string orderTrimStatus;
+                var orderedFiles = BuildMergeFileListWithOrderPdf(
+                    pdfFolder,
+                    searchOption,
+                    out orderTrimStatus,
+                    ExcelPathBox?.Text?.Trim());
+                if (!string.IsNullOrWhiteSpace(orderTrimStatus))
+                    AppendStatus("ℹ " + orderTrimStatus);
+                if (orderedFiles.Count > 0
+                    && orderedFiles.Any(f =>
+                    {
+                        var n = Path.GetFileName(f);
+                        return !n.StartsWith("_BESTELLUNG_", StringComparison.OrdinalIgnoreCase)
+                               && !n.StartsWith("_EXCEL_", StringComparison.OrdinalIgnoreCase);
+                    }))
+                {
+                    ScheduleGeoSearchAfterPreview(excelRowsForThread, orderNumber);
+                    OpenMergedPdfPreviewForCorrection(orderedFiles, pdfFolder);
+                }
+            }
+            else
+            {
+                _openEditPreviewAfterSuccessfulSort = false;
+                _pendingGeoSearchAfterPrint = false;
+            }
+        }
+
+        private void ScheduleGeoSearchAfterPreview(IList<ExcelRowCandidate> excelRows, string orderNumber)
+        {
+            _pendingGeoSearchAfterPrint = false;
+
+            if (excelRows == null || excelRows.Count == 0)
+                return;
+
+            _geoSearchExcelRows = BuildGeoOrderRows(excelRows);
+            _geoSearchOrderNumber = string.IsNullOrWhiteSpace(orderNumber)
+                ? (OrderNumberBox?.Text?.Trim() ?? "Auftrag")
+                : orderNumber.Trim();
+            _geoSearchPdfFolder = PdfFolderBox?.Text?.Trim() ?? string.Empty;
+
+            var settings = GeoSettingsStore.Load();
+            if (settings.SearchFolders == null || settings.SearchFolders.Count == 0)
+                return;
+
+            _pendingGeoSearchAfterPrint = true;
+            AppendStatus("ℹ Nach Ausdruck (Gesamt-PDF öffnen): GEO-Suche startet automatisch.");
+        }
+
+        private void TryStartPendingGeoSearch()
+        {
+            if (!_pendingGeoSearchAfterPrint)
+                return;
+
+            _pendingGeoSearchAfterPrint = false;
+            OpenGeoCollectWindow(_geoSearchExcelRows, _geoSearchOrderNumber, _geoSearchPdfFolder, fromAuto: true);
+        }
+
+        private void GeoSearchSidebar_Click(object sender, RoutedEventArgs e)
+        {
+            SetActiveSidebarNav(FindName("GeoSearchSidebarButton") as System.Windows.Controls.Button);
+            OpenGeoSearchFromUi();
+        }
+
+        private void OpenGeoSearchFromUi()
+        {
+            var settings = GeoSettingsStore.Load();
+            if (settings.SearchFolders == null || settings.SearchFolders.Count == 0)
+            {
+                var ask = MessageBox.Show(
+                    this,
+                    "Noch keine GEO-Suchordner eingestellt.\n\nJetzt Ordner konfigurieren?",
+                    "GEO suchen",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+                if (ask != MessageBoxResult.Yes)
+                    return;
+
+                var geoSettings = new GeoSettingsWindow { Owner = this };
+                ThemeWindowService.Attach(geoSettings);
+                if (geoSettings.ShowDialog() != true)
+                    return;
+
+                settings = GeoSettingsStore.Load();
+                if (settings.SearchFolders == null || settings.SearchFolders.Count == 0)
+                    return;
+            }
+
+            var rows = _geoSearchExcelRows;
+            var orderNumber = _geoSearchOrderNumber;
+
+            if (rows == null || rows.Count == 0)
+            {
+                rows = _cachedOrderVerificationExcelRows;
+                if (rows == null || rows.Count == 0)
+                {
+                    // Letzte Excel aus Ablage / Pfad laden
+                    try
+                    {
+                        var excelPath = ExcelPathBox?.Text?.Trim() ?? string.Empty;
+                        if (TryResolveExcelPath(ref excelPath, null))
+                        {
+                            var candidates = LoadExcelRowsForVerification(excelPath);
+                            rows = BuildGeoOrderRows(candidates);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(orderNumber))
+                    orderNumber = OrderNumberBox?.Text?.Trim() ?? "Auftrag";
+            }
+
+            if (rows == null || rows.Count == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "Keine Auftragspositionen für die GEO-Suche.\n\nBitte zuerst sortieren oder Excel laden.",
+                    "GEO suchen",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            _geoSearchExcelRows = rows.ToList();
+            _geoSearchOrderNumber = string.IsNullOrWhiteSpace(orderNumber) ? "Auftrag" : orderNumber.Trim();
+            if (string.IsNullOrWhiteSpace(_geoSearchPdfFolder))
+                _geoSearchPdfFolder = PdfFolderBox?.Text?.Trim() ?? string.Empty;
+            OpenGeoCollectWindow(_geoSearchExcelRows, _geoSearchOrderNumber, _geoSearchPdfFolder, fromAuto: false);
+        }
+
+        private void OpenGeoCollectWindow(IList<OrderExcelRow> rows, string orderNumber, string pdfFolder, bool fromAuto)
+        {
+            if (rows == null || rows.Count == 0)
+                return;
+
+            var settings = GeoSettingsStore.Load();
+            if (settings.SearchFolders == null || settings.SearchFolders.Count == 0)
+            {
+                if (fromAuto)
+                    AppendStatus("ℹ GEO-Suche übersprungen – keine Suchordner konfiguriert.");
+                return;
+            }
+
+            try
+            {
+                AppendStatus(fromAuto
+                    ? "◆ GEO-Suche nach Ausdruck gestartet…"
+                    : "◆ GEO-Suche gestartet…");
+                var folder = string.IsNullOrWhiteSpace(pdfFolder)
+                    ? (PdfFolderBox?.Text?.Trim() ?? string.Empty)
+                    : pdfFolder;
+                var win = new GeoCollectWindow(
+                    rows,
+                    string.IsNullOrWhiteSpace(orderNumber) ? "Auftrag" : orderNumber,
+                    folder)
+                {
+                    Owner = this,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    ShowInTaskbar = true
+                };
+                ThemeWindowService.Attach(win);
+                win.Show();
+                win.Activate();
+                win.Topmost = true;
+                win.Topmost = false;
+                win.Focus();
+            }
+            catch (Exception ex)
+            {
+                AppendStatus("GEO-Suche fehlgeschlagen: " + ex.Message);
+                MessageBox.Show(
+                    this,
+                    "GEO-Fenster konnte nicht geöffnet werden:\n" + ex.Message,
+                    "GEO suchen",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
 
@@ -2235,6 +4519,7 @@ namespace PDF_umbenenen
             _lastMergedPdfPath = null;
             ClearCachedVerificationExcelRows();
             ExcelPathBox.Text = string.Empty;
+            OrderNumberBox.Text = string.Empty;
             PathStore.ClearProcessingPaths();
             var defaultFolder = PathStore.GetOrCreateDefaultWorkspaceFolder();
             PdfFolderBox.Text = defaultFolder;
@@ -2601,6 +4886,7 @@ namespace PDF_umbenenen
             SafeAppendStatus("Wasserzeichen-Status: " + (PdfWatermarkService.IsAvailable() ? "✅ AKTIV" : "❌ iTextSharp nicht installiert"));
             SafeAppendStatus("──────────────────────────────────");
 
+            WatermarkProcessingContext.CurrentCustomerProfileId = activeCustomerProfile?.Id ?? string.Empty;
             SafeSetProgress(0);
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -2641,7 +4927,7 @@ namespace PDF_umbenenen
                 SafeAppendStatus("Aktives Kundenprofil: " + activeCustomerProfile.DisplayName);
 
             cancellationToken.ThrowIfCancellationRequested();
-            var excelRows = excelRowsPreloaded?.ToList() ?? ReadExcelRows(excelPath).ToList();
+            var excelRows = excelRowsPreloaded?.ToList() ?? ReadExcelRows(excelPath, activeCustomerProfile).ToList();
             if (excelRowsPreloaded == null)
                 ApplyAngebotDeliveryDates(excelPath, excelRows, SafeAppendStatus);
             ApplyManualDeliveryDateOverrides(excelRows);
@@ -2708,11 +4994,6 @@ namespace PDF_umbenenen
                 cancellationToken.ThrowIfCancellationRequested();
                 pdfMatchIndex++;
                 SafeSetProgressFraction(0.07 * pdfMatchIndex / pdfCandidateCount, "PDFs zuordnen …");
-                var matchingRows = excelRows
-                    .Where(row => row.NormalizedCells.Any(cell => cell == pdf.SearchKey))
-                    .OrderBy(row => row.RowIndex)
-                    .ToList();
-
                 // Prüf-/Bestell-PDF nie zuordnen oder umbenennen
                 if (OrderVerificationFileHelper.IsOrderVerificationFileName(pdf.DisplayName)
                     || OrderVerificationFileHelper.IsOrderVerificationFileName(pdf.OriginalName)
@@ -2722,7 +5003,30 @@ namespace PDF_umbenenen
                     continue;
                 }
 
-                if (matchingRows.Count == 0 && aiEnabled)
+                var pdfMatchKey = activeCustomerProfile != null
+                    ? CustomerProfileDrawingMatcher.NormalizeKey(
+                        StripRevSuffix(pdf.OriginalName), activeCustomerProfile)
+                    : pdf.SearchKey;
+                if (string.IsNullOrWhiteSpace(pdfMatchKey))
+                    pdfMatchKey = pdf.SearchKey;
+
+                var matchingRows = excelRows
+                    .Where(row => activeCustomerProfile != null
+                        ? CustomerProfileDrawingMatcher.RowMatchesPdf(
+                            pdfMatchKey, row.RawDrawingNumber, row.NormalizedCells, activeCustomerProfile)
+                        : row.NormalizedCells.Any(cell => cell == pdf.SearchKey))
+                    .OrderByDescending(row => DrawingKeysEqualForSort(
+                        pdfMatchKey, row.RawDrawingNumber, row.NormalizedCells, activeCustomerProfile))
+                    .ThenByDescending(row => (row.RawDrawingNumber ?? string.Empty).Length)
+                    .ThenBy(row => row.RowIndex)
+                    .ToList();
+
+                // Bestell-PDF-Workflow: Reihenfolge/Stückzahl kommen aus der Bestellliste – KI nicht dazwischenfunken.
+                var allowAiMatch = aiEnabled
+                    && (activeCustomerProfile == null
+                        || activeCustomerProfile.WorkflowKind != CustomerWorkflowKind.PdfOrderListPrimary);
+
+                if (matchingRows.Count == 0 && allowAiMatch)
                 {
                     var aiPdf = ToAiPdfInfo(pdf);
                     var suggestion = _aiMatchingService
@@ -2755,51 +5059,29 @@ namespace PDF_umbenenen
                     continue;
                 }
 
+                // Alle Excel-Zeilen derselben Zeichnung / derselben Artikelnummer einbeziehen
+                // (gleiches Teil in mehreren Baugruppen = mehrere Zeilen oder mehrere „verbaut in“).
+                matchingRows = ExpandMatchingRowsForSharedParts(
+                    matchingRows, excelRows, pdfMatchKey, activeCustomerProfile);
+
                 var primaryRow = matchingRows[0];
                 var orderRowForPdf = ToOrderExcelRow(primaryRow);
-                var watermarkEntries = matchingRows
-                    .Select(r =>
-                    {
-                        BgExcelInfo bgInfo = null;
-                        if (!string.IsNullOrWhiteSpace(r.ParentArticleNumber))
-                            articleToBgInfo.TryGetValue(r.ParentArticleNumber, out bgInfo);
-
-                        var bgDrawing = bgInfo?.DrawingNumber ?? string.Empty;
-                        if (!IsLikelyDrawingNumber(bgDrawing))
-                            bgDrawing = string.Empty;
-
-                        var bgRevision = bgInfo?.RevisionNumber;
-                        if (string.IsNullOrWhiteSpace(bgRevision) && !string.IsNullOrWhiteSpace(bgDrawing))
-                        {
-                            var bgRow = excelRows.FirstOrDefault(row =>
-                                string.Equals(row.RawDrawingNumber, bgDrawing, StringComparison.OrdinalIgnoreCase));
-                            if (bgRow != null)
-                                bgRevision = bgRow.RevisionNumber;
-                        }
-
-                        var orderLine = OrderVerificationLookup.FindBestMatchingLine(
-                            ToOrderExcelRow(r),
-                            orderVerificationLines,
-                            pdf.SearchKey);
-                        // Manuell geänderte Excel-Termine haben Vorrang – Baugruppe/freies ET = LT, BG-Unterteil = FT
-                        var deliveryDate = ResolveSortDeliveryDate(r, orderLine, assemblyDrawingKeys);
-
-                        return new WatermarkEntry
-                        {
-                            RequestedAmount = r.RequestedAmount,
-                            RequestedDeliveryDate = deliveryDate,
-                            RequestedDeliveryLocation = r.RequestedDeliveryLocation,
-                            BgDrawingNumber = FormatBgWatermarkText(bgDrawing, bgRevision),
-                            OrderNumber = orderNumber
-                        };
-                    })
-                    .ToList();
+                var watermarkEntries = BuildWatermarkEntriesForMatchingRows(
+                    matchingRows,
+                    excelRows,
+                    articleToBgInfo,
+                    orderVerificationLines,
+                    pdf.SearchKey,
+                    assemblyDrawingKeys,
+                    orderNumber);
 
                 var primaryOrderLine = OrderVerificationLookup.FindBestMatchingLine(
                     orderRowForPdf,
                     orderVerificationLines,
                     pdf.SearchKey);
                 var primaryDeliveryDate = ResolveSortDeliveryDate(primaryRow, primaryOrderLine, assemblyDrawingKeys);
+                if (primaryOrderLine != null && !string.IsNullOrWhiteSpace(primaryOrderLine.Amount))
+                    primaryRow.RequestedAmount = primaryOrderLine.Amount;
 
                 matches.Add(new RenamingItem
                 {
@@ -2836,7 +5118,8 @@ namespace PDF_umbenenen
                     string.IsNullOrWhiteSpace(sample.RequestedDeliveryDate) ? "(leer)" : sample.RequestedDeliveryDate));
             }
 
-            var sourceFilesToDeleteAfterSuccess = new List<string> { excelPath };
+            // Excel NICHT löschen – wird für Protokoll/Auswertung nach Sortierung benötigt
+            var sourceFilesToDeleteAfterSuccess = new List<string>();
 
             matches = matches
                 .OrderBy(item => item.ExcelRowIndex)
@@ -2890,6 +5173,7 @@ namespace PDF_umbenenen
             {
                 SafeAppendStatus("──────────────────────────────────────────");
                 SafeAppendStatus("Wasserzeichen werden hinzugefügt...");
+                SafeAppendStatus(DrawingVisionRecognitionService.GetStartupStatus());
                 PdfLayoutAnalysisService.ClearCache();
                 PdfMaterialExtractionService.ClearCache();
                 PdfSurfaceTreatmentExtractionService.ClearCache();
@@ -2948,6 +5232,11 @@ namespace PDF_umbenenen
                             item.DrawingNumber,
                             _watermarkSettings,
                             ReportWatermarkFileProgress);
+
+                        if (PdfSurfaceTreatmentExtractionService.LastExtractHadBrushed)
+                            SafeAppendStatus("✓ Gebürstet-Wasserzeichen: " + fileName);
+                        else
+                            SafeAppendStatus("ℹ Kein Gebürstet erkannt: " + fileName);
 
                         SafeAppendStatus(string.Format(CultureInfo.InvariantCulture, "✓ Wasserzeichen hinzugefügt zu: {0}", fileName));
                         SafeSetProgressFraction(0.11 + (watermarkPhaseEnd - 0.11) * currentWatermarkIndex / fileCount, phase + " ✓");
@@ -3068,7 +5357,7 @@ namespace PDF_umbenenen
                     "🧹 Ursprungsdaten bereinigt: {0} Datei(en) gelöscht ({1}).",
                     deletedCount,
                     string.Join(", ", deletedNames)));
-                SafeAppendStatus("ℹ Hinweis: Die Excel-Quelldatei wurde entfernt. Nicht zugeordnete PDFs bleiben in der Ablage.");
+                SafeAppendStatus("ℹ Hinweis: Excel bleibt erhalten (für Protokoll). Nicht zugeordnete PDFs bleiben in der Ablage.");
             }
         }
 
@@ -3109,7 +5398,13 @@ namespace PDF_umbenenen
 
             ProcessButtonBox.IsEnabled = !isProcessing;
             MergePrintButtonBox.IsEnabled = !isProcessing;
+            var dateButton = FindName("ChangeDeliveryDateButton") as System.Windows.Controls.Button;
+            if (dateButton != null)
+                dateButton.IsEnabled = !isProcessing;
             DeleteProcessedButtonBox.IsEnabled = !isProcessing;
+            var protocolButton = FindName("NavLogButton") as System.Windows.Controls.Button;
+            if (protocolButton != null)
+                protocolButton.IsEnabled = !isProcessing;
             CancelButtonBox.IsEnabled = isProcessing;
             if (CancelButtonBox != null)
                 CancelButtonBox.Visibility = isProcessing ? Visibility.Visible : Visibility.Collapsed;
@@ -3477,28 +5772,45 @@ namespace PDF_umbenenen
             return false;
         }
 
+        private string ResolveDrawingPdfFromProtocol(
+            string drawingNumber,
+            string pdfFolder,
+            string orderPdfPath)
+        {
+            if (string.IsNullOrWhiteSpace(drawingNumber) || string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
+                return null;
+
+            var path = FindDrawingPdfPath(drawingNumber, pdfFolder, SearchOption.AllDirectories, orderPdfPath);
+            if (string.IsNullOrWhiteSpace(path))
+                path = TryExtractDrawingPdfFromZip(drawingNumber, pdfFolder, SearchOption.AllDirectories);
+            if (string.IsNullOrWhiteSpace(path))
+                path = FindDrawingPdfByLooseNameMatch(drawingNumber, pdfFolder);
+
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return null;
+
+            return path;
+        }
+
         private void OpenDrawingPdfFromProtocol(
             string drawingNumber,
             string pdfFolder,
             SearchOption searchOption,
             string orderPdfPath)
         {
-            if (string.IsNullOrWhiteSpace(drawingNumber) || string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
+            var path = ResolveDrawingPdfFromProtocol(drawingNumber, pdfFolder, orderPdfPath);
+            if (string.IsNullOrWhiteSpace(path))
             {
-                MessageBox.Show(this,
-                    "Zeichnungs-PDF konnte nicht geöffnet werden.",
-                    "Zeichnung öffnen",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
+                if (string.IsNullOrWhiteSpace(drawingNumber) || string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
+                {
+                    MessageBox.Show(this,
+                        "Zeichnungs-PDF konnte nicht geöffnet werden.",
+                        "Zeichnung öffnen",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
             }
-
-            // Immer rekursiv suchen – Zeichnungen liegen oft in Unterordnern oder noch in ZIP-Dateien
-            var path = FindDrawingPdfPath(drawingNumber, pdfFolder, SearchOption.AllDirectories, orderPdfPath);
-            if (string.IsNullOrWhiteSpace(path))
-                path = TryExtractDrawingPdfFromZip(drawingNumber, pdfFolder, SearchOption.AllDirectories);
-            if (string.IsNullOrWhiteSpace(path))
-                path = FindDrawingPdfByLooseNameMatch(drawingNumber, pdfFolder);
 
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             {
@@ -3758,11 +6070,11 @@ namespace PDF_umbenenen
 
             if (!string.IsNullOrWhiteSpace(pdfFolder) && Directory.Exists(pdfFolder))
             {
-                var canonical = OrderVerificationFileHelper.GetCanonicalPath(pdfFolder);
-                if (File.Exists(canonical))
+                var found = OrderVerificationFileHelper.FindOrderListInFolder(pdfFolder);
+                if (!string.IsNullOrWhiteSpace(found) && File.Exists(found))
                 {
-                    _orderVerificationPdfPath = canonical;
-                    return canonical;
+                    _orderVerificationPdfPath = found;
+                    return found;
                 }
             }
 
@@ -3777,6 +6089,7 @@ namespace PDF_umbenenen
             SearchOption searchOption,
             bool blockOnIssues)
         {
+            _lastVerificationProceeded = false;
             var orderRows = excelRows.Select(ToOrderExcelRow).ToList();
             var report = RunOrderVerificationReport(excelPath, orderPdfPath, excelRows, pdfFolder, searchOption);
             AppendStatus(report.ToDisplayText());
@@ -3788,6 +6101,8 @@ namespace PDF_umbenenen
 
             Action<string> openDrawingPdf = drawingNumber =>
                 OpenDrawingPdfFromProtocol(drawingNumber, pdfFolder, searchOption, orderPdfPath);
+            Func<string, string> resolveDrawingPdf = drawingNumber =>
+                ResolveDrawingPdfFromProtocol(drawingNumber, pdfFolder, orderPdfPath);
 
             var dialogResult = OrderVerificationReportWindow.ShowDialog(
                 this,
@@ -3799,9 +6114,12 @@ namespace PDF_umbenenen
                 orderPdfPath,
                 offerContinueOnIssues: blockOnIssues,
                 persistDeliveryDate: persistDeliveryDate,
-                openDrawingPdf: openDrawingPdf);
+                openDrawingPdf: openDrawingPdf,
+                resolveDrawingPdf: resolveDrawingPdf);
 
             SyncDeliveryDatesAfterVerificationDialog(excelRows, dialogResult);
+
+            _lastVerificationProceeded = dialogResult.Proceed;
 
             // Kein erneutes ApplyOrderPdfDates mit dem alten Prüfbericht –
             // der Dialog hat Excel-Zeilen + Overrides bereits geschrieben.
@@ -3820,6 +6138,14 @@ namespace PDF_umbenenen
                              + CountManualDeliveryDateOverrideRows() + " Position(en)).");
             }
 
+            if (blockOnIssues && !dialogResult.Proceed)
+            {
+                AppendStatus(report.HasBlockingIssues
+                    ? "Sortierung abgebrochen – bitte Excel und Bestell-PDF abgleichen."
+                    : "Sortierung abgebrochen – Prüfprotokoll geschlossen.");
+                return false;
+            }
+
             if (!report.HasBlockingIssues)
             {
                 AppendStatus("✓ Auftragsprüfung bestanden – Sortierung kann starten.");
@@ -3828,12 +6154,6 @@ namespace PDF_umbenenen
 
             if (!blockOnIssues)
                 return true;
-
-            if (!dialogResult.Proceed)
-            {
-                AppendStatus("Sortierung abgebrochen – bitte Excel und Bestell-PDF abgleichen.");
-                return false;
-            }
 
             AppendStatus("⚠ Sortierung trotz Abweichungen fortgesetzt (Benutzerbestätigung).");
             return true;
@@ -3925,7 +6245,8 @@ namespace PDF_umbenenen
             string orderPdfPath,
             IList<ExcelRowCandidate> excelRows,
             string pdfFolder,
-            SearchOption searchOption)
+            SearchOption searchOption,
+            IList<OrderVerificationLine> parsedOrderLines = null)
         {
             var orderRows = excelRows.Select(ToOrderExcelRow).ToList();
             var pdfDrawingKeys = LoadPdfCandidates(pdfFolder, searchOption, orderPdfPath)
@@ -3935,7 +6256,8 @@ namespace PDF_umbenenen
                 orderPdfPath,
                 orderRows,
                 _pdfTextService,
-                pdfDrawingKeys);
+                pdfDrawingKeys,
+                parsedOrderLines);
             _cachedOrderVerificationLines = report.ParsedOrderLines;
             _cachedOrderVerificationReport = report;
             _cachedOrderVerificationExcelRows = orderRows;
@@ -3944,16 +6266,19 @@ namespace PDF_umbenenen
             return report;
         }
 
-        private List<ExcelRowCandidate> LoadExcelRowsForVerification(string excelPath)
+        private List<ExcelRowCandidate> LoadExcelRowsForVerification(string excelPath, CustomerProfile profile = null)
         {
+            var profileId = profile?.Id ?? string.Empty;
             if (_cachedVerificationExcelRows != null
-                && string.Equals(_cachedVerificationExcelPath, excelPath, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(_cachedVerificationExcelPath, excelPath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(_cachedVerificationExcelProfileId, profileId, StringComparison.OrdinalIgnoreCase))
             {
                 return _cachedVerificationExcelRows;
             }
 
-            _cachedVerificationExcelRows = ReadExcelRows(excelPath).ToList();
+            _cachedVerificationExcelRows = ReadExcelRows(excelPath, profile).ToList();
             _cachedVerificationExcelPath = excelPath;
+            _cachedVerificationExcelProfileId = profileId;
             return _cachedVerificationExcelRows;
         }
 
@@ -3961,6 +6286,7 @@ namespace PDF_umbenenen
         {
             _cachedVerificationExcelRows = null;
             _cachedVerificationExcelPath = null;
+            _cachedVerificationExcelProfileId = null;
             _manualDeliveryDateOverrides.Clear();
         }
 
@@ -4214,66 +6540,107 @@ namespace PDF_umbenenen
                 SearchKey = searchKey ?? string.Empty,
                 ArticleNumbers = row.DetectedArticleNumbers ?? new List<string>(),
                 ParentArticleNumber = row.ParentArticleNumber,
+                ParentArticleNumbers = GetParentArticlesForRow(row),
+                RevisionNumber = row.RevisionNumber,
                 Amount = row.RequestedAmount,
                 DeliveryDate = row.RequestedDeliveryDate,
                 DeliveryLocation = row.RequestedDeliveryLocation
             };
         }
 
+        private List<OrderExcelRow> BuildGeoOrderRows(IList<ExcelRowCandidate> excelRows)
+        {
+            var source = excelRows?.ToList() ?? new List<ExcelRowCandidate>();
+            var articleToBgInfo = source
+                .Where(r => !string.IsNullOrWhiteSpace(r.RawDrawingNumber)
+                            && IsLikelyDrawingNumber(r.RawDrawingNumber)
+                            && r.DetectedArticleNumbers != null
+                            && r.DetectedArticleNumbers.Count > 0)
+                .SelectMany(r => r.DetectedArticleNumbers.Select(a => new
+                {
+                    Article = a,
+                    Drawing = r.RawDrawingNumber,
+                    Revision = r.RevisionNumber,
+                    HasParent = !string.IsNullOrWhiteSpace(r.ParentArticleNumber)
+                }))
+                .GroupBy(x => x.Article)
+                .ToDictionary(
+                    g => g.Key,
+                    g =>
+                    {
+                        var pick = g.OrderBy(x => x.HasParent ? 1 : 0).First();
+                        return new BgExcelInfo
+                        {
+                            DrawingNumber = pick.Drawing,
+                            RevisionNumber = pick.Revision
+                        };
+                    });
+
+            var result = new List<OrderExcelRow>();
+            foreach (var row in source)
+            {
+                var orderRow = ToOrderExcelRow(row);
+                orderRow.BgDrawingNumbers = new List<string>();
+                foreach (var parent in GetParentArticlesForRow(row))
+                {
+                    var bgText = ResolveBgWatermarkText(parent, articleToBgInfo, source);
+                    if (string.IsNullOrWhiteSpace(bgText))
+                    {
+                        // Fallback: Parent-Artikel anzeigen, falls keine Zeichnung auflösbar
+                        if (!string.IsNullOrWhiteSpace(parent)
+                            && !orderRow.BgDrawingNumbers.Any(b =>
+                                string.Equals(b, parent, StringComparison.OrdinalIgnoreCase)))
+                            orderRow.BgDrawingNumbers.Add(parent);
+                        continue;
+                    }
+
+                    // „BG: TSL-… R00“ → für Anzeige/Match ohne Prefix speichern
+                    var display = bgText.StartsWith("BG:", StringComparison.OrdinalIgnoreCase)
+                        ? bgText.Substring(3).Trim()
+                        : bgText.Trim();
+                    if (!orderRow.BgDrawingNumbers.Any(b =>
+                        string.Equals(b, display, StringComparison.OrdinalIgnoreCase)))
+                        orderRow.BgDrawingNumbers.Add(display);
+                }
+
+                result.Add(orderRow);
+            }
+
+            return result;
+        }
+
         private void OrderVerificationCheck_Click(object sender, RoutedEventArgs e)
         {
-            var excelPath = ExcelPathBox.Text.Trim();
-            var pdfFolder = PdfFolderBox.Text.Trim();
-
-            if (!TryResolveExcelPath(ref excelPath, AppendStatus))
-            {
-                AppendStatus("Bitte zuerst eine gültige Excel-Datei laden.");
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(pdfFolder) || !Directory.Exists(pdfFolder))
-            {
-                AppendStatus("Bitte zuerst den Ablage-Ordner verwenden.");
-                return;
-            }
-
-            var orderPdfPath = ResolveOrderVerificationPdfPath(pdfFolder);
-            if (string.IsNullOrWhiteSpace(orderPdfPath) || !File.Exists(orderPdfPath))
-            {
-                AppendStatus("Keine Bestell-PDF geladen. Bitte per Maus in „Prüf-PDF“ ablegen.");
-                return;
-            }
-
-            var excelRows = LoadExcelRowsForVerification(excelPath);
-            if (excelRows.Count == 0)
-            {
-                AppendStatus("Keine Excel-Zeilen gefunden.");
-                return;
-            }
-
-            TryRunOrderVerification(
-                excelPath,
-                orderPdfPath,
-                excelRows,
-                pdfFolder,
-                IncludeSubfoldersBox.IsChecked == true ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly,
-                blockOnIssues: false);
+            OpenProtocolDialog();
         }
+
+        [ThreadStatic]
+        private static CustomerProfile _excelHeaderProfile;
 
         private IEnumerable<ExcelRowCandidate> ReadExcelRows(string excelPath)
         {
-            var extension = Path.GetExtension(excelPath).ToLowerInvariant();
-            if (extension == ".xlsx")
-            {
-                return ReadExcelRowsFromXlsx(excelPath);
-            }
+            return ReadExcelRows(excelPath, null);
+        }
 
-            if (extension == ".xls")
+        private IEnumerable<ExcelRowCandidate> ReadExcelRows(string excelPath, CustomerProfile profile)
+        {
+            var previous = _excelHeaderProfile;
+            _excelHeaderProfile = profile;
+            try
             {
-                return ReadExcelRowsWithExcelInterop(excelPath);
-            }
+                var extension = Path.GetExtension(excelPath).ToLowerInvariant();
+                if (extension == ".xlsx")
+                    return ReadExcelRowsFromXlsx(excelPath).ToList();
 
-            throw new NotSupportedException("Nur .xls und .xlsx werden unterstützt.");
+                if (extension == ".xls")
+                    return ReadExcelRowsWithExcelInterop(excelPath).ToList();
+
+                throw new NotSupportedException("Nur .xls und .xlsx werden unterstützt.");
+            }
+            finally
+            {
+                _excelHeaderProfile = previous;
+            }
         }
 
         private void ApplyAngebotDeliveryDates(string primaryExcelPath, IList<ExcelRowCandidate> targetRows, Action<string> log = null)
@@ -4521,6 +6888,7 @@ namespace PDF_umbenenen
                             if (!string.IsNullOrWhiteSpace(key))
                             {
                                 var amount = amountColRef != null ? GetCellValueByColRef(row, amountColRef, sharedStrings) : string.Empty;
+                                amount = SanitizeExcelAmountValue(amount);
                                 var standardDateRaw = dateColRef != null ? GetCellValueByColRef(row, dateColRef, sharedStrings) : string.Empty;
                                 var standardDate = NormalizeDateValue(standardDateRaw);
                                 if (string.IsNullOrWhiteSpace(standardDate))
@@ -4539,6 +6907,11 @@ namespace PDF_umbenenen
 
                                 var revision = revisionColRef != null ? GetCellValueByColRef(row, revisionColRef, sharedStrings) : string.Empty;
 
+                                var parentSources = new List<string>();
+                                if (!string.IsNullOrWhiteSpace(articleNoValue))
+                                    parentSources.Add(articleNoValue);
+                                parentSources.AddRange(rowTexts);
+
                                 result.Add(new ExcelRowCandidate
                                 {
                                     RowIndex = result.Count + 1,
@@ -4546,7 +6919,8 @@ namespace PDF_umbenenen
                                     RawDrawingNumber = drawingText,
                                     RevisionNumber = revision,
                                     DetectedArticleNumbers = ExtractArticleNumbers(new[] { articleNoValue }),
-                                    ParentArticleNumber = ExtractParentArticleNumber(new[] { articleNoValue }),
+                                    ParentArticleNumber = ExtractParentArticleNumber(parentSources),
+                                    ParentArticleNumbers = ExtractParentArticleNumbers(parentSources),
                                     RequestedAmount = amount,
                                     RequestedDeliveryDate = date,
                                     QuoteDeliveryDate = quoteDate,
@@ -4788,6 +7162,7 @@ namespace PDF_umbenenen
                             if (!string.IsNullOrWhiteSpace(key))
                             {
                                 var amount = amountCol > 0 ? Convert.ToString(allValues[row, amountCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty : string.Empty;
+                                amount = SanitizeExcelAmountValue(amount);
                                 var standardDateRaw = dateCol > 0 ? Convert.ToString(allValues[row, dateCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty : string.Empty;
                                 var standardDate = NormalizeDateValue(standardDateRaw);
                                 if (string.IsNullOrWhiteSpace(standardDate))
@@ -4807,6 +7182,11 @@ namespace PDF_umbenenen
                                     ? Convert.ToString(allValues[row, revisionCol], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty
                                     : string.Empty;
 
+                                var parentSources = new List<string>();
+                                if (!string.IsNullOrWhiteSpace(articleNoValue))
+                                    parentSources.Add(articleNoValue);
+                                parentSources.AddRange(rowTexts);
+
                                 result.Add(new ExcelRowCandidate
                                 {
                                     RowIndex = result.Count + 1,
@@ -4814,7 +7194,8 @@ namespace PDF_umbenenen
                                     RawDrawingNumber = text,
                                     RevisionNumber = revision,
                                     DetectedArticleNumbers = ExtractArticleNumbers(new[] { articleNoValue }),
-                                    ParentArticleNumber = ExtractParentArticleNumber(new[] { articleNoValue }),
+                                    ParentArticleNumber = ExtractParentArticleNumber(parentSources),
+                                    ParentArticleNumbers = ExtractParentArticleNumbers(parentSources),
                                     RequestedAmount = amount,
                                     RequestedDeliveryDate = date,
                                     QuoteDeliveryDate = quoteDate,
@@ -4869,20 +7250,50 @@ namespace PDF_umbenenen
 
         private static bool IsDrawingHeader(string value)
         {
+            if (IsArticleNumberHeader(value))
+                return false;
+
             var n = NormalizeHeader(value);
-            return n == "drawing" || n == "zeichnung";
+            if (n == "drawing" || n == "zeichnung" || n == "zeichnungsnummer"
+                || n == "drawingnumber" || n == "drawing no")
+                return true;
+
+            return MatchesProfileHeader(n, _excelHeaderProfile?.ExcelDrawingHeaders);
         }
 
         private static bool IsArticleNumberHeader(string value)
         {
             var n = NormalizeHeader(value);
-            return n == "articleno" || n == "article no" || n == "article number" || n == "artikelnummer";
+            return n == "articleno" || n == "article no" || n == "article number" || n == "artikelnummer"
+                   || n.Contains("articleno") || n.Contains("artikelnummer");
         }
 
         private static bool IsAmountHeader(string value)
         {
+            if (IsArticleNumberHeader(value))
+                return false;
+
             var n = NormalizeHeader(value);
-            return n == "qty" || n == "quantity" || n == "menge" || n == "requested amount" || n.Contains("amount");
+            if (n == "qty" || n == "quantity" || n == "menge" || n == "requested amount" || n.Contains("amount"))
+                return true;
+
+            return MatchesProfileHeader(n, _excelHeaderProfile?.ExcelAmountHeaders);
+        }
+
+        private static bool MatchesProfileHeader(string normalizedHeader, IList<string> profileHeaders)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedHeader) || profileHeaders == null || profileHeaders.Count == 0)
+                return false;
+
+            foreach (var header in profileHeaders)
+            {
+                if (string.IsNullOrWhiteSpace(header))
+                    continue;
+                if (string.Equals(NormalizeHeader(header), normalizedHeader, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
         private static bool IsQuoteDateHeader(string value)
@@ -4972,6 +7383,193 @@ namespace PDF_umbenenen
             return "A" + new string(chars);
         }
 
+        private static List<ExcelRowCandidate> ExpandMatchingRowsForSharedParts(
+            List<ExcelRowCandidate> matchingRows,
+            List<ExcelRowCandidate> excelRows,
+            string pdfMatchKey,
+            CustomerProfile profile)
+        {
+            if (matchingRows == null || matchingRows.Count == 0 || excelRows == null || excelRows.Count == 0)
+                return matchingRows ?? new List<ExcelRowCandidate>();
+
+            var rowIds = new HashSet<int>(matchingRows.Select(r => r.RowIndex));
+            var drawingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var articles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var row in matchingRows)
+            {
+                var key = CustomerProfileDrawingMatcher.NormalizeKey(
+                    StripRevSuffix(row.RawDrawingNumber ?? string.Empty), profile);
+                if (!string.IsNullOrWhiteSpace(key))
+                    drawingKeys.Add(key);
+                if (!string.IsNullOrWhiteSpace(pdfMatchKey))
+                    drawingKeys.Add(pdfMatchKey);
+
+                if (row.DetectedArticleNumbers == null)
+                    continue;
+                foreach (var article in row.DetectedArticleNumbers)
+                {
+                    if (!string.IsNullOrWhiteSpace(article))
+                        articles.Add(article.Trim());
+                }
+            }
+
+            foreach (var row in excelRows)
+            {
+                if (row == null || rowIds.Contains(row.RowIndex))
+                    continue;
+
+                var rowKey = CustomerProfileDrawingMatcher.NormalizeKey(
+                    StripRevSuffix(row.RawDrawingNumber ?? string.Empty), profile);
+                var sameDrawing = !string.IsNullOrWhiteSpace(rowKey)
+                                  && drawingKeys.Any(k =>
+                                      OrderVerificationDrawingKey.Equal(k, rowKey)
+                                      || string.Equals(k, rowKey, StringComparison.OrdinalIgnoreCase));
+
+                var sameArticle = row.DetectedArticleNumbers != null
+                                  && row.DetectedArticleNumbers.Any(a =>
+                                      !string.IsNullOrWhiteSpace(a) && articles.Contains(a.Trim()));
+
+                if (!sameDrawing && !sameArticle)
+                    continue;
+
+                matchingRows.Add(row);
+                rowIds.Add(row.RowIndex);
+            }
+
+            return matchingRows
+                .OrderBy(r => r.RowIndex)
+                .ToList();
+        }
+
+        private List<WatermarkEntry> BuildWatermarkEntriesForMatchingRows(
+            List<ExcelRowCandidate> matchingRows,
+            List<ExcelRowCandidate> excelRows,
+            Dictionary<string, BgExcelInfo> articleToBgInfo,
+            IList<OrderVerificationLine> orderVerificationLines,
+            string pdfSearchKey,
+            HashSet<string> assemblyDrawingKeys,
+            string orderNumber)
+        {
+            var entries = new List<WatermarkEntry>();
+            if (matchingRows == null || matchingRows.Count == 0)
+                return entries;
+
+            var seenBg = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in matchingRows)
+            {
+                var orderLine = OrderVerificationLookup.FindBestMatchingLine(
+                    ToOrderExcelRow(r),
+                    orderVerificationLines,
+                    pdfSearchKey);
+                var deliveryDate = ResolveSortDeliveryDate(r, orderLine, assemblyDrawingKeys);
+                var amount = r.RequestedAmount;
+                if (orderLine != null && !string.IsNullOrWhiteSpace(orderLine.Amount))
+                    amount = orderLine.Amount;
+
+                var parents = GetParentArticlesForRow(r);
+                if (parents.Count == 0)
+                {
+                    entries.Add(new WatermarkEntry
+                    {
+                        RequestedAmount = amount,
+                        RequestedDeliveryDate = deliveryDate,
+                        RequestedDeliveryLocation = r.RequestedDeliveryLocation,
+                        BgDrawingNumber = string.Empty,
+                        OrderNumber = orderNumber
+                    });
+                    continue;
+                }
+
+                var firstParent = true;
+                foreach (var parent in parents)
+                {
+                    var bgText = ResolveBgWatermarkText(parent, articleToBgInfo, excelRows);
+                    var bgKey = string.Empty;
+                    if (!string.IsNullOrWhiteSpace(bgText)
+                        && OrderVerificationDrawingKey.TryExtractFromBgMarker(bgText, out var extractedBg))
+                        bgKey = OrderVerificationDrawingKey.Normalize(extractedBg);
+                    if (string.IsNullOrWhiteSpace(bgKey) && !string.IsNullOrWhiteSpace(bgText))
+                        bgKey = OrderVerificationDrawingKey.Normalize(bgText);
+
+                    if (!string.IsNullOrWhiteSpace(bgKey) && !seenBg.Add(bgKey))
+                    {
+                        if (firstParent)
+                        {
+                            entries.Add(new WatermarkEntry
+                            {
+                                RequestedAmount = amount,
+                                RequestedDeliveryDate = deliveryDate,
+                                RequestedDeliveryLocation = r.RequestedDeliveryLocation,
+                                BgDrawingNumber = string.Empty,
+                                OrderNumber = orderNumber
+                            });
+                        }
+
+                        firstParent = false;
+                        continue;
+                    }
+
+                    entries.Add(new WatermarkEntry
+                    {
+                        RequestedAmount = firstParent ? amount : string.Empty,
+                        RequestedDeliveryDate = firstParent ? deliveryDate : string.Empty,
+                        RequestedDeliveryLocation = firstParent ? r.RequestedDeliveryLocation : string.Empty,
+                        BgDrawingNumber = bgText,
+                        OrderNumber = orderNumber
+                    });
+                    firstParent = false;
+                }
+            }
+
+            return entries;
+        }
+
+        private static List<string> GetParentArticlesForRow(ExcelRowCandidate row)
+        {
+            var parents = new List<string>();
+            if (row == null)
+                return parents;
+
+            if (row.ParentArticleNumbers != null)
+            {
+                foreach (var p in row.ParentArticleNumbers)
+                    AddUniqueParentArticle(parents, p);
+            }
+
+            AddUniqueParentArticle(parents, row.ParentArticleNumber);
+            return parents;
+        }
+
+        private static string ResolveBgWatermarkText(
+            string parentArticle,
+            Dictionary<string, BgExcelInfo> articleToBgInfo,
+            List<ExcelRowCandidate> excelRows)
+        {
+            if (string.IsNullOrWhiteSpace(parentArticle))
+                return string.Empty;
+
+            BgExcelInfo bgInfo = null;
+            if (articleToBgInfo != null)
+                articleToBgInfo.TryGetValue(parentArticle.Trim(), out bgInfo);
+
+            var bgDrawing = bgInfo?.DrawingNumber ?? string.Empty;
+            if (!IsLikelyDrawingNumber(bgDrawing))
+                bgDrawing = string.Empty;
+
+            var bgRevision = bgInfo?.RevisionNumber;
+            if (string.IsNullOrWhiteSpace(bgRevision) && !string.IsNullOrWhiteSpace(bgDrawing) && excelRows != null)
+            {
+                var bgRow = excelRows.FirstOrDefault(row =>
+                    string.Equals(row.RawDrawingNumber, bgDrawing, StringComparison.OrdinalIgnoreCase));
+                if (bgRow != null)
+                    bgRevision = bgRow.RevisionNumber;
+            }
+
+            return FormatBgWatermarkText(bgDrawing, bgRevision);
+        }
+
         private static string FormatBgWatermarkText(string drawingNumber, string revisionNumber)
         {
             if (string.IsNullOrWhiteSpace(drawingNumber))
@@ -5027,6 +7625,43 @@ namespace PDF_umbenenen
             return result;
         }
 
+        private static int DrawingKeysEqualForSort(
+            string pdfMatchKey,
+            string rawDrawingNumber,
+            IEnumerable<string> normalizedCells,
+            CustomerProfile profile)
+        {
+            if (string.IsNullOrWhiteSpace(pdfMatchKey))
+                return 0;
+
+            if (!string.IsNullOrWhiteSpace(rawDrawingNumber)
+                && string.Equals(
+                    CustomerProfileDrawingMatcher.NormalizeKey(rawDrawingNumber, profile),
+                    pdfMatchKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return 1;
+            }
+
+            if (normalizedCells != null)
+            {
+                foreach (var cell in normalizedCells)
+                {
+                    if (string.IsNullOrWhiteSpace(cell))
+                        continue;
+                    if (string.Equals(cell, pdfMatchKey, StringComparison.OrdinalIgnoreCase))
+                        return 1;
+                    if (string.Equals(
+                        CustomerProfileDrawingMatcher.NormalizeKey(cell, profile),
+                        pdfMatchKey,
+                        StringComparison.OrdinalIgnoreCase))
+                        return 1;
+                }
+            }
+
+            return 0;
+        }
+
         private static string StripRevSuffix(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -5067,10 +7702,25 @@ namespace PDF_umbenenen
                 return false;
 
             var text = value.Trim().ToUpperInvariant();
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^TGA\d+$"))
+                return false;
+
             if (!text.Contains("-"))
                 return false;
 
             return text.Any(char.IsLetter) && text.Any(char.IsDigit);
+        }
+
+        private static string SanitizeExcelAmountValue(string amount)
+        {
+            if (string.IsNullOrWhiteSpace(amount))
+                return string.Empty;
+
+            var text = amount.Trim();
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^TGA\d", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return string.Empty;
+
+            return text;
         }
 
         private static string SanitizeFileName(string value)
@@ -5136,7 +7786,12 @@ namespace PDF_umbenenen
         private static readonly Regex TeslaPartArticleRegex = new Regex(
             @"\b(?:[A-Z]{2,6}-)?\d{4,6}-\d{2,6}(?:-[A-Z0-9]+)?\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
-        private static readonly Regex ParentArticleRegex = new Regex(@"verbaut\s*in\s*(TGA\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex ParentArticleRegex = new Regex(
+            @"verbaut\s*in\s*(TGA\d+|(?:[A-Z]{2,6}-)?\d{4,6}-\d{2,6}(?:-[A-Z0-9]+)?)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex VerbautInSectionRegex = new Regex(
+            @"verbaut\s*in\s*(.+)$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static List<string> ExtractArticleNumbers(IEnumerable<string> rowTexts)
         {
@@ -5173,8 +7828,19 @@ namespace PDF_umbenenen
 
         private static string ExtractParentArticleNumber(IEnumerable<string> rowTexts)
         {
+            var all = ExtractParentArticleNumbers(rowTexts);
+            return all.Count > 0 ? all[0] : string.Empty;
+        }
+
+        /// <summary>
+        /// Alle Parent-Artikel nach „verbaut in …“ – ein Teil kann in mehreren Baugruppen stecken
+        /// (mehrere Zeilen oder „verbaut in TGA1 / TGA2“ in einer Zelle).
+        /// </summary>
+        private static List<string> ExtractParentArticleNumbers(IEnumerable<string> rowTexts)
+        {
+            var result = new List<string>();
             if (rowTexts == null)
-                return string.Empty;
+                return result;
 
             foreach (var text in rowTexts)
             {
@@ -5185,20 +7851,35 @@ namespace PDF_umbenenen
                 if (!normalized.Contains("verbaut in"))
                     continue;
 
-                // Wichtig: Parent ist die Artikelnummer NACH "verbaut in", nicht die erste in der Zelle
-                var parentMatch = ParentArticleRegex.Match(text);
-                if (parentMatch.Success && parentMatch.Groups.Count > 1)
-                    return parentMatch.Groups[1].Value.ToUpperInvariant();
+                foreach (Match m in ParentArticleRegex.Matches(text))
+                {
+                    if (m.Groups.Count < 2 || string.IsNullOrWhiteSpace(m.Groups[1].Value))
+                        continue;
+                    AddUniqueParentArticle(result, m.Groups[1].Value);
+                }
 
-                // Fallback, falls Format ungewöhnlich ist
-                var idx = normalized.IndexOf("verbaut in", StringComparison.Ordinal);
-                var tail = idx >= 0 ? text.Substring(Math.Min(text.Length, idx + "verbaut in".Length)) : text;
-                var articleInTail = ArticleRegex.Match(tail);
-                if (articleInTail.Success)
-                    return articleInTail.Value.ToUpperInvariant();
+                var section = VerbautInSectionRegex.Match(text);
+                if (!section.Success)
+                    continue;
+
+                var tail = section.Groups[1].Value;
+                foreach (Match m in ArticleRegex.Matches(tail))
+                    AddUniqueParentArticle(result, m.Value);
+                foreach (Match m in TeslaPartArticleRegex.Matches(tail))
+                    AddUniqueParentArticle(result, m.Value);
             }
 
-            return string.Empty;
+            return result;
+        }
+
+        private static void AddUniqueParentArticle(List<string> list, string value)
+        {
+            if (list == null || string.IsNullOrWhiteSpace(value))
+                return;
+            var v = value.Trim().ToUpperInvariant();
+            if (list.Any(x => string.Equals(x, v, StringComparison.OrdinalIgnoreCase)))
+                return;
+            list.Add(v);
         }
 
         /// <summary>
@@ -5309,6 +7990,9 @@ namespace PDF_umbenenen
             public List<string> DetectedArticleNumbers { get; set; }
 
             public string ParentArticleNumber { get; set; }
+
+            /// <summary>Alle Parent-Artikel (Teil in mehreren Baugruppen).</summary>
+            public List<string> ParentArticleNumbers { get; set; }
 
             public string RequestedAmount { get; set; }
 

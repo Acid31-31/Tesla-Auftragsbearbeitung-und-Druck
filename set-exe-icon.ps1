@@ -11,6 +11,11 @@ Set-Location $root
 
 $exePathFull = (Resolve-Path $ExePath).Path
 $iconPathFull = (Resolve-Path $IconPath).Path
+
+if ($exePathFull -match '\\bin\\Debug\\') {
+    Write-Warning "Debug-EXE wird nicht per IconInjector geaendert (Icon ist im Build eingebettet). Bitte neu bauen."
+    exit 0
+}
 $toolsDir = Join-Path $root "Tools"
 $injectorExe = Join-Path $toolsDir "IconInjector.exe"
 $injectorSource = Join-Path $toolsDir "IconInjector.cs"

@@ -12,6 +12,7 @@ namespace PDF_umbenenen.Services
     {
         private static bool _batchMode;
         private static string _currentDrawingKey = string.Empty;
+        private static string _currentCustomerProfileId = string.Empty;
         private static HashSet<string> _assemblyDrawingKeys;
         private static DeliveryDatePosition? _deliveryDatePosition;
 
@@ -19,6 +20,29 @@ namespace PDF_umbenenen.Services
         {
             get => _batchMode;
             set => _batchMode = value;
+        }
+
+        public static string CurrentCustomerProfileId
+        {
+            get => _currentCustomerProfileId ?? string.Empty;
+            set => _currentCustomerProfileId = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Heutige Schriftfeld-Oberflächenstempel (Vernickelt / freier Feldtext) nur für Tesla.
+        /// Gebürstet, RAL und Elox bleiben kundenunabhängig.
+        /// </summary>
+        public static bool IsTeslaSurfaceStampEnabled
+        {
+            get
+            {
+                if (CustomerProfile.IsBuiltInTeslaId(CurrentCustomerProfileId))
+                    return true;
+
+                var key = CurrentDrawingKey;
+                return !string.IsNullOrWhiteSpace(key)
+                       && key.IndexOf("TSL", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
         }
 
         public static string CurrentDrawingKey

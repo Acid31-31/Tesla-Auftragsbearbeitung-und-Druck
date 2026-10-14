@@ -4,7 +4,8 @@
         Title="Über DOK-V01"
         Height="520" Width="650"
         WindowStartupLocation="CenterOwner"
-        Background="#F5F5F5"
+        Background="{DynamicResource AppBackground}"
+        Foreground="{DynamicResource TextPrimary}"
         ResizeMode="NoResize"
         ShowInTaskbar="False">
 
@@ -46,28 +47,28 @@
                     <TextBlock x:Name="VersionTextBlock"
                                Text="Version 1.1 R03 (Enterprise Edition)" 
                                FontSize="14" 
-                               Foreground="#333333"
+                               Foreground="{DynamicResource TextPrimary}"
                                Margin="0,0,0,5"/>
 
                     <TextBlock x:Name="BuildDateTextBlock"
                                Text="Build Date: 17. Juni 2026" 
                                FontSize="12" 
-                               Foreground="#666666"
+                               Foreground="{DynamicResource TextSecondary}"
                                Margin="0,0,0,10"/>
                 </StackPanel>
 
                 <!-- Separator -->
-                <Border Height="1" Background="#CCCCCC" Margin="0,5,0,10"/>
+                <Border Height="1" Background="{DynamicResource SeparatorBrush}" Margin="0,5,0,10"/>
 
                 <!-- Description -->
                 <StackPanel Margin="0,0,0,15">
                     <TextBlock Text="Beschreibung:" 
                                FontSize="13" FontWeight="SemiBold"
-                               Foreground="#007BFF"
+                               Foreground="{DynamicResource AccentBrush}"
                                Margin="0,0,0,8"/>
 
                     <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="#333333"
+                               Foreground="{DynamicResource TextPrimary}"
                                Margin="0,0,0,15">
                         <Run Text="Professionelle Lösung für PDF-Auftragsbearbeitung, Sortierung, Analyse, Wasserzeichen-Verwaltung und automatisierte Dokumentenverarbeitung mit Multi-Page Watermark-Unterstützung, automatischer Datenintegration und Qualitätssicherung."/>
                     </TextBlock>
@@ -77,11 +78,11 @@
                 <StackPanel Margin="0,0,0,15">
                     <TextBlock Text="Lizenz:" 
                                FontSize="13" FontWeight="SemiBold"
-                               Foreground="#007BFF"
+                               Foreground="{DynamicResource AccentBrush}"
                                Margin="0,0,0,8"/>
 
                     <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="#333333"
+                               Foreground="{DynamicResource TextPrimary}"
                                Margin="0,0,0,15">
                         <Run Text="Proprietäre Lizenz - Copyright © 2026 Alexander Hölzer"/>
                         <LineBreak/>
@@ -94,11 +95,11 @@
                 <StackPanel Margin="0,0,0,15">
                     <TextBlock Text="Abhängigkeiten:" 
                                FontSize="13" FontWeight="SemiBold"
-                               Foreground="#007BFF"
+                               Foreground="{DynamicResource AccentBrush}"
                                Margin="0,0,0,8"/>
 
                     <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="#333333"
+                               Foreground="{DynamicResource TextPrimary}"
                                Margin="0,0,0,15">
                         <Run Text="• .NET Framework 4.8"/>
                         <LineBreak/>
@@ -114,11 +115,11 @@
                 <StackPanel Margin="0,0,0,15">
                     <TextBlock Text="Systemanforderungen:" 
                                FontSize="13" FontWeight="SemiBold"
-                               Foreground="#007BFF"
+                               Foreground="{DynamicResource AccentBrush}"
                                Margin="0,0,0,8"/>
 
                     <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="#333333"
+                               Foreground="{DynamicResource TextPrimary}"
                                Margin="0,0,0,15">
                         <Run Text="• Windows 7 SP1 oder höher (empfohlen: Windows 10/11)"/>
                         <LineBreak/>

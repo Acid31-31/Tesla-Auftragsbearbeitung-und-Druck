@@ -307,20 +307,28 @@ namespace PDF_umbenenen
                         if (string.IsNullOrWhiteSpace(placement.Text))
                             continue;
 
-                        var textColor = placement.UseRedText ? GetRedColor() : GetDarkGrayColor();
-                        if (textColor != null)
-                            setColorFillMethod.Invoke(contentByte, new[] { textColor });
-
-                        setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, placement.FontSize > 0f ? placement.FontSize : 22f });
-                        showTextAlignedMethod.Invoke(contentByte, new object[]
+                        try
                         {
-                            placement.Alignment,
-                            placement.Text,
-                            placement.X,
-                            placement.Y,
-                            placement.Angle
-                        });
-                        drawnCount++;
+                            var textColor = placement.UseRedText ? GetRedColor() : GetDarkGrayColor();
+                            if (textColor != null)
+                                setColorFillMethod.Invoke(contentByte, new[] { textColor });
+
+                            setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, placement.FontSize > 0f ? placement.FontSize : 22f });
+                            showTextAlignedMethod.Invoke(contentByte, new object[]
+                            {
+                                placement.Alignment,
+                                placement.Text,
+                                placement.X,
+                                placement.Y,
+                                placement.Angle
+                            });
+                            drawnCount++;
+                        }
+                        catch (Exception drawEx)
+                        {
+                            System.Diagnostics.Trace.WriteLine(
+                                "Watermark draw failed [" + (placement.Category ?? "?") + "]: " + drawEx.Message);
+                        }
                     }
 
                     if (drawnCount > 0)
@@ -762,6 +770,302 @@ namespace PDF_umbenenen
                 if (File.Exists(tempPath))
                     File.Delete(tempPath);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Nur den Materialtext auf der bestehenden PDF austauschen.
+        /// Seite, Rand und alle anderen Wasserzeichen bleiben unverändert.
+        /// </summary>
+        internal static void ReplaceMaterialTextOnExistingPdf(
+            string pdfPath,
+            IList<WatermarkTextPlacement> previousPlacements,
+            IList<WatermarkTextPlacement> newPlacements)
+        {
+            ReplacePlacementTextsOnExistingPdf(pdfPath, previousPlacements, newPlacements, "Material");
+        }
+
+        /// <summary>
+        /// Schreibt nur die genannten Kategorien auf die vorhandene PDF.
+        /// Alle anderen Wasserzeichen bleiben unverändert (kein Neuaufbau aus .prewm).
+        /// </summary>
+        internal static void ReplacePlacementTextsOnExistingPdf(
+            string pdfPath,
+            IList<WatermarkTextPlacement> previousPlacements,
+            IList<WatermarkTextPlacement> newPlacements,
+            params string[] categories)
+        {
+            if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
+                throw new FileNotFoundException("PDF nicht gefunden: " + pdfPath);
+            if (!_iTextSharpLoaded)
+                throw new InvalidOperationException("iTextSharp ist nicht ladbar.");
+
+            var categorySet = new HashSet<string>(
+                (categories ?? new string[0]).Where(c => !string.IsNullOrWhiteSpace(c)),
+                StringComparer.OrdinalIgnoreCase);
+            if (categorySet.Count == 0)
+                categorySet.Add("Material");
+
+            var newItems = (newPlacements ?? new List<WatermarkTextPlacement>())
+                .Where(p => p != null
+                            && categorySet.Contains(p.Category ?? string.Empty)
+                            && !string.IsNullOrWhiteSpace(p.Text))
+                .ToList();
+            var oldItems = (previousPlacements ?? new List<WatermarkTextPlacement>())
+                .Where(p => p != null
+                            && categorySet.Contains(p.Category ?? string.Empty)
+                            && !string.IsNullOrWhiteSpace(p.Text))
+                .ToList();
+
+            if (newItems.Count == 0 && oldItems.Count == 0)
+                return;
+
+            var tempPath = pdfPath + ".overlay.tmp";
+            try
+            {
+            var pdfReaderCtor = _pdfReaderType.GetConstructor(new[] { typeof(string) });
+            var reader = pdfReaderCtor.Invoke(new object[] { pdfPath });
+            var fileStream = new FileStream(tempPath, FileMode.Create);
+            var pdfStamperCtor = _pdfStamperType.GetConstructor(new[] { _pdfReaderType, typeof(FileStream) });
+            var stamper = pdfStamperCtor.Invoke(new object[] { reader, fileStream });
+
+            try
+            {
+                var getOverContentMethod = _pdfStamperType.GetMethod("GetOverContent", new[] { typeof(int) });
+                var contentByte = getOverContentMethod.Invoke(stamper, new object[] { 1 });
+                var setColorFillMethod = contentByte.GetType().GetMethod("SetColorFill", new[] { _baseColorType });
+                var rectangleMethod = contentByte.GetType().GetMethod("Rectangle", new[] { typeof(float), typeof(float), typeof(float), typeof(float) });
+                var fillMethod = contentByte.GetType().GetMethod("Fill", Type.EmptyTypes);
+                var beginTextMethod = contentByte.GetType().GetMethod("BeginText", Type.EmptyTypes);
+                var endTextMethod = contentByte.GetType().GetMethod("EndText", Type.EmptyTypes);
+                var setFontAndSizeMethod = contentByte.GetType().GetMethod("SetFontAndSize", new[] { _baseFontType, typeof(float) });
+                var showTextAlignedMethod = contentByte.GetType().GetMethod("ShowTextAligned", new[] { typeof(int), typeof(string), typeof(float), typeof(float), typeof(float) });
+                var getWidthPointMethod = _baseFontType.GetMethod("GetWidthPoint", new[] { typeof(string), typeof(float) });
+
+                var baseFont = GetHelveticaBaseFont();
+                var white = GetWhiteColor();
+                var gray = GetDarkGrayColor();
+                if (baseFont == null || setColorFillMethod == null || rectangleMethod == null || fillMethod == null
+                    || beginTextMethod == null || endTextMethod == null || setFontAndSizeMethod == null
+                    || showTextAlignedMethod == null)
+                {
+                    throw new InvalidOperationException("Wasserzeichentext konnte nicht geschrieben werden.");
+                }
+
+                float Measure(string text, float fontSize)
+                {
+                    if (getWidthPointMethod == null || string.IsNullOrWhiteSpace(text))
+                        return Math.Max(20f, (text ?? string.Empty).Length * fontSize * 0.55f);
+                    var widthObj = getWidthPointMethod.Invoke(baseFont, new object[] { text, fontSize });
+                    return Convert.ToSingle(widthObj, System.Globalization.CultureInfo.InvariantCulture);
+                }
+
+                var neighbors = GetAdjacentSurfacePlacements(previousPlacements, newPlacements, oldItems, newItems);
+
+                var coverCount = Math.Max(oldItems.Count, newItems.Count);
+                for (var i = 0; i < coverCount; i++)
+                {
+                    var current = i < newItems.Count ? newItems[i] : oldItems[i];
+                    var oldText = i < oldItems.Count ? oldItems[i].Text : current.Text;
+                    var fontSize = current.FontSize > 0f ? current.FontSize : 22f;
+                    var newWidth = Measure(current.Text, fontSize);
+                    var oldWidth = Measure(oldText, fontSize);
+                    var coverWidth = Math.Max(newWidth, oldWidth) + fontSize * 0.35f;
+                    var left = current.X;
+                    if (current.Alignment == 1)
+                        left -= coverWidth / 2f;
+                    else if (current.Alignment == 2)
+                        left -= coverWidth;
+
+                    coverWidth = ClipCoverWidthAwayFromNeighbors(
+                        left, coverWidth, current.Y, fontSize, neighbors, Measure);
+
+                    var descent = fontSize * 0.35f;
+                    var height = fontSize * 1.25f;
+                    if (coverWidth > 1f)
+                    {
+                        if (white != null)
+                            setColorFillMethod.Invoke(contentByte, new[] { white });
+                        rectangleMethod.Invoke(contentByte, new object[] { left, current.Y - descent, coverWidth, height });
+                        fillMethod.Invoke(contentByte, null);
+                    }
+                }
+
+                beginTextMethod.Invoke(contentByte, null);
+                try
+                {
+                    foreach (var placement in newItems)
+                    {
+                        DrawAlignedText(
+                            placement,
+                            baseFont,
+                            gray,
+                            setColorFillMethod,
+                            setFontAndSizeMethod,
+                            showTextAlignedMethod,
+                            contentByte);
+                    }
+
+                    // „Gebürstet“/RAL sitzen neben der Stärke – nach dem Weißübermalen
+                    // an der alten Stelle neu schreiben, ohne sie zu verschieben.
+                    if (categorySet.Contains("Material"))
+                    {
+                        foreach (var neighbor in neighbors)
+                        {
+                            DrawAlignedText(
+                                neighbor,
+                                baseFont,
+                                gray,
+                                setColorFillMethod,
+                                setFontAndSizeMethod,
+                                showTextAlignedMethod,
+                                contentByte);
+                        }
+                    }
+                }
+                finally
+                {
+                    endTextMethod.Invoke(contentByte, null);
+                }
+            }
+            finally
+            {
+                _pdfStamperType.GetMethod("Close").Invoke(stamper, null);
+                fileStream.Dispose();
+                (reader as IDisposable)?.Dispose();
+            }
+
+            if (File.Exists(pdfPath))
+                ReplacePdfFileWithRetry(tempPath, pdfPath);
+            else
+                File.Move(tempPath, pdfPath);
+            }
+            catch
+            {
+                if (File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { /* ignore */ }
+                }
+
+                throw;
+            }
+        }
+
+        private static List<WatermarkTextPlacement> GetAdjacentSurfacePlacements(
+            IList<WatermarkTextPlacement> previousPlacements,
+            IList<WatermarkTextPlacement> newPlacements,
+            IList<WatermarkTextPlacement> oldMaterials,
+            IList<WatermarkTextPlacement> newMaterials)
+        {
+            var result = new List<WatermarkTextPlacement>();
+            var source = (previousPlacements != null && previousPlacements.Count > 0)
+                ? previousPlacements
+                : newPlacements;
+            if (source == null)
+                return result;
+
+            var materials = (oldMaterials != null && oldMaterials.Count > 0) ? oldMaterials : newMaterials;
+            foreach (var item in source)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.Text))
+                    continue;
+                if (!string.Equals(item.Category, "Brushed", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(item.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(item.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(item.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(item.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var sameBand = materials != null && materials.Any(m =>
+                    m != null && Math.Abs(m.Y - item.Y) <= Math.Max(14f, Math.Max(m.FontSize, item.FontSize)));
+                if (!sameBand && !string.Equals(item.Category, "Brushed", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                result.Add(item);
+                if (string.Equals(item.Category, "Brushed", StringComparison.OrdinalIgnoreCase))
+                    item.Text = "Geb\u00FCrstet";
+            }
+
+            return result;
+        }
+
+        private static float ClipCoverWidthAwayFromNeighbors(
+            float left,
+            float coverWidth,
+            float baselineY,
+            float fontSize,
+            IList<WatermarkTextPlacement> neighbors,
+            Func<string, float, float> measure)
+        {
+            if (neighbors == null || neighbors.Count == 0 || coverWidth <= 0f)
+                return coverWidth;
+
+            var band = Math.Max(14f, fontSize);
+            foreach (var neighbor in neighbors)
+            {
+                if (neighbor == null || Math.Abs(neighbor.Y - baselineY) > band)
+                    continue;
+
+                var nFont = neighbor.FontSize > 0f ? neighbor.FontSize : fontSize;
+                var nWidth = measure(neighbor.Text, nFont);
+                var nLeft = neighbor.X;
+                if (neighbor.Alignment == 1)
+                    nLeft -= nWidth / 2f;
+                else if (neighbor.Alignment == 2)
+                    nLeft -= nWidth;
+
+                if (nLeft <= left)
+                    continue;
+
+                var maxWidth = nLeft - left - 2f;
+                if (maxWidth < coverWidth)
+                    coverWidth = Math.Max(4f, maxWidth);
+            }
+
+            return coverWidth;
+        }
+
+        private static void DrawAlignedText(
+            WatermarkTextPlacement placement,
+            object baseFont,
+            object gray,
+            MethodInfo setColorFillMethod,
+            MethodInfo setFontAndSizeMethod,
+            MethodInfo showTextAlignedMethod,
+            object contentByte)
+        {
+            if (placement == null || string.IsNullOrWhiteSpace(placement.Text))
+                return;
+
+            var fontSize = placement.FontSize > 0f ? placement.FontSize : 22f;
+            var textColor = placement.UseRedText ? GetRedColor() : gray;
+            if (textColor != null)
+                setColorFillMethod.Invoke(contentByte, new[] { textColor });
+            setFontAndSizeMethod.Invoke(contentByte, new object[] { baseFont, fontSize });
+            showTextAlignedMethod.Invoke(contentByte, new object[]
+            {
+                placement.Alignment,
+                placement.Text,
+                placement.X,
+                placement.Y,
+                placement.Angle
+            });
+        }
+
+        private static object GetWhiteColor()
+        {
+            try
+            {
+                var whiteField = _baseColorType.GetField("WHITE");
+                if (whiteField != null)
+                    return whiteField.GetValue(null);
+
+                var ctor = _baseColorType.GetConstructor(new[] { typeof(int), typeof(int), typeof(int) });
+                return ctor.Invoke(new object[] { 255, 255, 255 });
+            }
+            catch
+            {
+                return null;
             }
         }
 

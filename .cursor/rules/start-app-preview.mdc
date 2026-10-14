@@ -16,8 +16,10 @@ Ablauf (ohne Nachfrage):
 1. Laufende Instanz beenden (`Get-Process DOK-V01 | Stop-Process`).
 2. Debug-Build:
    - MSBuild: `PDF-umbenenen.csproj` / `Configuration=Debug` / `Platform=AnyCPU`
-3. App starten: `bin\Debug\DOK-V01.exe`
+3. App starten: **nur** `bin\Debug\DOK-V01.exe` (Vorschau).
 4. Prüfen: Prozess läuft, Fenstertitel enthält „DOK-V01“.
 5. Nutzer kurz informieren: „Vorschau gestartet.“
+
+**Desktop / Festinstallation:** Nie anfassen, nie Verknüpfung umbiegen, nie dorthin deployen – außer der Nutzer sagt es ausdrücklich. Vorschau = Debug, nicht Desktop.
 
 **Nicht überspringen**, außer der Nutzer sagt ausdrücklich „nicht starten“ oder die Änderung ist rein dokumentarisch ohne Build-Bezug.

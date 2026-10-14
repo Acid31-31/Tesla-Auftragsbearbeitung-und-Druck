@@ -40,6 +40,7 @@ namespace PDF_umbenenen.Services
             var articleSamples = new List<string>();
             var hasExcel = false;
             var hasOrderPdf = false;
+            var hasOrderText = false;
             var drawingPdfCount = 0;
 
             foreach (var path in paths)
@@ -52,12 +53,34 @@ namespace PDF_umbenenen.Services
                     continue;
                 }
 
+                if (OrderVerificationFileHelper.IsOrderTextExtension(ext))
+                {
+                    hasOrderText = true;
+                    string orderText;
+                    try
+                    {
+                        orderText = File.ReadAllText(path);
+                    }
+                    catch
+                    {
+                        orderText = string.Empty;
+                    }
+
+                    AnalyzeOrderPdfText(orderText, draft, drawingSamples);
+                    drawingSamples.AddRange(OrderVerificationDrawingKey.ExtractAllFromText(orderText));
+                    draft.AnalysisLog.Add("Text-Bestellung erkannt: " + Path.GetFileName(path));
+                    continue;
+                }
+
                 if (ext != ".pdf")
                     continue;
 
                 var fileName = Path.GetFileNameWithoutExtension(path) ?? string.Empty;
                 var text = _pdfTextService.ExtractText(path, 20);
+                // Dateiname zuerst – bei ZIP-Zeichnungen oft die einzige klare Nummer (z. B. RT1 10 00 0001)
                 var fromName = OrderVerificationDrawingKey.ExtractPrimaryFromTexts(fileName);
+                if (string.IsNullOrWhiteSpace(fromName) && OrderVerificationDrawingKey.IsLikelyDrawingToken(fileName))
+                    fromName = fileName.Trim().ToUpperInvariant();
                 var fromPdf = OrderVerificationDrawingKey.ExtractPrimaryFromTexts(text);
                 var tokens = OrderVerificationDrawingKey.ExtractAllFromText(text + " " + fileName);
 
@@ -85,6 +108,8 @@ namespace PDF_umbenenen.Services
 
             drawingSamples = drawingSamples
                 .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(OrderVerificationDrawingKey.StripTrailingQuantityArtifact)
+                .Where(s => OrderVerificationDrawingKey.IsLikelyDrawingToken(s))
                 .Select(s => s.Trim().ToUpperInvariant())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(40)
@@ -96,17 +121,16 @@ namespace PDF_umbenenen.Services
 
             if (hasExcel)
             {
-                draft.WorkflowKind = CustomerWorkflowKind.ExcelPrimary;
-                draft.RequiresExcel = true;
-                draft.RequiresOrderPdf = hasOrderPdf;
-                draft.AnalysisLog.Add("Workflow: Excel als Hauptquelle" + (hasOrderPdf ? " + Bestell-PDF" : string.Empty));
+                draft.EnsureExcelWorkflow();
+                draft.AnalysisLog.Add("Workflow: Excel als Hauptquelle (keine Prüf-PDF nötig)"
+                    + (hasOrderPdf || hasOrderText ? " – optionale Bestellung erkannt, nicht erforderlich" : string.Empty));
             }
-            else if (hasOrderPdf)
+            else if (hasOrderPdf || hasOrderText)
             {
-                draft.WorkflowKind = CustomerWorkflowKind.PdfOrderListPrimary;
-                draft.RequiresExcel = false;
-                draft.RequiresOrderPdf = true;
-                draft.AnalysisLog.Add("Workflow: Bestell-PDF (ohne Excel)");
+                draft.EnsureOrderPdfWorkflow();
+                draft.AnalysisLog.Add(hasOrderText && !hasOrderPdf
+                    ? "Workflow: Text-Bestellung (ohne Excel)"
+                    : "Workflow: Bestell-PDF (ohne Excel)");
             }
             else if (drawingSamples.Count > 0)
             {
@@ -117,7 +141,7 @@ namespace PDF_umbenenen.Services
                 draft.AnalysisLog.Add(
                     "Workflow: nur Zeichnungs-PDFs – Zeichnungsnummern-Muster gelernt (ohne Excel).");
                 draft.AnalysisLog.Add(
-                    "Hinweis: Zum späteren Sortieren brauchen Sie eine Bestell-PDF oder Excel mit denselben Zeichnungsnummern.");
+                    "Hinweis: Zum späteren Sortieren brauchen Sie Excel, Bestell-PDF oder Text-Bestellung mit denselben Zeichnungsnummern.");
             }
             else
             {
@@ -125,7 +149,7 @@ namespace PDF_umbenenen.Services
                 draft.RequiresExcel = false;
                 draft.AnalysisLog.Add(
                     "Keine Zeichnungsnummern erkannt. Bitte 1–3 Zeichnungs-PDFs mit Nummern im Dateinamen oder Schriftfeld "
-                    + "(z. B. TSL-1227-125), eine Bestell-PDF oder eine Excel hinzufügen.");
+                    + "(z. B. TSL-1227-125), eine Bestellung (Excel/PDF/Text) hinzufügen.");
             }
 
             if (drawingSamples.Count > 0)
@@ -141,8 +165,15 @@ namespace PDF_umbenenen.Services
 
         private static bool LooksLikeOrderListPdf(string path, string text)
         {
-            var name = (Path.GetFileName(path) ?? string.Empty).ToLowerInvariant();
-            if (name.Contains("bestell") || name.Contains("order") || name.Contains("auftrag") || name.Contains("po"))
+            var fileName = Path.GetFileName(path) ?? string.Empty;
+            var stem = Path.GetFileNameWithoutExtension(fileName) ?? string.Empty;
+
+            // Einzelzeichnung nie als Bestell-/Prüf-PDF werten (Dateiname enthält oft „Auftrag“, „PO“, Stückzahlen im Schriftfeld).
+            if (OrderVerificationDrawingKey.IsLikelyDrawingToken(stem)
+                || !string.IsNullOrWhiteSpace(OrderVerificationDrawingKey.ExtractPrimaryFromTexts(stem)))
+                return false;
+
+            if (OrderVerificationFileHelper.IsOrderVerificationFileName(fileName))
                 return true;
 
             if (string.IsNullOrWhiteSpace(text))
@@ -150,7 +181,7 @@ namespace PDF_umbenenen.Services
 
             var drawingHits = OrderVerificationDrawingKey.ExtractAllFromText(text).Count;
             var qtyHits = Regex.Matches(text, @"\b\d+(?:[.,]\d+)?\s*(?:EA|Stk\.?|PCS)\b", RegexOptions.IgnoreCase).Count;
-            return drawingHits >= 3 && qtyHits >= 2;
+            return drawingHits >= 8 && qtyHits >= 5;
         }
 
         private static void AnalyzeOrderPdfText(string text, CustomerProfileDraft draft, ICollection<string> drawingSamples)
@@ -166,7 +197,10 @@ namespace PDF_umbenenen.Services
 
                 var qty = Regex.Match(line, @"\b(\d+(?:[.,]\d+)?)\s*(?:EA|Stk\.?|PCS|Stück)\b", RegexOptions.IgnoreCase);
                 if (qty.Success && draft.AnalysisLog.Count(l => l.StartsWith("Mengenformat", StringComparison.Ordinal)) == 0)
+                {
+                    draft.QuantityPattern = CustomerProfile.DefaultQuantityPattern;
                     draft.AnalysisLog.Add("Mengenformat in Bestell-PDF erkannt.");
+                }
             }
         }
 

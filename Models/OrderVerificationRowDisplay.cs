@@ -1,4 +1,6 @@
+using System;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 namespace PDF_umbenenen.Models
@@ -53,6 +55,36 @@ namespace PDF_umbenenen.Models
                     return;
                 _excelDate = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(ExcelSelectedDate));
+            }
+        }
+
+        public DateTime? ExcelSelectedDate
+        {
+            get
+            {
+                var text = _excelDate ?? string.Empty;
+                if (text.StartsWith("LT-", StringComparison.OrdinalIgnoreCase)
+                    || text.StartsWith("FT-", StringComparison.OrdinalIgnoreCase))
+                {
+                    text = text.Substring(3).Trim();
+                }
+
+                DateTime parsed;
+                if (DateTime.TryParseExact(
+                        text,
+                        "dd.MM.yyyy",
+                        CultureInfo.GetCultureInfo("de-DE"),
+                        DateTimeStyles.None,
+                        out parsed))
+                {
+                    return parsed.Date;
+                }
+
+                if (DateTime.TryParse(text, CultureInfo.GetCultureInfo("de-DE"), DateTimeStyles.None, out parsed))
+                    return parsed.Date;
+
+                return null;
             }
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Printing;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -108,6 +109,84 @@ namespace PDF_umbenenen.Services
 
             dialog.PrintDocument(document.DocumentPaginator, jobName);
             return true;
+        }
+
+        /// <summary>
+        /// Ein Drucker-Dialog, dann Auftrag/Excel beidseitig und Zeichnungen einseitig.
+        /// </summary>
+        public static bool TryPrintAuftragDuplexAndDrawingsSimplex(
+            string auftragPdfPath,
+            string drawingsPdfPath,
+            Window owner)
+        {
+            var hasAuftrag = !string.IsNullOrWhiteSpace(auftragPdfPath) && File.Exists(auftragPdfPath);
+            var hasDrawings = !string.IsNullOrWhiteSpace(drawingsPdfPath) && File.Exists(drawingsPdfPath);
+            if (!hasAuftrag && !hasDrawings)
+                return false;
+
+            if (!PdfRasterLayoutService.IsAvailable)
+            {
+                // Fallback: Dateien öffnen, Nutzer stellt Duplex am Drucker ein
+                if (hasAuftrag)
+                    TryOpenPdfExternally(auftragPdfPath);
+                if (hasDrawings)
+                    TryOpenPdfExternally(drawingsPdfPath);
+                if (owner != null)
+                {
+                    MessageBox.Show(
+                        owner,
+                        "Bitte drucken:\n\n"
+                        + "1) _DRUCK_AUFTRAG.pdf → beidseitig\n"
+                        + "2) _DRUCK_ZEICHNUNGEN.pdf → einseitig",
+                        "Drucken",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+
+                return true;
+            }
+
+            var dialog = new PrintDialog();
+            if (dialog.ShowDialog() != true)
+                return false;
+
+            try
+            {
+                if (hasAuftrag)
+                {
+                    var ticket = dialog.PrintTicket ?? new PrintTicket();
+                    ticket.Duplexing = Duplexing.TwoSidedLongEdge;
+                    dialog.PrintTicket = ticket;
+                    var doc = CreateFixedDocument(auftragPdfPath);
+                    dialog.PrintDocument(doc.DocumentPaginator, "DOK-V01 Auftrag/Excel (beidseitig)");
+                }
+
+                if (hasDrawings)
+                {
+                    var ticket = dialog.PrintTicket ?? new PrintTicket();
+                    ticket.Duplexing = Duplexing.OneSided;
+                    dialog.PrintTicket = ticket;
+                    var doc = CreateFixedDocument(drawingsPdfPath);
+                    dialog.PrintDocument(doc.DocumentPaginator, "DOK-V01 Zeichnungen (einseitig)");
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (owner != null)
+                {
+                    MessageBox.Show(
+                        owner,
+                        "Druck fehlgeschlagen: " + ex.Message
+                        + "\n\nBitte _DRUCK_AUFTRAG.pdf (beidseitig) und _DRUCK_ZEICHNUNGEN.pdf (einseitig) manuell drucken.",
+                        "Drucken",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+
+                return false;
+            }
         }
 
         /// <summary>Druckt die PDF-Datei über den Standard-PDF-Handler (korrektes Seitenformat).</summary>

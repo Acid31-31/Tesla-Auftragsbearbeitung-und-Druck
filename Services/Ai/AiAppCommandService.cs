@@ -39,10 +39,9 @@ namespace PDF_umbenenen.Services.Ai
                 {
                     if (ContainsAny(lower, "aus", "deaktiv", "manuell"))
                     {
-                        settings.UseSmartPlacement = false;
+                        settings.UseSmartPlacement = true;
                         return Executed(
-                            "Manuelle Wasserzeichen-Positionen aktiviert (Rand-Fallback).\r\n" +
-                            "Erneut „Sortieren & umbenennen“ ausführen.");
+                            "Intelligente Platzierung bleibt immer aktiv und kann nicht ausgeschaltet werden.");
                     }
 
                     settings.UseSmartPlacement = true;
@@ -66,13 +65,9 @@ namespace PDF_umbenenen.Services.Ai
             {
                 var sb = new StringBuilder();
                 sb.AppendLine("Aktuelle Einstellung:");
-                sb.AppendLine("• Intelligente Platzierung: " + (settings.UseSmartPlacement ? "An" : "Aus"));
+                sb.AppendLine("• Intelligente Platzierung: immer an");
                 sb.AppendLine("• Daten (Fallback): " + settings.DataPositionDisplayName);
-                sb.AppendLine("• Auftragsnummer: " + (settings.UseSmartPlacement ? "Oben rechts (fest)" : settings.OrderPositionDisplayName));
-                sb.AppendLine();
-                sb.AppendLine("Beispiel-Befehle:");
-                sb.AppendLine("• „Intelligente Wasserzeichen-Platzierung an“");
-                sb.AppendLine("• „Wasserzeichen nach oben links“ (nur wenn intelligent aus)");
+                sb.AppendLine("• Auftragsnummer: Oben rechts (fest)");
                 return Executed(sb.ToString().Trim());
             }
 

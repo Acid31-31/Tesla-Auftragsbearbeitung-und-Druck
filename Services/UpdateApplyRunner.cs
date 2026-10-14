@@ -55,14 +55,6 @@ namespace PDF_umbenenen.Services
             if (!Directory.Exists(stagedRoot))
                 throw new DirectoryNotFoundException("Update-Paket nicht gefunden: " + stagedRoot);
 
-#if !DEBUG
-            if (!AppSecurityService.IsTrustedUpdateStagingDirectory(stagedRoot))
-            {
-                throw new InvalidOperationException(
-                    "Update-Quelle ist nicht vertrauenswürdig. Bitte nur über den integrierten Updater aktualisieren.");
-            }
-#endif
-
             if (!AppInfo.IsRegisteredInstallDirectory(targetRoot))
             {
                 throw new InvalidOperationException(
@@ -79,10 +71,6 @@ namespace PDF_umbenenen.Services
             Report(progress, 2, "Warte auf Beendigung der Anwendung…");
             WaitForTargetUnlock(targetRoot, progress, cancellationToken, parentProcessId);
 
-            Report(progress, 6, "Update-Paket wird geprüft…");
-            if (!AppSecurityService.TryVerifyApplicationPackage(stagedRoot, out var stagedVerifyMessage, stagedRoot))
-                throw new InvalidOperationException("Update-Paket ungültig: " + stagedVerifyMessage);
-
             string backupRoot = null;
             try
             {
@@ -91,6 +79,7 @@ namespace PDF_umbenenen.Services
 
                 Report(progress, 12, "Dateien werden installiert…");
                 CopyApplicationFiles(stagedRoot, targetRoot, progress, cancellationToken);
+                RemoveObsoleteApplicationFiles(stagedRoot, targetRoot);
 
                 Report(progress, 94, "Installation wird geprüft…");
                 if (!AppSecurityService.TryVerifyApplicationPackage(targetRoot, out var verifyMessage, targetRoot))
@@ -251,11 +240,7 @@ namespace PDF_umbenenen.Services
                 .Where(file =>
                 {
                     var relative = file.Substring(sourceRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    if (ShouldSkipRelativePath(relative))
-                        return false;
-
-                    var extension = Path.GetExtension(file);
-                    return IsApplicationFileExtension(extension);
+                    return !AppSecurityService.ShouldSkipWhenCopyingInstallTree(relative);
                 })
                 .ToArray();
 
@@ -273,64 +258,37 @@ namespace PDF_umbenenen.Services
 
                 File.Copy(file, destination, true);
 
-                var percent = 12 + (int)((index + 1) * 84.0 / total);
+                var percent = 12 + (int)((index + 1) * 78.0 / total);
                 Report(progress, percent, "Installiere: " + Path.GetFileName(file));
             }
-
-            CopyBundledDirectory(sourceRoot, targetRoot, "tesseract", progress, cancellationToken);
         }
 
-        private static void CopyBundledDirectory(
-            string sourceRoot,
-            string targetRoot,
-            string folderName,
-            IProgress<UpdateProgressInfo> progress,
-            CancellationToken cancellationToken)
+        private static void RemoveObsoleteApplicationFiles(string sourceRoot, string targetRoot)
         {
-            var sourceDir = Path.Combine(sourceRoot, folderName);
-            if (!Directory.Exists(sourceDir))
-                return;
-
-            var files = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
-            var total = Math.Max(1, files.Length);
-            for (var index = 0; index < files.Length; index++)
+            var files = Directory.GetFiles(targetRoot, "*", SearchOption.AllDirectories);
+            foreach (var file in files)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                var relative = file.Substring(targetRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (AppSecurityService.ShouldSkipWhenCopyingInstallTree(relative))
+                    continue;
 
-                var file = files[index];
-                var relative = file.Substring(sourceDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var destination = Path.Combine(targetRoot, folderName, relative);
-                var destinationDir = Path.GetDirectoryName(destination);
-                if (!string.IsNullOrWhiteSpace(destinationDir))
-                    Directory.CreateDirectory(destinationDir);
+                var sourceFile = Path.Combine(sourceRoot, relative);
+                if (File.Exists(sourceFile))
+                    continue;
 
-                File.Copy(file, destination, true);
-
-                if (index == files.Length - 1)
-                    Report(progress, 96, "Installiere: " + folderName);
+                try
+                {
+                    File.Delete(file);
+                }
+                catch
+                {
+                }
             }
         }
 
         private static void Report(IProgress<UpdateProgressInfo> progress, int percent, string message)
         {
             progress?.Report(new UpdateProgressInfo(percent, message));
-        }
-
-        private static bool ShouldSkipRelativePath(string relativePath)
-        {
-            var fileName = Path.GetFileName(relativePath);
-            return fileName.Equals(AppInfo.UsbLauncherFileName, StringComparison.OrdinalIgnoreCase)
-                || fileName.Equals(AppInfo.InstallManifestFileName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsApplicationFileExtension(string extension)
-        {
-            return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".config", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".cer", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".ico", StringComparison.OrdinalIgnoreCase)
-                || extension.Equals(".token", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

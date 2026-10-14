@@ -1,0 +1,97 @@
+<Window x:Class="PDF_umbenenen.TesseractUpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tesseract-Update"
+        Height="420" Width="560"
+        MinHeight="360" MinWidth="480"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackground}"
+        Foreground="{DynamicResource TextPrimary}"
+        ShowInTaskbar="False">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Neue Tesseract-Version verfügbar"
+                       FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock x:Name="VersionTextBlock"
+                       Margin="0,10,0,0"
+                       FontSize="14"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextPrimary}"/>
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                x:Name="NotesBorder"
+                BorderBrush="{DynamicResource GroupBorder}"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="12"
+                Background="{DynamicResource CardBackground}">
+            <TextBlock x:Name="NotesTextBlock"
+                       TextWrapping="Wrap"
+                       FontSize="13"
+                       Foreground="{DynamicResource TextPrimary}"/>
+        </Border>
+
+        <StackPanel x:Name="ProgressPanel"
+                    Grid.Row="2"
+                    Margin="0,12,0,8"
+                    Visibility="Collapsed">
+            <TextBlock x:Name="DownloadSizeTextBlock"
+                       FontSize="16"
+                       FontWeight="Bold"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,10"
+                       Foreground="{DynamicResource TextPrimary}"/>
+            <ProgressBar x:Name="UpdateProgressBar"
+                         Height="10"
+                         Minimum="0"
+                         Maximum="100"
+                         Value="0"
+                         Foreground="{DynamicResource ProgressFill}"
+                         Background="{DynamicResource ProgressTrack}"/>
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusTextBlock"
+                           Grid.Column="0"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextSecondary}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           Margin="0,0,12,0"/>
+                <TextBlock x:Name="PercentTextBlock"
+                           Grid.Column="1"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource ProgressFill}"
+                           VerticalAlignment="Center"
+                           Text="0 %"/>
+            </Grid>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="UpdateButton"
+                    Content="Jetzt aktualisieren"
+                    Width="170"
+                    Height="36"
+                    Margin="0,0,8,0"
+                    Click="UpdateButton_Click"/>
+            <Button x:Name="LaterButton"
+                    Content="Später"
+                    MinWidth="160"
+                    Height="36"
+                    Padding="12,0"
+                    Click="LaterButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

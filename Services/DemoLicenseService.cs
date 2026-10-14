@@ -93,6 +93,17 @@ namespace PDF_umbenenen.Services
                     return existing;
                 }
 
+                if (!string.Equals(existing.TrialResetKey, AppInfo.DemoTrialResetKey, StringComparison.Ordinal))
+                {
+                    existing.FirstRunUtc = nowUtc;
+                    existing.LastRunUtc = nowUtc;
+                    existing.TrialResetKey = AppInfo.DemoTrialResetKey;
+                    existing.IsFirstRun = true;
+                    existing.WelcomeShown = false;
+                    Save(existing);
+                    return existing;
+                }
+
                 existing.LastRunUtc = nowUtc;
                 existing.IsFirstRun = false;
                 Save(existing);
@@ -105,6 +116,7 @@ namespace PDF_umbenenen.Services
                 LastRunUtc = nowUtc,
                 IsFirstRun = true,
                 WelcomeShown = false,
+                TrialResetKey = AppInfo.DemoTrialResetKey,
                 MachineFingerprint = GetMachineFingerprint()
             };
             Save(created);
@@ -131,6 +143,7 @@ namespace PDF_umbenenen.Services
                 var welcomeShown = string.Equals((string)root.Element("WelcomeShown"), "true", StringComparison.OrdinalIgnoreCase);
                 var machineFingerprint = (string)root.Element("MachineFingerprint") ?? string.Empty;
                 var integrity = (string)root.Element("Integrity") ?? string.Empty;
+                var trialResetKey = (string)root.Element("TrialResetKey") ?? string.Empty;
 
                 var record = new DemoRecord
                 {
@@ -138,6 +151,7 @@ namespace PDF_umbenenen.Services
                     LastRunUtc = lastRun,
                     WelcomeShown = welcomeShown,
                     MachineFingerprint = machineFingerprint,
+                    TrialResetKey = trialResetKey,
                     IsFirstRun = false
                 };
 
@@ -160,7 +174,7 @@ namespace PDF_umbenenen.Services
                     return record;
                 }
 
-                if (!string.Equals(integrity, ComputeIntegrity(record), StringComparison.Ordinal))
+                if (!IntegrityMatches(record, integrity))
                 {
                     record.Tampered = true;
                     return record;
@@ -251,6 +265,7 @@ namespace PDF_umbenenen.Services
                         new XElement("FirstRunUtc", record.FirstRunUtc.ToString("o", CultureInfo.InvariantCulture)),
                         new XElement("LastRunUtc", record.LastRunUtc.ToString("o", CultureInfo.InvariantCulture)),
                         new XElement("WelcomeShown", record.WelcomeShown ? "true" : "false"),
+                        new XElement("TrialResetKey", record.TrialResetKey ?? string.Empty),
                         new XElement("MachineFingerprint", record.MachineFingerprint),
                         new XElement("Integrity", ComputeIntegrity(record))))
                     .Save(StorePath);
@@ -260,13 +275,27 @@ namespace PDF_umbenenen.Services
             }
         }
 
-        private static string ComputeIntegrity(DemoRecord record)
+        private static bool IntegrityMatches(DemoRecord record, string stored)
+        {
+            if (string.IsNullOrWhiteSpace(stored) || record == null)
+                return false;
+
+            if (string.Equals(stored, ComputeIntegrity(record), StringComparison.Ordinal))
+                return true;
+
+            // Ältere demo.xml ohne TrialResetKey weiter akzeptieren, dann per R82 neu starten.
+            return string.Equals(stored, ComputeIntegrity(record, includeTrialResetKey: false), StringComparison.Ordinal);
+        }
+
+        private static string ComputeIntegrity(DemoRecord record, bool includeTrialResetKey = true)
         {
             var payload = string.Join("|",
                 record.FirstRunUtc.ToString("o", CultureInfo.InvariantCulture),
                 record.LastRunUtc.ToString("o", CultureInfo.InvariantCulture),
                 record.WelcomeShown ? "1" : "0",
                 record.MachineFingerprint ?? string.Empty);
+            if (includeTrialResetKey)
+                payload += "|" + (record.TrialResetKey ?? string.Empty);
 
             using (var hmac = new HMACSHA256(GetIntegrityKey()))
             {
@@ -314,6 +343,8 @@ namespace PDF_umbenenen.Services
             public bool IsFirstRun { get; set; }
 
             public string MachineFingerprint { get; set; }
+
+            public string TrialResetKey { get; set; }
 
             public bool Tampered { get; set; }
         }

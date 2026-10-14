@@ -175,7 +175,8 @@ namespace PDF_umbenenen
                 OrderNumberPosition orderPosition;
                 DeliveryDatePosition deliveryDatePosition;
                 var useSmartElement = root.Element("UseSmartPlacement");
-                var useSmart = useSmartElement == null || !string.Equals((string)useSmartElement, "false", StringComparison.OrdinalIgnoreCase);
+                var storedSmartOff = useSmartElement != null
+                    && string.Equals((string)useSmartElement, "false", StringComparison.OrdinalIgnoreCase);
                 var watermarksEnabledElement = root.Element("WatermarksEnabled");
                 var watermarksEnabled = watermarksEnabledElement == null || !string.Equals((string)watermarksEnabledElement, "false", StringComparison.OrdinalIgnoreCase);
                 var extractMaterialElement = root.Element("ExtractMaterialType");
@@ -218,7 +219,7 @@ namespace PDF_umbenenen
                 var settings = new WatermarkSettings
                 {
                     WatermarksEnabled = watermarksEnabled,
-                    UseSmartPlacement = useSmart,
+                    UseSmartPlacement = true,
                     ExtractMaterialType = extractMaterial,
                     ExtractMaterialThickness = extractThickness,
                     MaterialThicknessPlacement = Enum.IsDefined(typeof(MaterialThicknessPlacement), materialThicknessPlacement)
@@ -243,6 +244,11 @@ namespace PDF_umbenenen
                     MirrorBottomToTopBand = mirrorBottom
                 };
 
+                // Intelligente Platzierung ist Pflicht. Alte XML (Update lässt die Datei liegen)
+                // oder Kunden-Schnappschuss mit False wird beim Laden korrigiert.
+                if (storedSmartOff)
+                    Save(settings);
+
                 return settings;
             }
             catch
@@ -258,11 +264,12 @@ namespace PDF_umbenenen
 
             try
             {
+                settings.UseSmartPlacement = true;
                 Directory.CreateDirectory(Path.GetDirectoryName(StorePath));
                 new XDocument(
                     new XElement("WatermarkSettings",
                         new XElement("WatermarksEnabled", settings.WatermarksEnabled.ToString()),
-                        new XElement("UseSmartPlacement", settings.UseSmartPlacement.ToString()),
+                        new XElement("UseSmartPlacement", "True"),
                         new XElement("ExtractMaterialType", settings.ExtractMaterialType.ToString()),
                         new XElement("ExtractMaterialThickness", settings.ExtractMaterialThickness.ToString()),
                         new XElement("MaterialThicknessPlacement", settings.MaterialThicknessPlacement.ToString()),

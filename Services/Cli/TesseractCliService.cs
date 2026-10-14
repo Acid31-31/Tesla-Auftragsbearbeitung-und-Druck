@@ -127,6 +127,57 @@ namespace PDF_umbenenen.Services.Cli
 
         public static bool IsAvailable() => !string.IsNullOrWhiteSpace(ResolveExecutable());
 
+        public static string TryReadVersion()
+        {
+            var exe = ResolveExecutable();
+            if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
+                return null;
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = "--version",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                };
+
+                using (var process = Process.Start(psi))
+                {
+                    if (process == null)
+                        return null;
+
+                    var stdout = process.StandardOutput.ReadToEnd();
+                    var stderr = process.StandardError.ReadToEnd();
+                    if (!process.WaitForExit(4000))
+                    {
+                        try { process.Kill(); } catch { }
+                        return null;
+                    }
+
+                    var text = (stdout + Environment.NewLine + stderr) ?? string.Empty;
+                    var match = System.Text.RegularExpressions.Regex.Match(
+                        text,
+                        @"tesseract\s+v?(\d+\.\d+\.\d+)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (match.Success)
+                        return match.Groups[1].Value;
+
+                    var first = text.Trim().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (first.Length > 0)
+                        return first[0].Trim();
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
         public static string ResolveTessDataPrefix(string tesseractPath)
         {
             if (string.IsNullOrWhiteSpace(tesseractPath))

@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DOK-V01 Setup"
-        Height="620" Width="720"
-        MinHeight="560" MinWidth="640"
+        Height="680" Width="720"
+        MinHeight="600" MinWidth="640"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource AppBackground}"
         Foreground="{DynamicResource TextPrimary}"
@@ -114,6 +114,12 @@
                     </Grid>
                     <TextBlock Text="Ablage (PDF-Arbeitsordner):" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBox x:Name="UserDataPathTextBox" Style="{StaticResource WizardTextBox}" IsReadOnly="True" Margin="0,0,0,16"/>
+                    <CheckBox x:Name="InstallTesseractCheckBox" Style="{StaticResource WizardCheckBox}"
+                              Content="Tesseract OCR (Schriftfeld, Material, EcoMark) – empfohlen" IsChecked="True"/>
+                    <TextBlock Margin="24,-4,0,10" TextWrapping="Wrap" FontSize="12" Style="{StaticResource WizardSecondaryText}"
+                               Text="Gehört zur App und wird jetzt mitinstalliert. Ohne OCR fehlen oft Material und Schriftfeld."/>
+                    <TextBlock Margin="0,0,0,12" TextWrapping="Wrap" FontSize="12" Style="{StaticResource WizardSecondaryText}"
+                               Text="Immer enthalten: Programm, PDF-Bildanalyse (pdfium), Ablage. Große KI (Chat) ist nach der Installation aus – unter Einstellungen → KI einschalten und Ordner AI_DOK-V01 daneben legen."/>
                     <CheckBox x:Name="InstallCertificateCheckBox" Style="{StaticResource WizardCheckBox}"
                               Content="Herausgeber-Zertifikat installieren (empfohlen für Antivirus-Freigabe)" IsChecked="True"/>
                     <CheckBox x:Name="LaunchAfterInstallCheckBox" Style="{StaticResource WizardCheckBox}"

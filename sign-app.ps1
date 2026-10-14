@@ -28,13 +28,34 @@ if ([string]::IsNullOrWhiteSpace($CertPassword)) {
     throw "Kein Zertifikat-Passwort. Parameter -CertPassword oder Datei $CertPasswordFile angeben."
 }
 
-$signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
-if ([string]::IsNullOrWhiteSpace($signtool)) {
-    $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
-        Sort-Object FullName -Descending |
-        Select-Object -First 1 -ExpandProperty FullName
+function Find-SignTool {
+    $existing = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($existing -and -not [string]::IsNullOrWhiteSpace($existing.Source) -and (Test-Path -LiteralPath $existing.Source)) {
+        return $existing.Source
+    }
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    $pf86 = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)
+    if (-not [string]::IsNullOrWhiteSpace($pf86)) {
+        $kitBin = Join-Path $pf86 "Windows Kits\10\bin"
+        if (Test-Path -LiteralPath $kitBin) {
+            Get-ChildItem -LiteralPath $kitBin -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                $candidates.Add((Join-Path $_.FullName "x64\signtool.exe"))
+            }
+        }
+        $candidates.Add((Join-Path $pf86 "Windows Kits\10\App Certification Kit\signtool.exe"))
+        $candidates.Add((Join-Path $pf86 "Microsoft SDKs\ClickOnce\SignTool\signtool.exe"))
+    }
+
+    $candidates.Add("C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe")
+
+    foreach ($p in ($candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Descending)) {
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return $null
 }
 
+$signtool = Find-SignTool
 if ([string]::IsNullOrWhiteSpace($signtool)) {
     throw "signtool.exe nicht gefunden. Windows SDK / Visual Studio Build Tools installieren."
 }

@@ -22,6 +22,12 @@
                    RenderOptions.BitmapScalingMode="HighQuality"/>
             <TextBlock Text="Eine neuere Version ist auf GitHub verfügbar."
                        FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock x:Name="SizeTextBlock"
+                       Margin="0,10,0,0"
+                       FontSize="22"
+                       FontWeight="Bold"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextPrimary}"/>
         </StackPanel>
 
         <Border Grid.Row="1"
@@ -43,6 +49,12 @@
                     Grid.Row="2"
                     Margin="0,12,0,8"
                     Visibility="Collapsed">
+            <TextBlock x:Name="DownloadSizeTextBlock"
+                       FontSize="20"
+                       FontWeight="Bold"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,10"
+                       Foreground="{DynamicResource TextPrimary}"/>
             <ProgressBar x:Name="UpdateProgressBar"
                          Height="10"
                          Minimum="0"
@@ -51,13 +63,19 @@
                          Foreground="{DynamicResource ProgressFill}"
                          Background="{DynamicResource ProgressTrack}"/>
             <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusTextBlock"
+                           Grid.Column="0"
                            FontSize="12"
                            Foreground="{DynamicResource TextSecondary}"
                            TextWrapping="Wrap"
-                           VerticalAlignment="Center"/>
+                           VerticalAlignment="Center"
+                           Margin="0,0,12,0"/>
                 <TextBlock x:Name="PercentTextBlock"
-                           HorizontalAlignment="Right"
+                           Grid.Column="1"
                            FontSize="12"
                            FontWeight="SemiBold"
                            Foreground="{DynamicResource ProgressFill}"
@@ -75,8 +93,9 @@
                     Click="UpdateButton_Click"/>
             <Button x:Name="LaterButton"
                     Content="Später"
-                    Width="100"
+                    MinWidth="160"
                     Height="36"
+                    Padding="12,0"
                     Click="LaterButton_Click"/>
         </StackPanel>
     </Grid>

@@ -26,7 +26,8 @@ namespace PDF_umbenenen.Services
 
                 var baseDir = Path.GetDirectoryName(targetExePath);
                 var shortcutPath = Path.Combine(desktopPath, AppInfo.ShortcutFileName);
-                var iconPath = AppInfo.GetIconPath() ?? targetExePath;
+                // Icon immer aus dem Zielordner der EXE – nie aus dem laufenden Debug-Build.
+                var iconPath = ResolveIconBesideExe(baseDir) ?? targetExePath;
 
                 var wshShellType = Type.GetTypeFromProgID("WScript.Shell");
                 if (wshShellType == null)
@@ -70,6 +71,26 @@ namespace PDF_umbenenen.Services
             foreach (var candidate in candidates)
             {
                 if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            return null;
+        }
+
+        private static string ResolveIconBesideExe(string baseDir)
+        {
+            if (string.IsNullOrWhiteSpace(baseDir))
+                return null;
+
+            var candidates = new[]
+            {
+                Path.Combine(baseDir, AppInfo.IconFileName),
+                Path.Combine(baseDir, "Assets", AppInfo.IconFileName)
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (File.Exists(candidate))
                     return candidate;
             }
 

@@ -197,6 +197,13 @@ namespace PDF_umbenenen.Services
                 occupied,
                 settings);
 
+            EnsureBrushedPlacement(
+                placements,
+                pdfPath,
+                pageNumber,
+                pageWidth,
+                pageHeight);
+
             EnforceFixedTopBandPlacements(placements, pageWidth, pageHeight, pdfPath, pageNumber);
             return ApplyLearning(drawingNumberHint, placements, pageWidth, pageHeight, pdfPath, pageNumber, occupied, settings);
         }
@@ -210,7 +217,8 @@ namespace PDF_umbenenen.Services
 
             if (string.Equals(placement.Category, "Location", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(placement.Category, "Date", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(placement.Category, "Order", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(placement.Category, "Order", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(placement.Category, "Bg", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -226,8 +234,30 @@ namespace PDF_umbenenen.Services
             if (placement == null || string.IsNullOrWhiteSpace(placement.Category))
                 return false;
 
-            return string.Equals(placement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(placement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase);
+            return IsSurfaceTreatmentStampCategory(placement.Category);
+        }
+
+        public static bool IsSurfaceTreatmentStampCategory(string category)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+                return false;
+
+            return string.Equals(category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Brushed", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsBottomRightSurfaceTreatmentCategory(string category)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+                return false;
+
+            return string.Equals(category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase);
         }
 
         public static void PreserveMaterialFontSizes(
@@ -316,7 +346,7 @@ namespace PDF_umbenenen.Services
                 return;
 
             var surface = new List<WatermarkTextPlacement>();
-            foreach (var category in new[] { "PowderCoating", "Anodizing" })
+            foreach (var category in new[] { "PowderCoating", "Anodizing", "NickelPlating", "SurfaceTreatment" })
             {
                 var placement = placements.FirstOrDefault(p =>
                     p != null && string.Equals(p.Category, category, StringComparison.OrdinalIgnoreCase));
@@ -327,6 +357,13 @@ namespace PDF_umbenenen.Services
 
             PlaceFixedBottomRightSurfaceStack(
                 surface,
+                layoutPdfPath,
+                pageNumber,
+                pageWidth,
+                pageHeight);
+
+            PlaceBrushedBesideMaterial(
+                placements,
                 layoutPdfPath,
                 pageNumber,
                 pageWidth,
@@ -371,6 +408,13 @@ namespace PDF_umbenenen.Services
 
             PlaceFixedBottomLeftMaterialStack(
                 material,
+                pdfPath,
+                pageNumber,
+                pageWidth,
+                pageHeight);
+
+            EnsureBrushedPlacement(
+                placements,
                 pdfPath,
                 pageNumber,
                 pageWidth,
@@ -963,7 +1007,9 @@ namespace PDF_umbenenen.Services
                     PdfSurfaceTreatmentExtractionService.Extract(pdfPath, pageNumber),
                     settings);
 
-                var added = new List<WatermarkTextPlacement>();
+                var bottomRight = new List<WatermarkTextPlacement>();
+                WatermarkTextPlacement brushed = null;
+
                 foreach (var surfaceLine in surfaceLines)
                 {
                     var placement = new WatermarkTextPlacement
@@ -973,17 +1019,32 @@ namespace PDF_umbenenen.Services
                         FontSize = WatermarkPageScale.GetPageNumberFontSize(pageWidth, pageHeight)
                     };
                     placements.Add(placement);
-                    added.Add(placement);
+
+                    if (string.Equals(surfaceLine.Category, "Brushed", StringComparison.OrdinalIgnoreCase))
+                        brushed = placement;
+                    else
+                        bottomRight.Add(placement);
                 }
 
                 PlaceFixedBottomRightSurfaceStack(
-                    added,
+                    bottomRight,
                     pdfPath,
                     pageNumber,
                     pageWidth,
                     pageHeight);
-                foreach (var placement in added)
+                foreach (var placement in bottomRight)
                     occupied.Add(MakeTextRect(placement, pageWidth));
+
+                if (brushed != null)
+                {
+                    PlaceBrushedBesideMaterial(
+                        placements,
+                        pdfPath,
+                        pageNumber,
+                        pageWidth,
+                        pageHeight);
+                    occupied.Add(MakeTextRect(brushed, pageWidth));
+                }
             }
             catch
             {
@@ -1001,7 +1062,10 @@ namespace PDF_umbenenen.Services
             WatermarkSettings settings)
         {
             var lines = new List<SurfaceTreatmentWatermarkLine>();
-            if (info == null || !info.HasSurfaceTreatmentEntry)
+            if (info == null)
+                return lines;
+
+            if (!info.HasSurfaceTreatmentEntry && !info.HasBrushed && !info.HasNickelPlating && !info.HasGenericSurfaceTreatment)
                 return lines;
 
             if (settings != null && settings.ExtractPowderCoating && info.HasPowderCoating)
@@ -1017,7 +1081,178 @@ namespace PDF_umbenenen.Services
                 lines.Add(new SurfaceTreatmentWatermarkLine { Text = "ELOX", Category = "Anodizing" });
             }
 
+            if (WatermarkProcessingContext.IsTeslaSurfaceStampEnabled && info.HasNickelPlating)
+            {
+                var nickelText = PdfSurfaceTreatmentExtractionService.ResolveNickelPlatingStampText(info);
+                if (!string.IsNullOrWhiteSpace(nickelText))
+                    lines.Add(new SurfaceTreatmentWatermarkLine { Text = nickelText, Category = "NickelPlating" });
+            }
+
+            if (WatermarkProcessingContext.IsTeslaSurfaceStampEnabled && info.HasGenericSurfaceTreatment)
+            {
+                var genericText = PdfSurfaceTreatmentExtractionService.ResolveGenericSurfaceStampText(info);
+                if (!string.IsNullOrWhiteSpace(genericText))
+                    lines.Add(new SurfaceTreatmentWatermarkLine { Text = genericText, Category = "SurfaceTreatment" });
+            }
+
+            // Eigenes Wasserzeichen neben Materialstärke (nicht im Material-Text)
+            if (info.HasBrushed)
+            {
+                lines.Add(new SurfaceTreatmentWatermarkLine { Text = "Geb\u00FCrstet", Category = "Brushed" });
+            }
+
             return lines;
+        }
+
+        /// <summary>
+        /// Stellt sicher, dass „Gebürstet“ als separates Placement existiert und neben Material liegt.
+        /// </summary>
+        public static void EnsureBrushedPlacement(
+            List<WatermarkTextPlacement> placements,
+            string pdfPath,
+            int pageNumber,
+            float pageWidth,
+            float pageHeight)
+        {
+            if (placements == null || string.IsNullOrWhiteSpace(pdfPath) || pageWidth <= 0f || pageHeight <= 0f)
+                return;
+
+            PdfSurfaceTreatmentInfo surface;
+            try
+            {
+                surface = PdfSurfaceTreatmentExtractionService.Extract(pdfPath, pageNumber);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (surface == null || !surface.HasBrushed)
+            {
+                placements.RemoveAll(p =>
+                    p != null && string.Equals(p.Category, "Brushed", StringComparison.OrdinalIgnoreCase));
+                return;
+            }
+
+            var brushed = placements.FirstOrDefault(p =>
+                p != null && string.Equals(p.Category, "Brushed", StringComparison.OrdinalIgnoreCase));
+            if (brushed == null)
+            {
+                brushed = new WatermarkTextPlacement
+                {
+                    Category = "Brushed",
+                    Text = "Geb\u00FCrstet",
+                    FontSize = WatermarkPageScale.GetPageNumberFontSize(pageWidth, pageHeight),
+                    Alignment = 0
+                };
+                placements.Add(brushed);
+            }
+            else
+            {
+                brushed.Text = "Geb\u00FCrstet";
+            }
+
+            PlaceBrushedBesideMaterial(placements, pdfPath, pageNumber, pageWidth, pageHeight);
+        }
+
+        /// <summary>
+        /// „Gebürstet“ als separates Placement rechts neben der Materialstärke (gleiche Baseline).
+        /// Bleibt unabhängig, wenn Material manuell geändert wird.
+        /// </summary>
+        private static void PlaceBrushedBesideMaterial(
+            List<WatermarkTextPlacement> placements,
+            string pdfPath,
+            int pageNumber,
+            float pageWidth,
+            float pageHeight)
+        {
+            if (placements == null || pageWidth <= 0f || pageHeight <= 0f)
+                return;
+
+            // Altes Anhängen an Material-Text rückgängig (falls aus früherem Lauf)
+            foreach (var mat in placements.Where(p =>
+                         p != null
+                         && string.Equals(p.Category, "Material", StringComparison.OrdinalIgnoreCase)
+                         && !string.IsNullOrWhiteSpace(p.Text)))
+            {
+                mat.Text = StripBrushedMaterialSuffix(mat.Text);
+            }
+
+            var brushed = placements.FirstOrDefault(p =>
+                p != null
+                && string.Equals(p.Category, "Brushed", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(p.Text));
+            if (brushed == null)
+                return;
+
+            var material = placements
+                .Where(p => p != null
+                            && string.Equals(p.Category, "Material", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrWhiteSpace(p.Text))
+                .OrderBy(p => p.Y)
+                .FirstOrDefault();
+
+            var fontSize = WatermarkPageScale.GetPageNumberFontSize(pageWidth, pageHeight);
+            brushed.FontSize = fontSize;
+            brushed.Alignment = 0;
+            brushed.Angle = 0f;
+            brushed.Text = "Geb\u00FCrstet";
+
+            if (material != null)
+            {
+                var gap = Math.Max(10f, fontSize * 0.55f);
+                var matFs = material.FontSize > 0f ? material.FontSize : fontSize;
+                var materialWidth = EstimateTextWidth(material.Text, matFs);
+                // Material.X je nach Alignment: 0=links, 1=Mitte, 2=rechts
+                float materialRight = material.Alignment == 2
+                    ? material.X
+                    : material.Alignment == 1
+                        ? material.X + (materialWidth * 0.5f)
+                        : material.X + materialWidth;
+                brushed.X = materialRight + gap;
+                brushed.Y = material.Y;
+
+                // Nie aus der Seite schieben
+                var brushedWidth = EstimateTextWidth(brushed.Text, fontSize);
+                if (brushed.X + brushedWidth > pageWidth - 8f)
+                    brushed.X = Math.Max(8f, pageWidth - 8f - brushedWidth);
+                if (brushed.Y < 8f)
+                    brushed.Y = 8f;
+            }
+            else
+            {
+                // Ohne Material: unten links wie Material-Band, leicht nach rechts
+                var edgeFallback = WatermarkPageScale.GetTopLeftMargin(pageWidth, pageHeight);
+                float leftX = edgeFallback;
+                if (!string.IsNullOrWhiteSpace(pdfPath)
+                    && PdfRasterLayoutService.TryGetDrawingFrameBounds(
+                        pdfPath,
+                        pageNumber,
+                        pageWidth,
+                        pageHeight,
+                        out var detectedLeft,
+                        out _,
+                        out _))
+                {
+                    leftX = detectedLeft;
+                }
+
+                brushed.X = leftX + EstimateTextWidth("VA-3,0mm", fontSize) + Math.Max(10f, fontSize * 0.55f);
+                brushed.Y = WatermarkPageScale.GetSharedBottomBandBaselineY(
+                    pageWidth, pageHeight, fontSize, pdfPath, pageNumber);
+            }
+        }
+
+        private static string StripBrushedMaterialSuffix(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            return Regex.Replace(
+                text.Trim(),
+                @"\s+Geb(?:ue|[üu])rstet\s*$",
+                string.Empty,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
         }
 
         public static List<WatermarkTextPlacement> ResolvePage1Placements(
@@ -1063,6 +1298,24 @@ namespace PDF_umbenenen.Services
                     placements.RemoveAll(p =>
                         p != null && string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase));
                 }
+
+                if (!WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "Brushed"))
+                {
+                    placements.RemoveAll(p =>
+                        p != null && string.Equals(p.Category, "Brushed", StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (!WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "NickelPlating"))
+                {
+                    placements.RemoveAll(p =>
+                        p != null && string.Equals(p.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (!WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "SurfaceTreatment"))
+                {
+                    placements.RemoveAll(p =>
+                        p != null && string.Equals(p.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase));
+                }
                 SyncPlacementTextsFromFields(placements, fields, settings);
                 WatermarkLearningStore.ApplyToPlacements(drawingNumberHint, placements);
                 ReflowQuantityStack(placements, pageWidth, pageHeight, layoutPdfPath, pageNumber);
@@ -1105,6 +1358,7 @@ namespace PDF_umbenenen.Services
                 EnforceSurfaceTreatmentPlacements(placements, layoutPdfPath, pageNumber, pageWidth, pageHeight);
                 EnforceFixedBottomLeftMaterialPlacements(
                     placements, layoutPdfPath, pageNumber, pageWidth, pageHeight, settings);
+                EnsureBrushedPlacement(placements, layoutPdfPath, pageNumber, pageWidth, pageHeight);
                 EnforceFixedRightVerticalBgPlacements(
                     placements, layoutPdfPath, pageNumber, pageWidth, pageHeight, settings);
                 return placements;
@@ -1119,6 +1373,15 @@ namespace PDF_umbenenen.Services
             string drawingNumberHint)
         {
             var lines = new List<string>();
+
+            // Manuelle Korrektur je Zeichnungsnummer hat Vorrang vor OCR/Regeln
+            string learnedMaterial;
+            if (WatermarkLearningStore.TryGetMaterialOverrideText(drawingNumberHint, out learnedMaterial))
+            {
+                lines.Add(StripBrushedMaterialSuffix(learnedMaterial));
+                return lines;
+            }
+
             if (materialInfo == null)
                 return lines;
 
@@ -1147,7 +1410,8 @@ namespace PDF_umbenenen.Services
             {
                 lines.Add(materialInfo.MaterialWatermarkText.Trim());
             }
-            else if (showType && !string.IsNullOrWhiteSpace(materialInfo.MaterialType))
+            else if (showType && !string.IsNullOrWhiteSpace(materialInfo.MaterialType)
+                     && !string.IsNullOrWhiteSpace(materialInfo.ThicknessText))
             {
                 var wm = MaterialAlloyClassifier.BuildWatermarkText(
                     materialInfo.MaterialType.Trim(),
@@ -1155,10 +1419,9 @@ namespace PDF_umbenenen.Services
                 if (!string.IsNullOrWhiteSpace(wm))
                     lines.Add(wm.Trim());
             }
-            else if (showType && !string.IsNullOrWhiteSpace(materialInfo.MaterialAlloyPrefix))
-            {
-                lines.Add(materialInfo.MaterialAlloyPrefix.Trim());
-            }
+
+            for (var i = 0; i < lines.Count; i++)
+                lines[i] = StripBrushedMaterialSuffix(lines[i]);
 
             return lines;
         }
@@ -1178,13 +1441,19 @@ namespace PDF_umbenenen.Services
 
             var powderLearned = WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "PowderCoating");
             var anodizingLearned = WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "Anodizing");
-            if (powderLearned && anodizingLearned)
+            var brushedLearned = WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "Brushed");
+            var nickelLearned = WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "NickelPlating");
+            var genericLearned = WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "SurfaceTreatment");
+            if (powderLearned && anodizingLearned && brushedLearned && nickelLearned && genericLearned)
                 return;
 
             placements.RemoveAll(p =>
                 p != null
                 && ((string.Equals(p.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase) && !powderLearned)
-                    || (string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase) && !anodizingLearned)));
+                    || (string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase) && !anodizingLearned)
+                    || (string.Equals(p.Category, "Brushed", StringComparison.OrdinalIgnoreCase) && !brushedLearned)
+                    || (string.Equals(p.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase) && !nickelLearned)
+                    || (string.Equals(p.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase) && !genericLearned)));
 
             var surfaceLines = BuildSurfaceTreatmentLines(
                 PdfSurfaceTreatmentExtractionService.Extract(pdfPath, pageNumber),
@@ -1195,6 +1464,12 @@ namespace PDF_umbenenen.Services
                 if (string.Equals(surfaceLine.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase) && powderLearned)
                     continue;
                 if (string.Equals(surfaceLine.Category, "Anodizing", StringComparison.OrdinalIgnoreCase) && anodizingLearned)
+                    continue;
+                if (string.Equals(surfaceLine.Category, "Brushed", StringComparison.OrdinalIgnoreCase) && brushedLearned)
+                    continue;
+                if (string.Equals(surfaceLine.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase) && nickelLearned)
+                    continue;
+                if (string.Equals(surfaceLine.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase) && genericLearned)
                     continue;
 
                 var placement = new WatermarkTextPlacement
@@ -1208,13 +1483,20 @@ namespace PDF_umbenenen.Services
             }
 
             var freshSurface = placements
-                .Where(p => p != null
-                            && (string.Equals(p.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)))
-                .OrderBy(p => string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .Where(p => p != null && IsBottomRightSurfaceTreatmentCategory(p.Category))
+                .OrderBy(p => string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase) ? 1
+                    : string.Equals(p.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase) ? 2
+                    : string.Equals(p.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase) ? 3 : 0)
                 .ToList();
             PlaceFixedBottomRightSurfaceStack(
                 freshSurface,
+                pdfPath,
+                pageNumber,
+                pageWidth,
+                pageHeight);
+
+            PlaceBrushedBesideMaterial(
+                placements,
                 pdfPath,
                 pageNumber,
                 pageWidth,
@@ -1318,8 +1600,7 @@ namespace PDF_umbenenen.Services
                     continue;
 
                 if (string.Equals(placement.Category, "Material", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(placement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(placement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))
+                    || IsSurfaceTreatmentStampCategory(placement.Category))
                 {
                     continue;
                 }
@@ -1476,10 +1757,16 @@ namespace PDF_umbenenen.Services
 
                 if (!WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "PowderCoating")
                     && !WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "Anodizing")
+                    && !WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "Brushed")
+                    && !WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "NickelPlating")
+                    && !WatermarkLearningStore.HasLearnedPlacementForCategory(drawingNumberHint, "SurfaceTreatment")
                     && !placements.Any(p =>
                         p != null
                         && (string.Equals(p.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))))
+                            || string.Equals(p.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(p.Category, "Brushed", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(p.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(p.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase))))
                 {
                     MergeFreshSurfaceTreatmentPlacements(
                         placements, pdfPath, pageNumber, pageWidth, pageHeight, drawingNumberHint, settings, occupied);
@@ -1512,6 +1799,7 @@ namespace PDF_umbenenen.Services
                 ReflowBgStack(placements, pageWidth, pageHeight, pdfPath, pageNumber, settings);
                 EnforceSurfaceTreatmentPlacements(placements, pdfPath, pageNumber, pageWidth, pageHeight);
                 EnforceFixedBottomLeftMaterialPlacements(placements, pdfPath, pageNumber, pageWidth, pageHeight, settings);
+                EnsureBrushedPlacement(placements, pdfPath, pageNumber, pageWidth, pageHeight);
                 return placements;
             }
 
@@ -1545,6 +1833,7 @@ namespace PDF_umbenenen.Services
             ReflowBgStack(placements, pageWidth, pageHeight, pdfPath, pageNumber, settings);
             EnforceSurfaceTreatmentPlacements(placements, pdfPath, pageNumber, pageWidth, pageHeight);
             EnforceFixedBottomLeftMaterialPlacements(placements, pdfPath, pageNumber, pageWidth, pageHeight, settings);
+            EnsureBrushedPlacement(placements, pdfPath, pageNumber, pageWidth, pageHeight);
             return placements;
         }
 
@@ -1764,7 +2053,10 @@ namespace PDF_umbenenen.Services
                     continue;
 
                 if (string.Equals(placement.Category, "PowderCoating", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(placement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(placement.Category, "Anodizing", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "NickelPlating", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "SurfaceTreatment", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(placement.Category, "Brushed", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 // Feste BG rechts senkrecht nicht verschieben.

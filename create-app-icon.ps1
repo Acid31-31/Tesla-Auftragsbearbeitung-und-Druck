@@ -3,7 +3,8 @@ param(
     [string]$IconPath = ".\Assets\AppIcon.ico",
     [string]$LogoPath = ".\Assets\AppLogo.png",
     [double]$FillScale = 1.0,
-    [double]$ContentMarginRatio = 0.015
+    [double]$ContentMarginRatio = 0.015,
+    [double]$CornerRadiusRatio = 0.20
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +13,30 @@ Add-Type -AssemblyName System.Drawing
 function Test-IconContentPixel([System.Drawing.Color]$color) {
     if ($color.A -le 16) { return $false }
     return ($color.R -gt 24 -or $color.G -gt 24 -or $color.B -gt 24)
+}
+
+function Apply-RoundedIconMask([System.Drawing.Bitmap]$bitmap, [double]$cornerRadiusRatio) {
+    $size = $bitmap.Width
+    $radius = [Math]::Max(2, [int]($size * $cornerRadiusRatio))
+    $result = New-Object System.Drawing.Bitmap $size, $size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($result)
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $d = $radius * 2
+    $path.AddArc(0, 0, $d, $d, 180, 90)
+    $path.AddArc($size - $d, 0, $d, $d, 270, 90)
+    $path.AddArc($size - $d, $size - $d, $d, $d, 0, 90)
+    $path.AddArc(0, $size - $d, $d, $d, 90, 90)
+    $path.CloseFigure()
+
+    $g.SetClip($path)
+    $g.DrawImage($bitmap, 0, 0, $size, $size)
+    $g.Dispose()
+    $path.Dispose()
+    return $result
 }
 
 function Get-TrimmedSquareCrop([System.Drawing.Bitmap]$bitmap, [double]$marginRatio) {
@@ -141,18 +166,28 @@ function Save-ClassicIcon([System.Drawing.Bitmap[]]$bitmaps, [string]$outputPath
 
 $source = [System.Drawing.Bitmap]::FromFile((Resolve-Path $SourcePng))
 try {
-    $iconSource = Get-TrimmedSquareCrop $source $ContentMarginRatio
-    try {
-        $bitmaps = @(16, 24, 32, 48, 64, 128, 256) | ForEach-Object { New-SquareBitmap $iconSource $_ $FillScale }
-        Save-ClassicIcon $bitmaps $IconPath
-        foreach ($bmp in $bitmaps) { $bmp.Dispose() }
-    }
-    finally {
-        $iconSource.Dispose()
-    }
+    $trimmed = Get-TrimmedSquareCrop $source $ContentMarginRatio
 }
 finally {
     $source.Dispose()
+}
+
+$iconSource = Apply-RoundedIconMask $trimmed $CornerRadiusRatio
+$trimmed.Dispose()
+
+try {
+    $pngPath = (Resolve-Path $SourcePng).Path
+    $pngTemp = $pngPath + ".tmp"
+    $iconSource.Save($pngTemp, [System.Drawing.Imaging.ImageFormat]::Png)
+    if (Test-Path $pngPath) { Remove-Item $pngPath -Force -ErrorAction SilentlyContinue }
+    Move-Item $pngTemp $pngPath -Force
+
+    $bitmaps = @(16, 24, 32, 48, 64, 128, 256) | ForEach-Object { New-SquareBitmap $iconSource $_ $FillScale }
+    Save-ClassicIcon $bitmaps $IconPath
+    foreach ($bmp in $bitmaps) { $bmp.Dispose() }
+}
+finally {
+    $iconSource.Dispose()
 }
 
 Write-Host "Icon erstellt: $IconPath"

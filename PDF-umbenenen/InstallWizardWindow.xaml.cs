@@ -142,6 +142,7 @@ namespace PDF_umbenenen
                 LicenseAccepted = true,
                 InstallPublisherCertificate = InstallCertificateCheckBox.IsChecked == true,
                 LaunchAfterInstall = LaunchAfterInstallCheckBox.IsChecked == true,
+                InstallTesseractOcr = InstallTesseractCheckBox.IsChecked == true,
                 SourceDirectory = InstallationService.GetSourceDirectory(),
                 TargetDirectory = targetDirectory
             };
@@ -159,6 +160,7 @@ namespace PDF_umbenenen
                 options.TargetDirectory,
                 options.InstallPublisherCertificate,
                 options.LaunchAfterInstall,
+                options.InstallTesseractOcr,
                 progress)).ConfigureAwait(true);
 
             _isRunning = false;
@@ -170,9 +172,13 @@ namespace PDF_umbenenen
             }
 
             var installDir = Path.GetFullPath(options.TargetDirectory);
+            var tessLine = string.IsNullOrWhiteSpace(result.TesseractStatus)
+                ? string.Empty
+                : "\n\nTesseract OCR: " + result.TesseractStatus;
             FinishMessageTextBlock.Text =
                 "DOK-V01 wurde installiert unter:\n" + installDir
                 + "\n\nAblage und Einstellungen:\n" + Path.Combine(installDir, "Ablage")
+                + tessLine
                 + "\n\nBitte starten Sie die Anwendung künftig über die Desktop-Verknüpfung.";
             ShowStep(4);
         }
